@@ -14,7 +14,6 @@ import type { JsonObject } from "../db/repositories/shared";
 import {
   sanitizePersistedProviderSettings,
   type LocalRuntimeSnapshot,
-  type PersistedTheme,
 } from "./localRuntimeStore";
 import { TauriRuntimeRepositoryStore, type TauriInvoke } from "./tauriRuntimeRepositoryClient";
 

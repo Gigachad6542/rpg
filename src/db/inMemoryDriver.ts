@@ -1,4 +1,4 @@
-import type { SqlDriver, SqlValue, TableBackedSqlDriver } from "./driver";
+import type { SqlValue, TableBackedSqlDriver } from "./driver";
 
 export type InMemorySqlDriver = TableBackedSqlDriver;
 

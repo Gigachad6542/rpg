@@ -585,7 +585,7 @@ export function App() {
 
   const activeCard = cards.find((card) => card.id === activeCardId) ?? null;
   const activeChat = activeCard ? getActiveChatForCard(activeCard.id, chatSessions, activeChatIds) : undefined;
-  const messages = activeChat?.messages ?? [];
+  const messages = useMemo(() => activeChat?.messages ?? [], [activeChat?.messages]);
   const visibleMessages = messages.filter((message) => message.role !== "system");
   const activeLorebookEntries = useMemo(
     () => {
@@ -4144,8 +4144,8 @@ function buildLocalProviderResponse(card: RuntimeCard, draft: string, activeLore
 
 function buildMockExtractionProposal(card: RuntimeCard, draft: string): unknown {
   const lower = draft.toLowerCase();
-  const locationMatch = lower.match(/\b(?:go|move|travel|walk|head|enter)\s+(?:to|into|toward|through)\s+(?:the\s+)?([a-z0-9][a-z0-9 '\-]{1,42})/i);
-  const itemMatch = lower.match(/\b(?:take|pick up|collect|grab|loot)\s+(?:the\s+)?([a-z0-9][a-z0-9 '\-]{1,36})/i);
+  const locationMatch = lower.match(/\b(?:go|move|travel|walk|head|enter)\s+(?:to|into|toward|through)\s+(?:the\s+)?([a-z0-9][a-z0-9 '-]{1,42})/i);
+  const itemMatch = lower.match(/\b(?:take|pick up|collect|grab|loot)\s+(?:the\s+)?([a-z0-9][a-z0-9 '-]{1,36})/i);
   const location = locationMatch ? cleanExtractedPhrase(locationMatch[1]) : null;
   const item = itemMatch ? cleanExtractedPhrase(itemMatch[1]) : null;
   const worldFlags: Record<string, boolean | number | string> = {};
@@ -4182,21 +4182,6 @@ function cleanExtractedPhrase(value: string): string {
   return value
     .split(/\s+(?:and|then|before|after)\s+|[.,;]/)[0]
     .trim();
-}
-
-function normalizeInventory(items: string[]): string[] {
-  const seen = new Set<string>();
-  return items
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .filter((item) => {
-      const key = item.toLowerCase();
-      if (seen.has(key)) {
-        return false;
-      }
-      seen.add(key);
-      return true;
-    });
 }
 
 function isTauriRuntime(): boolean {

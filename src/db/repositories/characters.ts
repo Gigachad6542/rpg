@@ -1,4 +1,3 @@
-import type { Character } from "../../domain/index";
 import type { SqlDriver, SqlRow, RepositoryOptions } from "../types";
 import { createRepositoryContext, parseJson, stringifyJson, type JsonObject } from "./shared";
 

@@ -1,4 +1,3 @@
-import type { Chat } from "../../domain/index";
 import { runInTransaction } from "../transaction";
 import type { RepositoryOptions, SqlDriver, SqlRow } from "../types";
 import {

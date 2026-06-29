@@ -1,4 +1,3 @@
-import type { MessageNode } from "../../domain/index";
 import type { RepositoryOptions, SqlDriver, SqlRow } from "../types";
 import { createRepositoryContext, parseJson, stringifyJson, type JsonObject } from "./shared";
 

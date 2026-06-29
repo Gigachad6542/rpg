@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-initialize-runtime-repository"
+description = "Enables the initialize_runtime_repository command without any pre-configured scope."
+commands.allow = ["initialize_runtime_repository"]
+
+[[permission]]
+identifier = "deny-initialize-runtime-repository"
+description = "Denies the initialize_runtime_repository command without any pre-configured scope."
+commands.deny = ["initialize_runtime_repository"]

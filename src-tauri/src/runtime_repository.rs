@@ -1,0 +1,1908 @@
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use serde::Serialize;
+use serde_json::{json, Map, Value};
+use std::collections::{BTreeSet, HashMap};
+use std::path::{Path, PathBuf};
+use tauri::{AppHandle, Manager};
+
+const DATABASE_FILENAME: &str = "local-first-ai-rpg-runtime.db";
+const LEGACY_DATABASE_FILENAME: &str = "runtime.db";
+const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_NAME: &str = "initial_core_schema";
+const RUNTIME_CHAT_ID: &str = "chat_local_cards_runtime";
+const RUNTIME_BRANCH_ID: &str = "branch_local_cards_runtime";
+const RUNTIME_SNAPSHOT_CHARACTER_ID: &str = "char_local_cards_runtime_snapshot";
+const MAX_SNAPSHOT_BYTES: usize = 10 * 1024 * 1024;
+const MAX_CARDS: usize = 500;
+const MAX_CHAT_SESSIONS: usize = 1_000;
+const MAX_MESSAGES: usize = 10_000;
+const MAX_PROMPT_RUNS: usize = 5_000;
+const MAX_GENERATED_MAPS: usize = 100;
+const MAX_ID_CHARS: usize = 160;
+const MAX_TEXT_CHARS: usize = 200_000;
+
+#[derive(Debug)]
+pub(crate) enum RuntimeRepositoryError {
+    Validation(String),
+    Storage,
+}
+
+type RepoResult<T> = Result<T, RuntimeRepositoryError>;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MigrationRun {
+    version: i64,
+    name: &'static str,
+    status: &'static str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RuntimeRepositoryInitialization {
+    backend: &'static str,
+    schema_version: i64,
+    migrations: Vec<MigrationRun>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LoadRuntimeSnapshotResponse {
+    snapshot: Option<Value>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SaveRuntimeSnapshotResponse {
+    saved: bool,
+}
+
+pub(crate) fn initialize_runtime_repository(
+    app: AppHandle,
+    database_path: Option<String>,
+) -> RepoResult<RuntimeRepositoryInitialization> {
+    let path = resolve_database_path(&app, database_path)?;
+    let migrations = initialize_repository_at_path(&path)?;
+    Ok(RuntimeRepositoryInitialization {
+        backend: "tauri-sqlite",
+        schema_version: SCHEMA_VERSION,
+        migrations,
+    })
+}
+
+pub(crate) fn load_runtime_snapshot(
+    app: AppHandle,
+    database_path: Option<String>,
+) -> RepoResult<LoadRuntimeSnapshotResponse> {
+    let path = resolve_database_path(&app, database_path)?;
+    Ok(LoadRuntimeSnapshotResponse {
+        snapshot: load_runtime_snapshot_at_path(&path)?,
+    })
+}
+
+pub(crate) fn save_runtime_snapshot(
+    app: AppHandle,
+    database_path: Option<String>,
+    snapshot: Value,
+) -> RepoResult<SaveRuntimeSnapshotResponse> {
+    let path = resolve_database_path(&app, database_path)?;
+    save_runtime_snapshot_at_path(&path, snapshot)?;
+    Ok(SaveRuntimeSnapshotResponse { saved: true })
+}
+
+pub(crate) fn redact_storage_error(error: RuntimeRepositoryError) -> String {
+    match error {
+        RuntimeRepositoryError::Validation(message) => message,
+        RuntimeRepositoryError::Storage => {
+            "Runtime repository operation failed. Storage details were redacted.".to_string()
+        }
+    }
+}
+
+fn resolve_database_path(app: &AppHandle, database_path: Option<String>) -> RepoResult<PathBuf> {
+    if let Some(database_path) = database_path {
+        return resolve_development_database_path(&database_path);
+    }
+
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+    std::fs::create_dir_all(&app_data_dir).map_err(|_| RuntimeRepositoryError::Storage)?;
+
+    let primary = app_data_dir.join(DATABASE_FILENAME);
+    let legacy = app_data_dir.join(LEGACY_DATABASE_FILENAME);
+    if !primary.exists() && legacy.exists() && legacy_has_runtime_snapshot(&legacy) {
+        std::fs::copy(&legacy, &primary).map_err(|_| RuntimeRepositoryError::Storage)?;
+    }
+
+    Ok(primary)
+}
+
+fn resolve_development_database_path(input: &str) -> RepoResult<PathBuf> {
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = input;
+        return Err(RuntimeRepositoryError::Validation(
+            "databasePath is available only in development and tests.".to_string(),
+        ));
+    }
+
+    #[cfg(debug_assertions)]
+    {
+        let path = PathBuf::from(input);
+        if path.as_os_str().is_empty()
+            || path
+                .components()
+                .any(|component| matches!(component, std::path::Component::ParentDir))
+        {
+            return Err(RuntimeRepositoryError::Validation(
+                "databasePath cannot contain path traversal.".to_string(),
+            ));
+        }
+        if path.file_name().is_none() {
+            return Err(RuntimeRepositoryError::Validation(
+                "databasePath must include a database file name.".to_string(),
+            ));
+        }
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent).map_err(|_| RuntimeRepositoryError::Storage)?;
+            }
+        }
+        Ok(path)
+    }
+}
+
+fn initialize_repository_at_path(path: &Path) -> RepoResult<Vec<MigrationRun>> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|_| RuntimeRepositoryError::Storage)?;
+        }
+    }
+
+    let mut conn = Connection::open(path).map_err(|_| RuntimeRepositoryError::Storage)?;
+    run_migrations(&mut conn)
+}
+
+fn open_migrated_connection(path: &Path) -> RepoResult<Connection> {
+    initialize_repository_at_path(path)?;
+    Connection::open(path).map_err(|_| RuntimeRepositoryError::Storage)
+}
+
+fn run_migrations(conn: &mut Connection) -> RepoResult<Vec<MigrationRun>> {
+    conn.execute_batch(SCHEMA_MIGRATIONS_CREATE)
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+    let applied = conn
+        .query_row(
+            "SELECT version FROM schema_migrations WHERE version = ?1 LIMIT 1",
+            params![SCHEMA_VERSION],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+
+    if applied.is_some() {
+        return Ok(vec![MigrationRun {
+            version: SCHEMA_VERSION,
+            name: SCHEMA_NAME,
+            status: "skipped",
+        }]);
+    }
+
+    let tx = conn
+        .transaction()
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+    for statement in SCHEMA_STATEMENTS {
+        tx.execute_batch(statement)
+            .map_err(|_| RuntimeRepositoryError::Storage)?;
+    }
+    tx.execute(
+        "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?1, ?2, ?3)",
+        params![SCHEMA_VERSION, SCHEMA_NAME, now_iso()],
+    )
+    .map_err(|_| RuntimeRepositoryError::Storage)?;
+    tx.commit().map_err(|_| RuntimeRepositoryError::Storage)?;
+
+    Ok(vec![MigrationRun {
+        version: SCHEMA_VERSION,
+        name: SCHEMA_NAME,
+        status: "applied",
+    }])
+}
+
+fn load_runtime_snapshot_at_path(path: &Path) -> RepoResult<Option<Value>> {
+    let conn = open_migrated_connection(path)?;
+    let stored = conn
+        .query_row(
+            "SELECT profile_json, updated_at FROM characters WHERE id = ?1 LIMIT 1",
+            params![RUNTIME_SNAPSHOT_CHARACTER_ID],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+    let Some((profile_json, updated_at)) = stored else {
+        return Ok(None);
+    };
+
+    let profile = parse_json(&profile_json, json!({}));
+    let mut snapshot = profile.get("snapshot").cloned().unwrap_or(Value::Null);
+    let Some(object) = snapshot.as_object_mut() else {
+        return Ok(None);
+    };
+    if !matches!(object.get("cards"), Some(Value::Array(_))) {
+        return Ok(None);
+    }
+
+    let cards = overlay_normalized_card_data(
+        &conn,
+        object
+            .get("cards")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+    )?;
+    object.insert("version".to_string(), json!(2));
+    object.insert(
+        "theme".to_string(),
+        if object.get("theme").and_then(Value::as_str) == Some("light") {
+            json!("light")
+        } else {
+            json!("dark")
+        },
+    );
+    let active_card_id = object
+        .get("activeCardId")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            cards
+                .first()
+                .and_then(Value::as_object)
+                .and_then(|card| card.get("id"))
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        })
+        .unwrap_or_default();
+    object.insert("activeCardId".to_string(), json!(active_card_id));
+    object.insert("cards".to_string(), Value::Array(cards));
+
+    let branch_id = conn
+        .query_row(
+            "SELECT active_branch_id FROM chats WHERE id = ?1 LIMIT 1",
+            params![RUNTIME_CHAT_ID],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|_| RuntimeRepositoryError::Storage)?
+        .unwrap_or_else(|| RUNTIME_BRANCH_ID.to_string());
+    if !matches!(object.get("messages"), Some(Value::Array(_))) {
+        object.insert(
+            "messages".to_string(),
+            Value::Array(load_normalized_messages(&conn, &branch_id)?),
+        );
+    }
+    if !matches!(object.get("promptRuns"), Some(Value::Array(_))) {
+        object.insert(
+            "promptRuns".to_string(),
+            Value::Array(load_normalized_prompt_runs(&conn)?),
+        );
+    }
+    if !matches!(object.get("chatSessions"), Some(Value::Array(_))) {
+        object.remove("chatSessions");
+    }
+    if let Some(active_chat_ids) = sanitize_string_record(object.get("activeChatIds")) {
+        object.insert("activeChatIds".to_string(), active_chat_ids);
+    } else {
+        object.remove("activeChatIds");
+    }
+    if !matches!(object.get("providerKeyStatus"), Some(Value::String(_))) {
+        object.insert(
+            "providerKeyStatus".to_string(),
+            json!("No plaintext keys stored."),
+        );
+    }
+    if let Some(provider_settings) = sanitize_provider_settings(object.get("providerSettings"))? {
+        object.insert("providerSettings".to_string(), provider_settings);
+    } else {
+        object.remove("providerSettings");
+    }
+    if !matches!(object.get("imageProviderSettings"), Some(Value::Object(_))) {
+        object.remove("imageProviderSettings");
+    }
+    if !matches!(object.get("runtimeSettings"), Some(Value::Object(_))) {
+        object.remove("runtimeSettings");
+    }
+    if !matches!(object.get("generatedMaps"), Some(Value::Array(_))) {
+        object.insert("generatedMaps".to_string(), Value::Array(Vec::new()));
+    }
+    if !matches!(object.get("savedAt"), Some(Value::String(_))) {
+        object.insert("savedAt".to_string(), json!(updated_at));
+    }
+
+    Ok(Some(snapshot))
+}
+
+fn save_runtime_snapshot_at_path(path: &Path, snapshot: Value) -> RepoResult<()> {
+    let mut snapshot = sanitize_snapshot(snapshot)?;
+    let mut conn = open_migrated_connection(path)?;
+    let tx = conn
+        .transaction()
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+    save_runtime_snapshot_in_transaction(&tx, &mut snapshot, None)?;
+    tx.commit().map_err(|_| RuntimeRepositoryError::Storage)
+}
+
+fn save_runtime_snapshot_in_transaction(
+    tx: &Transaction<'_>,
+    snapshot: &mut Value,
+    fail_after_prune: Option<&str>,
+) -> RepoResult<()> {
+    ensure_runtime_chat(tx)?;
+    let previous_snapshot = load_previous_snapshot(tx)?;
+    upsert_snapshot_character(tx, snapshot)?;
+    save_provider_config(tx, snapshot)?;
+    prune_deleted_runtime_rows(tx, snapshot, previous_snapshot.as_ref())?;
+    if fail_after_prune.is_some() {
+        return Err(RuntimeRepositoryError::Validation(
+            "Injected repository failure after prune.".to_string(),
+        ));
+    }
+    save_card_data(tx, snapshot)?;
+    save_messages(tx, snapshot)?;
+    save_prompt_runs(tx, snapshot)?;
+    Ok(())
+}
+
+fn overlay_normalized_card_data(conn: &Connection, cards: Vec<Value>) -> RepoResult<Vec<Value>> {
+    let memories = load_memory_rows(conn)?;
+    let rpg_snapshots = load_rpg_rows(conn)?;
+    let mut result = Vec::with_capacity(cards.len());
+
+    for mut card in cards {
+        let Some(card_object) = card.as_object_mut() else {
+            result.push(card);
+            continue;
+        };
+        let card_id = card_object
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+
+        if let Some(Value::Array(lorebooks)) = card_object.get_mut("lorebooks") {
+            for lorebook in lorebooks.iter_mut() {
+                let Some(lorebook_object) = lorebook.as_object_mut() else {
+                    continue;
+                };
+                let Some(lorebook_id) = lorebook_object.get("id").and_then(Value::as_str) else {
+                    continue;
+                };
+                let entries = load_lorebook_entries(conn, lorebook_id)?;
+                if !entries.is_empty() {
+                    lorebook_object.insert("entries".to_string(), Value::Array(entries));
+                }
+            }
+        }
+
+        let card_memories: Vec<Value> = memories
+            .iter()
+            .filter(|memory| memory.related_character_ids.iter().any(|id| id == &card_id))
+            .map(|memory| {
+                json!({
+                    "id": memory.id,
+                    "label": memory.category.strip_prefix("card_memory:").unwrap_or(&memory.category),
+                    "detail": memory.text,
+                })
+            })
+            .collect();
+        if !card_memories.is_empty() {
+            card_object.insert("memory".to_string(), Value::Array(card_memories));
+        }
+
+        if let Some(rpg) = rpg_snapshots.get(&card_id) {
+            card_object.insert("rpg".to_string(), rpg.clone());
+        }
+        result.push(card);
+    }
+
+    Ok(result)
+}
+
+fn load_normalized_messages(conn: &Connection, branch_id: &str) -> RepoResult<Vec<Value>> {
+    let mut statement = conn
+        .prepare(
+            "SELECT id, role, content, metadata_json FROM messages WHERE chat_id = ?1 AND branch_id = ?2 ORDER BY created_at ASC",
+        )
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+    let rows = statement
+        .query_map(params![RUNTIME_CHAT_ID, branch_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+
+    let mut messages = Vec::new();
+    for row in rows {
+        let (id, role, content, metadata_json) =
+            row.map_err(|_| RuntimeRepositoryError::Storage)?;
+        let mut object = parse_json(&metadata_json, json!({}))
+            .as_object()
+            .cloned()
+            .unwrap_or_default();
+        object.insert("id".to_string(), json!(id));
+        object.insert("role".to_string(), json!(normalize_message_role(&role)));
+        object.insert("content".to_string(), json!(content));
+        messages.push(Value::Object(object));
+    }
+    Ok(messages)
+}
+
+fn load_normalized_prompt_runs(conn: &Connection) -> RepoResult<Vec<Value>> {
+    let mut statement = conn
+        .prepare(
+            "SELECT id, chat_id, provider, model, compiled_prompt, included_lore_entry_ids_json, response_text, state_changes_json, request_json, model_settings_json FROM prompt_runs WHERE chat_id = ?1 ORDER BY created_at ASC",
+        )
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+    let rows = statement
+        .query_map(params![RUNTIME_CHAT_ID], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, Option<String>>(7)?,
+                row.get::<_, String>(8)?,
+                row.get::<_, String>(9)?,
+            ))
+        })
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+
+    let mut prompt_runs = Vec::new();
+    for row in rows {
+        let (
+            id,
+            chat_id,
+            provider,
+            model,
+            compiled_prompt,
+            included_lore_entry_ids_json,
+            response_text,
+            state_changes_json,
+            request_json,
+            model_settings_json,
+        ) = row.map_err(|_| RuntimeRepositoryError::Storage)?;
+        let request = parse_json(&request_json, json!({}));
+        let state_changes = parse_json(&state_changes_json.unwrap_or_default(), json!({}));
+        let model_settings = parse_json(&model_settings_json, json!({}));
+        let mut object = Map::new();
+        object.insert("id".to_string(), json!(id));
+        object.insert(
+            "cardId".to_string(),
+            json!(string_at(&request, "cardId", "")),
+        );
+        object.insert(
+            "chatId".to_string(),
+            json!(string_at(&request, "chatId", &chat_id)),
+        );
+        object.insert("compiledPrompt".to_string(), json!(compiled_prompt));
+        object.insert(
+            "response".to_string(),
+            json!(response_text.unwrap_or_default()),
+        );
+        object.insert("provider".to_string(), json!(provider));
+        object.insert("model".to_string(), json!(model));
+        object.insert(
+            "tokenEstimate".to_string(),
+            json!(number_at(&model_settings, "tokenEstimate", 0.0) as i64),
+        );
+        object.insert(
+            "includedLayerIds".to_string(),
+            string_array_at(&request, "includedLayerIds"),
+        );
+        object.insert(
+            "includedLoreEntryIds".to_string(),
+            parse_json(&included_lore_entry_ids_json, json!([])),
+        );
+        object.insert(
+            "warnings".to_string(),
+            string_array_at(&state_changes, "warnings"),
+        );
+        object.insert(
+            "stateChanges".to_string(),
+            string_array_at(&state_changes, "changes"),
+        );
+        if let Some(usage) = read_usage(model_settings.get("usage")) {
+            object.insert("usage".to_string(), usage);
+        }
+        prompt_runs.push(Value::Object(object));
+    }
+    Ok(prompt_runs)
+}
+
+fn load_memory_rows(conn: &Connection) -> RepoResult<Vec<MemoryRow>> {
+    let mut statement = conn
+        .prepare(
+            "SELECT id, category, text, related_character_ids_json FROM memory_entries WHERE chat_id = ?1 ORDER BY updated_at ASC",
+        )
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+    let rows = statement
+        .query_map(params![RUNTIME_CHAT_ID], |row| {
+            Ok(MemoryRow {
+                id: row.get(0)?,
+                category: row.get(1)?,
+                text: row.get(2)?,
+                related_character_ids: parse_json_string_array(row.get::<_, String>(3)?),
+            })
+        })
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+    collect_rows(rows)
+}
+
+fn load_rpg_rows(conn: &Connection) -> RepoResult<HashMap<String, Value>> {
+    let mut statement = conn
+        .prepare("SELECT world_id, payload_json FROM rpg_state_snapshots WHERE chat_id = ?1 ORDER BY created_at ASC")
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+    let rows = statement
+        .query_map(params![RUNTIME_CHAT_ID], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                parse_json(&row.get::<_, String>(1)?, json!({})),
+            ))
+        })
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+    let mut map = HashMap::new();
+    for row in rows {
+        let (world_id, payload) = row.map_err(|_| RuntimeRepositoryError::Storage)?;
+        map.insert(world_id, payload);
+    }
+    Ok(map)
+}
+
+fn load_lorebook_entries(conn: &Connection, lorebook_id: &str) -> RepoResult<Vec<Value>> {
+    let mut statement = conn
+        .prepare(
+            "SELECT id, title, content, constant, triggers_json FROM lorebook_entries WHERE lorebook_id = ?1 ORDER BY updated_at ASC",
+        )
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+    let rows = statement
+        .query_map(params![lorebook_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+                parse_json(&row.get::<_, String>(4)?, json!({})),
+            ))
+        })
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+
+    let mut entries = Vec::new();
+    for row in rows {
+        let (id, title, content, constant, triggers) =
+            row.map_err(|_| RuntimeRepositoryError::Storage)?;
+        entries.push(json!({
+            "id": id,
+            "title": title,
+            "content": content,
+            "enabled": bool_at(&triggers, "enabled", true),
+            "constant": constant == 1,
+            "keys": string_array_at(&triggers, "keys"),
+            "secondaryKeys": string_array_at(&triggers, "secondaryKeys"),
+            "insertionOrder": number_at(&triggers, "insertionOrder", 100.0),
+            "priority": number_at(&triggers, "priority", 0.0),
+            "probability": number_at(&triggers, "probability", 100.0),
+            "caseSensitive": bool_at(&triggers, "caseSensitive", false),
+            "wholeWord": bool_at(&triggers, "wholeWord", false),
+        }));
+    }
+    Ok(entries)
+}
+
+fn load_previous_snapshot(tx: &Transaction<'_>) -> RepoResult<Option<Value>> {
+    let profile_json = tx
+        .query_row(
+            "SELECT profile_json FROM characters WHERE id = ?1 LIMIT 1",
+            params![RUNTIME_SNAPSHOT_CHARACTER_ID],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+    Ok(profile_json.and_then(|profile_json| {
+        parse_json(&profile_json, json!({}))
+            .get("snapshot")
+            .cloned()
+    }))
+}
+
+fn upsert_snapshot_character(tx: &Transaction<'_>, snapshot: &Value) -> RepoResult<()> {
+    let now = now_iso();
+    let created_at = tx
+        .query_row(
+            "SELECT created_at FROM characters WHERE id = ?1 LIMIT 1",
+            params![RUNTIME_SNAPSHOT_CHARACTER_ID],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|_| RuntimeRepositoryError::Storage)?
+        .unwrap_or_else(|| now.clone());
+
+    tx.execute(
+        "INSERT OR REPLACE INTO characters (id, name, description, profile_json, source, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            RUNTIME_SNAPSHOT_CHARACTER_ID,
+            "Local Cards runtime snapshot",
+            "Serialized card library and runtime UI state.",
+            json_string(&json!({ "snapshot": snapshot })),
+            "runtime-snapshot",
+            created_at,
+            now,
+        ],
+    )
+    .map_err(|_| RuntimeRepositoryError::Storage)?;
+    Ok(())
+}
+
+fn save_provider_config(tx: &Transaction<'_>, snapshot: &Value) -> RepoResult<()> {
+    let Some(provider_settings) = sanitize_provider_settings(snapshot.get("providerSettings"))?
+    else {
+        return Ok(());
+    };
+    let provider_id = string_at(&provider_settings, "providerId", "runtime");
+    let display_name = string_at(&provider_settings, "displayName", "Runtime provider");
+    let base_url = provider_settings
+        .get("baseUrl")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    let model = provider_settings
+        .get("model")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    let secret_ref = provider_settings.get("secretReference").map(json_string);
+    let non_secret_settings = json!({
+        "mode": provider_settings.get("mode").cloned().unwrap_or(Value::Null),
+        "providerId": provider_settings.get("providerId").cloned().unwrap_or(Value::Null),
+        "displayName": provider_settings.get("displayName").cloned().unwrap_or(Value::Null),
+        "baseUrl": provider_settings.get("baseUrl").cloned().unwrap_or(Value::Null),
+        "model": provider_settings.get("model").cloned().unwrap_or(Value::Null),
+    });
+    let id = format!("provider_{provider_id}");
+    let now = now_iso();
+    let created_at = tx
+        .query_row(
+            "SELECT created_at FROM model_provider_configs WHERE id = ?1 LIMIT 1",
+            params![id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|_| RuntimeRepositoryError::Storage)?
+        .unwrap_or_else(|| now.clone());
+    tx.execute(
+        "INSERT OR REPLACE INTO model_provider_configs (id, provider_id, display_name, base_url, default_model_id, secret_ref, non_secret_settings_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![id, provider_id, display_name, base_url, model, secret_ref, json_string(&non_secret_settings), created_at, now],
+    )
+    .map_err(|_| RuntimeRepositoryError::Storage)?;
+    Ok(())
+}
+
+fn prune_deleted_runtime_rows(
+    tx: &Transaction<'_>,
+    snapshot: &Value,
+    previous_snapshot: Option<&Value>,
+) -> RepoResult<()> {
+    tx.execute(
+        "DELETE FROM messages WHERE chat_id = ?1",
+        params![RUNTIME_CHAT_ID],
+    )
+    .map_err(|_| RuntimeRepositoryError::Storage)?;
+    tx.execute(
+        "DELETE FROM prompt_runs WHERE chat_id = ?1",
+        params![RUNTIME_CHAT_ID],
+    )
+    .map_err(|_| RuntimeRepositoryError::Storage)?;
+
+    let previous_ids = collect_snapshot_side_table_ids(previous_snapshot);
+    let current_ids = collect_snapshot_side_table_ids(Some(snapshot));
+    delete_missing(
+        tx,
+        "image_prompt_runs",
+        &previous_ids.image_prompt_run_ids,
+        &current_ids.image_prompt_run_ids,
+    )?;
+    delete_missing(
+        tx,
+        "rpg_state_snapshots",
+        &previous_ids.rpg_state_snapshot_ids,
+        &current_ids.rpg_state_snapshot_ids,
+    )?;
+    delete_missing(
+        tx,
+        "lorebook_entries",
+        &previous_ids.lorebook_entry_ids,
+        &current_ids.lorebook_entry_ids,
+    )?;
+    delete_missing(
+        tx,
+        "lorebooks",
+        &previous_ids.lorebook_ids,
+        &current_ids.lorebook_ids,
+    )?;
+    Ok(())
+}
+
+fn delete_missing(
+    tx: &Transaction<'_>,
+    table: &str,
+    previous: &BTreeSet<String>,
+    current: &BTreeSet<String>,
+) -> RepoResult<()> {
+    let sql = format!("DELETE FROM {table} WHERE id = ?1");
+    for id in previous.difference(current) {
+        tx.execute(&sql, params![id])
+            .map_err(|_| RuntimeRepositoryError::Storage)?;
+    }
+    Ok(())
+}
+
+fn save_card_data(tx: &Transaction<'_>, snapshot: &Value) -> RepoResult<()> {
+    tx.execute(
+        "DELETE FROM memory_entries WHERE chat_id = ?1",
+        params![RUNTIME_CHAT_ID],
+    )
+    .map_err(|_| RuntimeRepositoryError::Storage)?;
+    for card in array_at(snapshot, "cards") {
+        save_memories_for_card(tx, card)?;
+        save_lorebooks_for_card(tx, card)?;
+        save_rpg_state_for_card(tx, card)?;
+    }
+    for generated_map in array_at(snapshot, "generatedMaps") {
+        save_generated_map(tx, generated_map)?;
+    }
+    Ok(())
+}
+
+fn save_memories_for_card(tx: &Transaction<'_>, card: &Value) -> RepoResult<()> {
+    let card_id = string_at(card, "id", "");
+    if card_id.is_empty() {
+        return Ok(());
+    }
+    for memory in array_at(card, "memory") {
+        let Some(detail) = memory.get("detail").and_then(Value::as_str) else {
+            continue;
+        };
+        let id = memory
+            .get("id")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| {
+                format!(
+                    "memory_{card_id}_{}",
+                    detail.chars().take(24).collect::<String>()
+                )
+            });
+        let label = string_at(memory, "label", "Memory");
+        let now = now_iso();
+        let created_at = tx
+            .query_row(
+                "SELECT created_at FROM memory_entries WHERE id = ?1 LIMIT 1",
+                params![id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|_| RuntimeRepositoryError::Storage)?
+            .unwrap_or_else(|| now.clone());
+        tx.execute(
+            "INSERT OR REPLACE INTO memory_entries (id, chat_id, category, text, importance, pinned, related_character_ids_json, related_event_ids_json, last_accessed_at, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![id, RUNTIME_CHAT_ID, format!("card_memory:{label}"), detail, 1.0_f64, 0_i64, json_string(&json!([card_id])), json_string(&json!([])), Option::<String>::None, created_at, now],
+        )
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+    }
+    Ok(())
+}
+
+fn save_lorebooks_for_card(tx: &Transaction<'_>, card: &Value) -> RepoResult<()> {
+    let card_id = string_at(card, "id", "");
+    for lorebook in array_at(card, "lorebooks") {
+        let Some(lorebook_id) = lorebook.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let now = now_iso();
+        let created_at = tx
+            .query_row(
+                "SELECT created_at FROM lorebooks WHERE id = ?1 LIMIT 1",
+                params![lorebook_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|_| RuntimeRepositoryError::Storage)?
+            .unwrap_or_else(|| now.clone());
+        tx.execute(
+            "INSERT OR REPLACE INTO lorebooks (id, name, description, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![lorebook_id, string_at(lorebook, "name", "Card Lorebook"), format!("card:{card_id}"), created_at, now],
+        )
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+        tx.execute(
+            "DELETE FROM lorebook_entries WHERE lorebook_id = ?1",
+            params![lorebook_id],
+        )
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+        for entry in array_at(lorebook, "entries") {
+            let Some(entry_id) = entry.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(content) = entry.get("content").and_then(Value::as_str) else {
+                continue;
+            };
+            let now = now_iso();
+            let created_at = tx
+                .query_row(
+                    "SELECT created_at FROM lorebook_entries WHERE id = ?1 LIMIT 1",
+                    params![entry_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(|_| RuntimeRepositoryError::Storage)?
+                .unwrap_or_else(|| now.clone());
+            let triggers = json!({
+                "enabled": bool_at(entry, "enabled", true),
+                "keys": string_array_at(entry, "keys"),
+                "secondaryKeys": string_array_at(entry, "secondaryKeys"),
+                "insertionOrder": number_at(entry, "insertionOrder", 100.0),
+                "priority": number_at(entry, "priority", 0.0),
+                "probability": number_at(entry, "probability", 100.0),
+                "caseSensitive": bool_at(entry, "caseSensitive", false),
+                "wholeWord": bool_at(entry, "wholeWord", false),
+            });
+            tx.execute(
+                "INSERT OR REPLACE INTO lorebook_entries (id, lorebook_id, title, content, constant, triggers_json, token_budget, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![entry_id, lorebook_id, string_at(entry, "title", "Untitled lore entry"), content, if bool_at(entry, "constant", false) { 1_i64 } else { 0_i64 }, json_string(&triggers), number_at(lorebook, "tokenBudget", 800.0) as i64, created_at, now],
+            )
+            .map_err(|_| RuntimeRepositoryError::Storage)?;
+        }
+    }
+    Ok(())
+}
+
+fn save_rpg_state_for_card(tx: &Transaction<'_>, card: &Value) -> RepoResult<()> {
+    if string_at(card, "kind", "") != "rpg" || !matches!(card.get("rpg"), Some(Value::Object(_))) {
+        return Ok(());
+    }
+    let card_id = string_at(card, "id", "");
+    if card_id.is_empty() {
+        return Ok(());
+    }
+    let id = format!("state_{card_id}");
+    let created_at = now_iso();
+    let rpg_payload = card.get("rpg").cloned().unwrap_or_else(|| json!({}));
+    tx.execute(
+        "INSERT OR REPLACE INTO rpg_state_snapshots (id, world_id, chat_id, branch_id, message_id, payload_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![id, card_id, RUNTIME_CHAT_ID, RUNTIME_BRANCH_ID, "runtime_snapshot", json_string(&rpg_payload), created_at],
+    )
+    .map_err(|_| RuntimeRepositoryError::Storage)?;
+    Ok(())
+}
+
+fn save_generated_map(tx: &Transaction<'_>, generated_map: &Value) -> RepoResult<()> {
+    let Some(id) = generated_map.get("id").and_then(Value::as_str) else {
+        return Ok(());
+    };
+    let Some(prompt) = generated_map.get("prompt").and_then(Value::as_str) else {
+        return Ok(());
+    };
+    let created_at = string_at(generated_map, "createdAt", &now_iso());
+    tx.execute(
+        "INSERT OR REPLACE INTO image_prompt_runs (id, chat_id, message_id, provider, compiled_prompt, negative_prompt, style_preset, result_uri, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![
+            id,
+            string_at(generated_map, "chatId", RUNTIME_CHAT_ID),
+            Option::<String>::None,
+            generated_map.get("provider").and_then(Value::as_str),
+            prompt,
+            generated_map.get("negativePrompt").and_then(Value::as_str),
+            generated_map.get("model").and_then(Value::as_str),
+            generated_map.get("imageUrl").and_then(Value::as_str),
+            created_at,
+        ],
+    )
+    .map_err(|_| RuntimeRepositoryError::Storage)?;
+    Ok(())
+}
+
+fn save_messages(tx: &Transaction<'_>, snapshot: &Value) -> RepoResult<()> {
+    let messages = flatten_snapshot_messages(snapshot);
+    let mut previous_message_id: Option<String> = None;
+    for message in messages {
+        let Some(message_object) = message.as_object() else {
+            continue;
+        };
+        let id = string_at(&message, "id", "");
+        let content = string_at(&message, "content", "");
+        if id.is_empty() {
+            continue;
+        }
+        let metadata = strip_message_metadata(message_object);
+        let now = now_iso();
+        tx.execute(
+            "INSERT INTO messages (id, chat_id, parent_message_id, branch_id, role, content, state_snapshot_id, metadata_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                id,
+                RUNTIME_CHAT_ID,
+                previous_message_id,
+                RUNTIME_BRANCH_ID,
+                normalize_message_role(&string_at(&message, "role", "assistant")),
+                content,
+                Option::<String>::None,
+                json_string(&Value::Object(metadata)),
+                now,
+                now,
+            ],
+        )
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+        previous_message_id = Some(id);
+    }
+    Ok(())
+}
+
+fn save_prompt_runs(tx: &Transaction<'_>, snapshot: &Value) -> RepoResult<()> {
+    let messages = flatten_snapshot_messages(snapshot);
+    for run in array_at(snapshot, "promptRuns") {
+        let id = string_at(run, "id", "");
+        if id.is_empty() {
+            continue;
+        }
+        let assistant_message_id = find_assistant_message_id_for_run(&messages, &id);
+        let state_changes = json!({
+            "changes": string_array_at(run, "stateChanges"),
+            "warnings": string_array_at(run, "warnings"),
+        });
+        let request = json!({
+            "cardId": string_at(run, "cardId", ""),
+            "chatId": string_at(run, "chatId", RUNTIME_CHAT_ID),
+            "includedLayerIds": string_array_at(run, "includedLayerIds"),
+        });
+        let model_settings = json!({
+            "tokenEstimate": number_at(run, "tokenEstimate", 0.0),
+            "usage": run.get("usage").cloned().unwrap_or(Value::Null),
+        });
+        tx.execute(
+            "INSERT INTO prompt_runs (id, chat_id, message_id, provider, model, temperature, token_budget, compiled_prompt, included_memory_ids_json, included_lore_entry_ids_json, included_state_snapshot_id, response_text, extraction_json, state_changes_json, request_json, model_settings_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+            params![
+                id,
+                RUNTIME_CHAT_ID,
+                assistant_message_id,
+                string_at(run, "provider", ""),
+                string_at(run, "model", ""),
+                Option::<f64>::None,
+                Option::<i64>::None,
+                string_at(run, "compiledPrompt", ""),
+                json_string(&json!([])),
+                json_string(&string_array_at(run, "includedLoreEntryIds")),
+                Option::<String>::None,
+                string_at(run, "response", ""),
+                json_string(&json!({})),
+                json_string(&state_changes),
+                json_string(&request),
+                json_string(&model_settings),
+                now_iso(),
+            ],
+        )
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+    }
+    Ok(())
+}
+
+fn ensure_runtime_chat(tx: &Transaction<'_>) -> RepoResult<()> {
+    let exists = tx
+        .query_row(
+            "SELECT id FROM chats WHERE id = ?1 LIMIT 1",
+            params![RUNTIME_CHAT_ID],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|_| RuntimeRepositoryError::Storage)?
+        .is_some();
+    if exists {
+        return Ok(());
+    }
+    let now = now_iso();
+    tx.execute(
+        "INSERT INTO chats (id, title, mode, active_branch_id, root_state_snapshot_id, metadata_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            RUNTIME_CHAT_ID,
+            "Local Cards runtime",
+            "rpg",
+            RUNTIME_BRANCH_ID,
+            Option::<String>::None,
+            json_string(&json!({ "source": "local-cards-ui" })),
+            now,
+            now,
+        ],
+    )
+    .map_err(|_| RuntimeRepositoryError::Storage)?;
+    tx.execute(
+        "INSERT INTO message_branches (id, chat_id, name, label, root_message_id, head_message_id, base_message_id, is_active, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![RUNTIME_BRANCH_ID, RUNTIME_CHAT_ID, "Main", "Main", Option::<String>::None, Option::<String>::None, Option::<String>::None, 1_i64, now, now],
+    )
+    .map_err(|_| RuntimeRepositoryError::Storage)?;
+    Ok(())
+}
+
+fn sanitize_snapshot(snapshot: Value) -> RepoResult<Value> {
+    let serialized = serde_json::to_vec(&snapshot).map_err(|_| {
+        RuntimeRepositoryError::Validation("Snapshot must be valid JSON.".to_string())
+    })?;
+    if serialized.len() > MAX_SNAPSHOT_BYTES {
+        return Err(RuntimeRepositoryError::Validation(
+            "Snapshot exceeds the 10 MB persistence limit.".to_string(),
+        ));
+    }
+    let Some(object) = snapshot.as_object() else {
+        return Err(RuntimeRepositoryError::Validation(
+            "Snapshot must be a JSON object.".to_string(),
+        ));
+    };
+
+    validate_array_cap(object.get("cards"), MAX_CARDS, "cards")?;
+    validate_array_cap(
+        object.get("chatSessions"),
+        MAX_CHAT_SESSIONS,
+        "chatSessions",
+    )?;
+    validate_array_cap(object.get("promptRuns"), MAX_PROMPT_RUNS, "promptRuns")?;
+    validate_array_cap(
+        object.get("generatedMaps"),
+        MAX_GENERATED_MAPS,
+        "generatedMaps",
+    )?;
+    let flattened_message_count = flatten_snapshot_messages(&snapshot).len();
+    if flattened_message_count > MAX_MESSAGES {
+        return Err(RuntimeRepositoryError::Validation(
+            "Snapshot exceeds the message persistence limit.".to_string(),
+        ));
+    }
+    validate_value_limits(&snapshot, None)?;
+
+    let mut sanitized = snapshot;
+    if let Some(object) = sanitized.as_object_mut() {
+        object.insert("version".to_string(), json!(2));
+        if let Some(provider_settings) = sanitize_provider_settings(object.get("providerSettings"))?
+        {
+            object.insert("providerSettings".to_string(), provider_settings);
+        } else {
+            object.remove("providerSettings");
+        }
+        if !matches!(object.get("generatedMaps"), Some(Value::Array(_))) {
+            object.insert("generatedMaps".to_string(), Value::Array(Vec::new()));
+        }
+        if !matches!(object.get("savedAt"), Some(Value::String(_))) {
+            object.insert("savedAt".to_string(), json!(now_iso()));
+        }
+    }
+
+    Ok(sanitized)
+}
+
+fn sanitize_provider_settings(value: Option<&Value>) -> RepoResult<Option<Value>> {
+    let Some(Value::Object(input)) = value else {
+        return Ok(None);
+    };
+
+    for (key, field) in input {
+        if is_secretish_key(key) && field.as_str().is_some_and(looks_like_raw_secret) {
+            return Err(RuntimeRepositoryError::Validation(
+                "Provider settings cannot persist raw-looking secrets.".to_string(),
+            ));
+        }
+    }
+
+    let mut output = Map::new();
+    for key in ["mode", "providerId", "displayName", "baseUrl", "model"] {
+        if let Some(Value::String(field)) = input.get(key) {
+            output.insert(key.to_string(), json!(field));
+        }
+    }
+    if let Some(secret_reference) = sanitize_secret_reference(input.get("secretReference"))? {
+        output.insert("secretReference".to_string(), secret_reference);
+    }
+
+    Ok((!output.is_empty()).then_some(Value::Object(output)))
+}
+
+fn sanitize_secret_reference(value: Option<&Value>) -> RepoResult<Option<Value>> {
+    let Some(Value::Object(input)) = value else {
+        return Ok(None);
+    };
+    let Some(provider_id) = input.get("providerId").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    let Some(secret_name) = input.get("secretName").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    let Some(storage_kind) = input.get("storageKind").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    let Some(storage_key) = input.get("storageKey").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    if storage_kind == "memory-only"
+        || !["os-keychain", "tauri-stronghold", "external-vault"].contains(&storage_kind)
+        || storage_key != format!("{provider_id}:{secret_name}")
+        || looks_like_raw_secret(storage_key)
+    {
+        return Ok(None);
+    }
+    validate_id(provider_id)?;
+    validate_id(secret_name)?;
+    let mut output = Map::new();
+    output.insert("providerId".to_string(), json!(provider_id));
+    output.insert("secretName".to_string(), json!(secret_name));
+    output.insert("storageKind".to_string(), json!(storage_kind));
+    output.insert("storageKey".to_string(), json!(storage_key));
+    if let Some(provider_base_url) = input.get("providerBaseUrl").and_then(Value::as_str) {
+        output.insert("providerBaseUrl".to_string(), json!(provider_base_url));
+    }
+    Ok(Some(Value::Object(output)))
+}
+
+fn validate_value_limits(value: &Value, key: Option<&str>) -> RepoResult<()> {
+    match value {
+        Value::String(text) => {
+            if text.chars().count() > MAX_TEXT_CHARS {
+                return Err(RuntimeRepositoryError::Validation(
+                    "Snapshot text field exceeds the persistence limit.".to_string(),
+                ));
+            }
+            if key.is_some_and(is_id_key) {
+                validate_id(text)?;
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                validate_value_limits(item, key)?;
+            }
+        }
+        Value::Object(object) => {
+            for (child_key, child_value) in object {
+                validate_value_limits(child_value, Some(child_key))?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn validate_id(value: &str) -> RepoResult<()> {
+    if value.chars().count() > MAX_ID_CHARS {
+        return Err(RuntimeRepositoryError::Validation(
+            "Snapshot id exceeds the persistence limit.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_array_cap(value: Option<&Value>, max: usize, label: &str) -> RepoResult<()> {
+    if let Some(Value::Array(items)) = value {
+        if items.len() > max {
+            return Err(RuntimeRepositoryError::Validation(format!(
+                "Snapshot exceeds the {label} persistence limit."
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn collect_snapshot_side_table_ids(snapshot: Option<&Value>) -> SnapshotSideTableIds {
+    let mut ids = SnapshotSideTableIds::default();
+    let Some(snapshot) = snapshot else {
+        return ids;
+    };
+    for generated_map in array_at(snapshot, "generatedMaps") {
+        if let Some(id) = generated_map.get("id").and_then(Value::as_str) {
+            ids.image_prompt_run_ids.insert(id.to_string());
+        }
+    }
+    for card in array_at(snapshot, "cards") {
+        let card_id = string_at(card, "id", "");
+        if string_at(card, "kind", "") == "rpg"
+            && !card_id.is_empty()
+            && matches!(card.get("rpg"), Some(Value::Object(_)))
+        {
+            ids.rpg_state_snapshot_ids
+                .insert(format!("state_{card_id}"));
+        }
+        for lorebook in array_at(card, "lorebooks") {
+            if let Some(lorebook_id) = lorebook.get("id").and_then(Value::as_str) {
+                ids.lorebook_ids.insert(lorebook_id.to_string());
+            }
+            for entry in array_at(lorebook, "entries") {
+                if let Some(entry_id) = entry.get("id").and_then(Value::as_str) {
+                    ids.lorebook_entry_ids.insert(entry_id.to_string());
+                }
+            }
+        }
+    }
+    ids
+}
+
+fn flatten_snapshot_messages(snapshot: &Value) -> Vec<Value> {
+    let mut messages = Vec::<Value>::new();
+    let mut seen = BTreeSet::new();
+    for message in array_at(snapshot, "messages") {
+        if let Some(id) = message.get("id").and_then(Value::as_str) {
+            if seen.insert(id.to_string()) {
+                messages.push(message.clone());
+            }
+        }
+    }
+    for session in array_at(snapshot, "chatSessions") {
+        for message in array_at(session, "messages") {
+            if let Some(id) = message.get("id").and_then(Value::as_str) {
+                if seen.insert(id.to_string()) {
+                    messages.push(message.clone());
+                }
+            }
+        }
+    }
+    messages
+}
+
+fn find_assistant_message_id_for_run(messages: &[Value], run_id: &str) -> Option<String> {
+    let target = format!("assistant-{run_id}");
+    messages
+        .iter()
+        .find(|message| message.get("id").and_then(Value::as_str) == Some(target.as_str()))
+        .and_then(|message| message.get("id").and_then(Value::as_str))
+        .map(ToOwned::to_owned)
+}
+
+fn strip_message_metadata(message: &Map<String, Value>) -> Map<String, Value> {
+    let mut metadata = message.clone();
+    metadata.remove("id");
+    metadata.remove("role");
+    metadata.remove("content");
+    metadata
+}
+
+fn read_usage(value: Option<&Value>) -> Option<Value> {
+    let usage = value?;
+    let input_tokens = number_at(usage, "inputTokens", 0.0) as i64;
+    let output_tokens = number_at(usage, "outputTokens", 0.0) as i64;
+    let total_tokens =
+        number_at(usage, "totalTokens", (input_tokens + output_tokens) as f64) as i64;
+    (total_tokens > 0).then(|| {
+        json!({
+            "inputTokens": input_tokens,
+            "outputTokens": output_tokens,
+            "totalTokens": total_tokens,
+        })
+    })
+}
+
+fn sanitize_string_record(value: Option<&Value>) -> Option<Value> {
+    let Value::Object(object) = value? else {
+        return None;
+    };
+    let mut output = Map::new();
+    for (key, field) in object {
+        if let Some(value) = field.as_str() {
+            output.insert(key.clone(), json!(value));
+        }
+    }
+    (!output.is_empty()).then_some(Value::Object(output))
+}
+
+fn legacy_has_runtime_snapshot(path: &Path) -> bool {
+    let Ok(conn) = Connection::open(path) else {
+        return false;
+    };
+    let has_characters = conn
+        .query_row(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'characters' LIMIT 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .ok()
+        .flatten()
+        .is_some();
+    if !has_characters {
+        return false;
+    }
+    conn.query_row(
+        "SELECT profile_json FROM characters WHERE id = ?1 LIMIT 1",
+        params![RUNTIME_SNAPSHOT_CHARACTER_ID],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+    .ok()
+    .flatten()
+    .and_then(|profile_json| {
+        parse_json(&profile_json, json!({}))
+            .get("snapshot")
+            .cloned()
+    })
+    .and_then(|snapshot| snapshot.get("cards").cloned())
+    .is_some_and(|cards| matches!(cards, Value::Array(_)))
+}
+
+fn normalize_message_role(role: &str) -> &'static str {
+    match role {
+        "system" => "system",
+        "user" => "user",
+        "assistant" => "assistant",
+        _ => "assistant",
+    }
+}
+
+fn string_at(value: &Value, key: &str, fallback: &str) -> String {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or(fallback)
+        .to_string()
+}
+
+fn bool_at(value: &Value, key: &str, fallback: bool) -> bool {
+    value.get(key).and_then(Value::as_bool).unwrap_or(fallback)
+}
+
+fn number_at(value: &Value, key: &str, fallback: f64) -> f64 {
+    value.get(key).and_then(Value::as_f64).unwrap_or(fallback)
+}
+
+fn array_at<'a>(value: &'a Value, key: &str) -> &'a [Value] {
+    value
+        .get(key)
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+}
+
+fn string_array_at(value: &Value, key: &str) -> Value {
+    let items: Vec<Value> = value
+        .get(key)
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(|item| json!(item))
+                .collect()
+        })
+        .unwrap_or_default();
+    Value::Array(items)
+}
+
+fn parse_json(value: &str, fallback: Value) -> Value {
+    serde_json::from_str(value).unwrap_or(fallback)
+}
+
+fn parse_json_string_array(value: String) -> Vec<String> {
+    serde_json::from_str::<Vec<String>>(&value).unwrap_or_default()
+}
+
+fn json_string(value: &Value) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string())
+}
+
+fn collect_rows<T>(
+    rows: rusqlite::MappedRows<'_, impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>>,
+) -> RepoResult<Vec<T>> {
+    let mut output = Vec::new();
+    for row in rows {
+        output.push(row.map_err(|_| RuntimeRepositoryError::Storage)?);
+    }
+    Ok(output)
+}
+
+fn is_secretish_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    key.contains("key")
+        || key.contains("token")
+        || key.contains("secret")
+        || key.contains("password")
+}
+
+fn looks_like_raw_secret(value: &str) -> bool {
+    let trimmed = value.trim();
+    (trimmed.starts_with("sk-") && trimmed.len() > 8)
+        || (trimmed.len() >= 40
+            && trimmed.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '_' | '-')
+            }))
+}
+
+fn is_id_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    key == "id" || key.ends_with("id") || key.ends_with("ids")
+}
+
+fn now_iso() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+#[derive(Default)]
+struct SnapshotSideTableIds {
+    image_prompt_run_ids: BTreeSet<String>,
+    lorebook_ids: BTreeSet<String>,
+    lorebook_entry_ids: BTreeSet<String>,
+    rpg_state_snapshot_ids: BTreeSet<String>,
+}
+
+struct MemoryRow {
+    id: String,
+    category: String,
+    text: String,
+    related_character_ids: Vec<String>,
+}
+
+const SCHEMA_MIGRATIONS_CREATE: &str = r#"CREATE TABLE IF NOT EXISTS schema_migrations (
+  version INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  applied_at TEXT NOT NULL
+)"#;
+
+const SCHEMA_STATEMENTS: &[&str] = &[
+    SCHEMA_MIGRATIONS_CREATE,
+    r#"CREATE TABLE IF NOT EXISTS profiles (
+      id TEXT PRIMARY KEY,
+      display_name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )"#,
+    r#"CREATE TABLE IF NOT EXISTS model_provider_configs (
+      id TEXT PRIMARY KEY,
+      provider_id TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      base_url TEXT,
+      default_model_id TEXT,
+      secret_ref TEXT,
+      non_secret_settings_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )"#,
+    r#"CREATE TABLE IF NOT EXISTS characters (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      profile_json TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'manual',
+      introduced_at_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )"#,
+    r#"CREATE TABLE IF NOT EXISTS character_versions (
+      id TEXT PRIMARY KEY,
+      character_id TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      card_json TEXT NOT NULL,
+      change_reason TEXT,
+      created_at TEXT NOT NULL
+    )"#,
+    r#"CREATE TABLE IF NOT EXISTS chats (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      mode TEXT NOT NULL,
+      active_branch_id TEXT NOT NULL,
+      root_state_snapshot_id TEXT,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      profile_id TEXT,
+      world_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )"#,
+    r#"CREATE TABLE IF NOT EXISTS message_branches (
+      id TEXT PRIMARY KEY,
+      chat_id TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT 'Main',
+      root_message_id TEXT,
+      head_message_id TEXT,
+      base_message_id TEXT,
+      label TEXT NOT NULL,
+      is_active INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )"#,
+    r#"CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      chat_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL,
+      parent_message_id TEXT,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      state_snapshot_id TEXT,
+      prompt_run_id TEXT,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      updated_at TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    )"#,
+    r#"CREATE TABLE IF NOT EXISTS events (
+      id TEXT PRIMARY KEY,
+      chat_id TEXT NOT NULL,
+      branch_id TEXT,
+      message_id TEXT,
+      summary TEXT NOT NULL,
+      occurred_at TEXT,
+      location TEXT,
+      participant_character_ids_json TEXT NOT NULL,
+      world_truth INTEGER NOT NULL,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL
+    )"#,
+    r#"CREATE TABLE IF NOT EXISTS character_knowledge (
+      id TEXT PRIMARY KEY,
+      character_id TEXT NOT NULL,
+      event_id TEXT NOT NULL,
+      chat_id TEXT,
+      knowledge_type TEXT NOT NULL,
+      certainty REAL NOT NULL,
+      interpretation TEXT NOT NULL,
+      emotional_reaction TEXT,
+      can_discuss_with_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )"#,
+    r#"CREATE TABLE IF NOT EXISTS relationships (
+      id TEXT PRIMARY KEY,
+      subject_type TEXT NOT NULL,
+      subject_id TEXT NOT NULL,
+      object_type TEXT NOT NULL,
+      object_id TEXT NOT NULL,
+      metrics_json TEXT NOT NULL,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )"#,
+    r#"CREATE TABLE IF NOT EXISTS memory_entries (
+      id TEXT PRIMARY KEY,
+      chat_id TEXT,
+      category TEXT NOT NULL,
+      text TEXT NOT NULL,
+      importance REAL NOT NULL,
+      pinned INTEGER NOT NULL,
+      related_character_ids_json TEXT NOT NULL,
+      related_event_ids_json TEXT NOT NULL,
+      last_accessed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )"#,
+    r#"CREATE TABLE IF NOT EXISTS memory_archive (
+      id TEXT PRIMARY KEY,
+      source_memory_id TEXT NOT NULL,
+      archive_reason TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      archived_at TEXT NOT NULL
+    )"#,
+    r#"CREATE TABLE IF NOT EXISTS lorebooks (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )"#,
+    r#"CREATE TABLE IF NOT EXISTS lorebook_entries (
+      id TEXT PRIMARY KEY,
+      lorebook_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      constant INTEGER NOT NULL,
+      triggers_json TEXT NOT NULL,
+      token_budget INTEGER,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )"#,
+    r#"CREATE TABLE IF NOT EXISTS rpg_worlds (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      ruleset TEXT NOT NULL,
+      description TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )"#,
+    r#"CREATE TABLE IF NOT EXISTS rpg_state_snapshots (
+      id TEXT PRIMARY KEY,
+      world_id TEXT NOT NULL,
+      chat_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )"#,
+    r#"CREATE TABLE IF NOT EXISTS prompt_runs (
+      id TEXT PRIMARY KEY,
+      chat_id TEXT NOT NULL,
+      message_id TEXT,
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      temperature REAL,
+      token_budget INTEGER,
+      compiled_prompt TEXT NOT NULL,
+      included_memory_ids_json TEXT NOT NULL,
+      included_lore_entry_ids_json TEXT NOT NULL,
+      included_state_snapshot_id TEXT,
+      response_text TEXT,
+      extraction_json TEXT,
+      state_changes_json TEXT,
+      request_json TEXT NOT NULL DEFAULT '{}',
+      model_settings_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL
+    )"#,
+    r#"CREATE TABLE IF NOT EXISTS image_prompt_runs (
+      id TEXT PRIMARY KEY,
+      chat_id TEXT NOT NULL,
+      message_id TEXT,
+      provider TEXT,
+      compiled_prompt TEXT NOT NULL,
+      negative_prompt TEXT,
+      style_preset TEXT,
+      result_uri TEXT,
+      created_at TEXT NOT NULL
+    )"#,
+];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrations_are_idempotent() {
+        let path = temp_db_path("migrations_are_idempotent");
+        let first = initialize_repository_at_path(&path).unwrap();
+        let second = initialize_repository_at_path(&path).unwrap();
+        assert_eq!(first[0].status, "applied");
+        assert_eq!(second[0].status, "skipped");
+        cleanup(&path);
+    }
+
+    #[test]
+    fn save_load_round_trip_and_prune_runtime_rows() {
+        let path = temp_db_path("save_load_round_trip_and_prune_runtime_rows");
+        save_runtime_snapshot_at_path(&path, fixture_snapshot("card_blank_slate_rpg")).unwrap();
+        let loaded = load_runtime_snapshot_at_path(&path).unwrap().unwrap();
+        assert_eq!(
+            string_at(&loaded, "activeCardId", ""),
+            "card_blank_slate_rpg"
+        );
+        assert_eq!(
+            loaded["cards"][0]["memory"][0]["detail"],
+            json!("The player inspected the gate.")
+        );
+        assert_eq!(loaded["generatedMaps"][0]["id"], json!("map-1"));
+        assert!(!json_string(&loaded["providerSettings"]).contains("sk-"));
+
+        let mut second = fixture_snapshot("card_survivor");
+        second["cards"] = json!([
+            {
+                "id": "card_survivor",
+                "name": "Survivor",
+                "kind": "character",
+                "lorebooks": [],
+                "memory": []
+            }
+        ]);
+        second["messages"] = json!([]);
+        second["promptRuns"] = json!([]);
+        second["generatedMaps"] = json!([]);
+        save_runtime_snapshot_at_path(&path, second).unwrap();
+
+        let conn = Connection::open(&path).unwrap();
+        assert_eq!(count_rows(&conn, "messages"), 0);
+        assert_eq!(count_rows(&conn, "prompt_runs"), 0);
+        assert_eq!(count_rows(&conn, "image_prompt_runs"), 0);
+        assert_eq!(count_rows(&conn, "lorebooks"), 0);
+        assert_eq!(count_rows(&conn, "lorebook_entries"), 0);
+        assert_eq!(count_rows(&conn, "memory_entries"), 0);
+        assert_eq!(count_rows(&conn, "rpg_state_snapshots"), 0);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn legacy_compatibility_snapshot_loads_without_normalized_rows() {
+        let path = temp_db_path("legacy_compatibility_snapshot_loads_without_normalized_rows");
+        initialize_repository_at_path(&path).unwrap();
+        let conn = Connection::open(&path).unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, name, description, profile_json, source, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                RUNTIME_SNAPSHOT_CHARACTER_ID,
+                "Local Cards runtime snapshot",
+                "legacy",
+                json_string(&json!({ "snapshot": fixture_snapshot("legacy-card") })),
+                "runtime-snapshot",
+                now_iso(),
+                now_iso(),
+            ],
+        )
+        .unwrap();
+        let loaded = load_runtime_snapshot_at_path(&path).unwrap().unwrap();
+        assert_eq!(string_at(&loaded, "activeCardId", ""), "legacy-card");
+        cleanup(&path);
+    }
+
+    #[test]
+    fn validation_rejects_oversized_snapshots_and_raw_secrets() {
+        let mut too_many_cards = fixture_snapshot("card");
+        too_many_cards["cards"] = Value::Array(
+            (0..=MAX_CARDS)
+                .map(|index| json!({ "id": format!("card-{index}") }))
+                .collect(),
+        );
+        assert!(matches!(
+            sanitize_snapshot(too_many_cards),
+            Err(RuntimeRepositoryError::Validation(_))
+        ));
+
+        let mut raw_secret = fixture_snapshot("card");
+        raw_secret["providerSettings"]["apiKey"] = json!("sk-this-secret-should-not-persist");
+        assert!(matches!(
+            sanitize_snapshot(raw_secret),
+            Err(RuntimeRepositoryError::Validation(_))
+        ));
+    }
+
+    #[test]
+    fn transaction_rolls_back_after_mid_save_failure() {
+        let path = temp_db_path("transaction_rolls_back_after_mid_save_failure");
+        save_runtime_snapshot_at_path(&path, fixture_snapshot("card_blank_slate_rpg")).unwrap();
+        let before = load_runtime_snapshot_at_path(&path).unwrap().unwrap();
+        let mut conn = open_migrated_connection(&path).unwrap();
+        let tx = conn.transaction().unwrap();
+        let mut second = fixture_snapshot("card_survivor");
+        assert!(
+            save_runtime_snapshot_in_transaction(&tx, &mut second, Some("after_prune")).is_err()
+        );
+        drop(tx);
+        let after = load_runtime_snapshot_at_path(&path).unwrap().unwrap();
+        assert_eq!(before["activeCardId"], after["activeCardId"]);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn rpg_state_row_is_pruned_when_card_loses_rpg_payload() {
+        let path = temp_db_path("rpg_state_row_is_pruned_when_card_loses_rpg_payload");
+        save_runtime_snapshot_at_path(&path, fixture_snapshot("card_blank_slate_rpg")).unwrap();
+
+        let mut without_rpg = fixture_snapshot("card_blank_slate_rpg");
+        without_rpg["cards"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("rpg");
+        save_runtime_snapshot_at_path(&path, without_rpg).unwrap();
+
+        let conn = Connection::open(&path).unwrap();
+        assert_eq!(count_rows(&conn, "rpg_state_snapshots"), 0);
+        let loaded = load_runtime_snapshot_at_path(&path).unwrap().unwrap();
+        assert!(loaded["cards"][0].get("rpg").is_none());
+        cleanup(&path);
+    }
+
+    fn fixture_snapshot(active_card_id: &str) -> Value {
+        json!({
+            "version": 2,
+            "theme": "dark",
+            "activeCardId": active_card_id,
+            "cards": [
+                {
+                    "id": active_card_id,
+                    "name": "Blank Slate RPG",
+                    "kind": "rpg",
+                    "memory": [
+                        {
+                            "id": "memory-1",
+                            "label": "Recent validated turn",
+                            "detail": "The player inspected the gate."
+                        }
+                    ],
+                    "lorebooks": [
+                        {
+                            "id": "lore-1",
+                            "name": "Gate Lore",
+                            "tokenBudget": 800,
+                            "entries": [
+                                {
+                                    "id": "lore-gate",
+                                    "title": "Ancient Gate",
+                                    "content": "The gate opens to a remembered oath.",
+                                    "keys": ["gate"],
+                                    "secondaryKeys": [],
+                                    "insertionOrder": 100,
+                                    "priority": 4,
+                                    "enabled": true,
+                                    "constant": false,
+                                    "probability": 100,
+                                    "caseSensitive": false,
+                                    "wholeWord": false
+                                }
+                            ]
+                        }
+                    ],
+                    "rpg": {
+                        "location": "Cellar",
+                        "health": "10/10",
+                        "inventory": ["brass key"],
+                        "quests": [],
+                        "flags": { "gate_seen": true }
+                    }
+                }
+            ],
+            "messages": [
+                { "id": "assistant-run_001", "role": "assistant", "content": "The action is validated." }
+            ],
+            "promptRuns": [
+                {
+                    "id": "run_001",
+                    "cardId": active_card_id,
+                    "chatId": RUNTIME_CHAT_ID,
+                    "compiledPrompt": "## Prompt",
+                    "response": "The action is validated.",
+                    "provider": "mock",
+                    "model": "mock-narrator",
+                    "tokenEstimate": 42,
+                    "includedLayerIds": ["latest-user-message"],
+                    "includedLoreEntryIds": ["lore-gate"],
+                    "warnings": [],
+                    "stateChanges": ["Location -> Cellar"],
+                    "usage": { "inputTokens": 20, "outputTokens": 8, "totalTokens": 28 }
+                }
+            ],
+            "providerKeyStatus": "Stored OS keychain reference active.",
+            "providerSettings": {
+                "mode": "openai-compatible",
+                "providerId": "openrouter",
+                "displayName": "OpenRouter BYOK",
+                "baseUrl": "https://openrouter.ai/api/v1",
+                "model": "qwen3.7-max",
+                "secretReference": {
+                    "providerId": "openrouter",
+                    "secretName": "apiKey",
+                    "storageKind": "os-keychain",
+                    "storageKey": "openrouter:apiKey",
+                    "providerBaseUrl": "https://openrouter.ai/api/v1"
+                }
+            },
+            "generatedMaps": [
+                {
+                    "id": "map-1",
+                    "cardId": active_card_id,
+                    "chatId": RUNTIME_CHAT_ID,
+                    "prompt": "Birdseye map of the cellar",
+                    "negativePrompt": "first-person view",
+                    "provider": "comfyui",
+                    "model": "FLUX.1-schnell",
+                    "status": "generated",
+                    "imageUrl": "http://127.0.0.1:8188/view?filename=map.png&type=output&subfolder=",
+                    "createdAt": "2026-06-27T20:00:01.000Z"
+                }
+            ],
+            "savedAt": "2026-06-27T20:00:00.000Z"
+        })
+    }
+
+    fn count_rows(conn: &Connection, table: &str) -> i64 {
+        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+            row.get(0)
+        })
+        .unwrap()
+    }
+
+    fn temp_db_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "local-first-ai-rpg-runtime-{name}-{}.db",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
+    fn cleanup(path: &Path) {
+        let _ = std::fs::remove_file(path);
+    }
+}

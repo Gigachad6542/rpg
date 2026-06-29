@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-load-runtime-snapshot"
+description = "Enables the load_runtime_snapshot command without any pre-configured scope."
+commands.allow = ["load_runtime_snapshot"]
+
+[[permission]]
+identifier = "deny-load-runtime-snapshot"
+description = "Denies the load_runtime_snapshot command without any pre-configured scope."
+commands.deny = ["load_runtime_snapshot"]

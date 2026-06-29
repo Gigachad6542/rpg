@@ -1,0 +1,46 @@
+{
+  "name": "local-first-ai-rpg-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "audit:prod": "pnpm audit --prod",
+    "clean": "node scripts/clean.mjs",
+    "rust:test": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "rust:clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+    "rust:audit": "cd src-tauri && cargo audit",
+    "verify": "pnpm typecheck && pnpm test && pnpm build && pnpm audit:prod && pnpm rust:test && pnpm rust:clippy",
+    "verify:desktop": "pnpm verify && pnpm desktop:build",
+    "tauri": "tauri",
+    "desktop:open": "tauri dev",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.0.0",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@types/node": "^26.0.1",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "3.2.6",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.6.3",
+    "vite": "^6.4.3",
+    "vitest": "^3.2.6"
+  }
+}

@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Build and test output
+dist/
+coverage/
+target/
+src-tauri/target/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Logs and OS/editor noise
+*.log
+.DS_Store
+
+# Local reasoning scratch files
+.reasoning/current/

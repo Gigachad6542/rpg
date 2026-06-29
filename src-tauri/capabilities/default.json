@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default desktop capability for local runtime storage",
+  "windows": ["main"],
+  "permissions": [
+    "allow-initialize-runtime-repository",
+    "allow-load-runtime-snapshot",
+    "allow-save-runtime-snapshot",
+    "allow-secure-storage-status",
+    "allow-store-provider-secret",
+    "allow-delete-provider-secret",
+    "allow-generate-text-with-stored-secret"
+  ]
+}

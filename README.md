@@ -77,7 +77,7 @@ The app keeps a compatibility snapshot for quick reloads, and also writes organi
 - `rpg_state_snapshots` for card-scoped RPG state.
 - `image_prompt_runs` for generated map prompts and result URIs.
 
-In browser/dev mode the compatibility snapshot is saved to `localStorage`. In the desktop runtime, SQLite is the durable continuity store and the full browser fallback is not written. See `docs/production-hardening.md` for startup recovery, migration, typed Tauri persistence, and remaining persistence-authority work.
+In browser/dev mode the compatibility snapshot is saved to `localStorage`. In the desktop runtime, normalized SQLite tables are the durable continuity source and the full browser fallback is not written. See `docs/production-hardening.md` for startup recovery, migration, typed Tauri persistence, and release verification.
 
 ## Project Docs
 

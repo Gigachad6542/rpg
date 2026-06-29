@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   RUNTIME_BRANCH_ID,
   RUNTIME_CHAT_ID,
+  RUNTIME_SNAPSHOT_CHARACTER_ID,
   RuntimeRepositoryStore,
   type RepositoryRuntimeSnapshot,
 } from "../../src/app/runtimeRepositoryStore";
@@ -349,6 +350,122 @@ describe("runtime repository store", () => {
     const loaded = await store.loadSnapshot();
     expect(loaded?.cards[0]).not.toHaveProperty("rpg");
   });
+
+  it("loads normalized runtime rows instead of stale compatibility snapshot arrays", async () => {
+    const driver = createInMemorySqlDriver();
+    await runMigrations(driver, sqliteMigrations);
+    const store = await RuntimeRepositoryStore.create({ driver });
+    const snapshot = createFullSnapshot();
+
+    await store.saveSnapshot(snapshot);
+    await driver.execute("UPDATE characters SET profile_json = $1 WHERE id = $2", [
+      JSON.stringify({
+        snapshot: {
+          ...snapshot,
+          cards: [
+            {
+              ...snapshot.cards[0],
+              memory: [
+                {
+                  id: "stale-memory",
+                  label: "Stale",
+                  detail: "This stale memory should not load.",
+                },
+              ],
+              lorebooks: [],
+              rpg: {
+                location: "Wrong room",
+              },
+            },
+          ],
+          messages: [
+            {
+              id: "stale-message",
+              role: "assistant",
+              content: "This stale message should not load.",
+            },
+          ],
+          chatSessions: [
+            {
+              id: "chat-card",
+              cardId: "card_blank_slate_rpg",
+              title: "Card chat",
+              messages: [
+                {
+                  id: "stale-session-message",
+                  role: "assistant",
+                  content: "This stale session message should not load.",
+                },
+              ],
+            },
+          ],
+          promptRuns: [
+            {
+              id: "stale-run",
+              cardId: "card_blank_slate_rpg",
+              chatId: "chat-card",
+              compiledPrompt: "stale",
+              response: "stale",
+              provider: "mock",
+              model: "mock-narrator",
+              tokenEstimate: 1,
+              includedLayerIds: [],
+              includedLoreEntryIds: [],
+              warnings: [],
+              stateChanges: [],
+            },
+          ],
+          generatedMaps: [
+            {
+              id: "stale-map",
+              cardId: "card_blank_slate_rpg",
+              chatId: "chat-card",
+              prompt: "stale map",
+              status: "prompt_ready",
+              createdAt: "2026-06-27T20:01:00.000Z",
+            },
+          ],
+        },
+      }),
+      RUNTIME_SNAPSHOT_CHARACTER_ID,
+    ]);
+
+    const loaded = await store.loadSnapshot();
+
+    expect(loaded?.cards[0].memory).toEqual([
+      {
+        id: "memory-1",
+        label: "Recent validated turn",
+        detail: "The player inspected the gate.",
+      },
+    ]);
+    expect(loaded?.cards[0].lorebooks).toMatchObject([
+      {
+        id: "lore-1",
+        entries: [
+          {
+            id: "lore-gate",
+            content: "The gate opens to a remembered oath.",
+          },
+        ],
+      },
+    ]);
+    expect(loaded?.cards[0].rpg).toMatchObject({ location: "Cellar" });
+    expect(loaded?.messages.map((message) => message.id)).toEqual(["system-1", "assistant-run_001"]);
+    expect(loaded?.chatSessions?.[0].messages.map((message) => message.id)).toEqual([
+      "system-1",
+      "assistant-run_001",
+    ]);
+    expect(loaded?.promptRuns.map((run) => run.id)).toEqual(["run_001"]);
+    expect(loaded?.generatedMaps).toMatchObject([
+      {
+        id: "map-1",
+        chatId: "chat-card",
+        prompt: "Birdseye map of the cellar",
+        imageUrl: "http://127.0.0.1:8188/view?filename=map.png&type=output&subfolder=",
+      },
+    ]);
+  });
 });
 
 function createMinimalSnapshot(): RepositoryRuntimeSnapshot {
@@ -367,6 +484,134 @@ function createMinimalSnapshot(): RepositoryRuntimeSnapshot {
     promptRuns: [],
     providerKeyStatus: "No plaintext keys stored.",
     savedAt: "2026-06-28T00:00:00.000Z",
+  };
+}
+
+function createFullSnapshot(): RepositoryRuntimeSnapshot {
+  return {
+    version: 2,
+    theme: "dark",
+    activeCardId: "card_blank_slate_rpg",
+    cards: [
+      {
+        id: "card_blank_slate_rpg",
+        name: "Blank Slate RPG",
+        kind: "rpg",
+        memory: [
+          {
+            id: "memory-1",
+            label: "Recent validated turn",
+            detail: "The player inspected the gate.",
+          },
+        ],
+        lorebooks: [
+          {
+            id: "lore-1",
+            name: "Gate Lore",
+            enabled: true,
+            scanDepth: 4,
+            tokenBudget: 800,
+            recursiveScanning: false,
+            entries: [
+              {
+                id: "lore-gate",
+                title: "Ancient Gate",
+                keys: ["gate"],
+                secondaryKeys: [],
+                content: "The gate opens to a remembered oath.",
+                insertionOrder: 100,
+                priority: 4,
+                enabled: true,
+                constant: false,
+                probability: 100,
+                caseSensitive: false,
+                wholeWord: false,
+              },
+            ],
+          },
+        ],
+        rpg: {
+          location: "Cellar",
+          health: "10/10",
+          inventory: ["brass key"],
+          quests: [],
+          flags: { gate_seen: true },
+          knownPlaces: ["Cellar"],
+          mapStyle: "birdseye map",
+        },
+      },
+    ],
+    messages: [
+      {
+        id: "system-1",
+        role: "system",
+        content: "Runtime ready.",
+      },
+      {
+        id: "assistant-run_001",
+        role: "assistant",
+        content: "The action is validated.",
+      },
+    ],
+    chatSessions: [
+      {
+        id: "chat-card",
+        cardId: "card_blank_slate_rpg",
+        title: "Card chat",
+        messages: [
+          {
+            id: "system-1",
+            role: "system",
+            content: "Runtime ready.",
+          },
+          {
+            id: "assistant-run_001",
+            role: "assistant",
+            content: "The action is validated.",
+          },
+        ],
+      },
+    ],
+    activeChatIds: {
+      card_blank_slate_rpg: "chat-card",
+    },
+    promptRuns: [
+      {
+        id: "run_001",
+        cardId: "card_blank_slate_rpg",
+        chatId: "chat-card",
+        compiledPrompt: "## Prompt",
+        response: "The action is validated.",
+        provider: "mock",
+        model: "mock-narrator",
+        tokenEstimate: 42,
+        includedLayerIds: ["global-runtime-rules", "latest-user-message"],
+        includedLoreEntryIds: ["lore-gate"],
+        warnings: [],
+        stateChanges: ["Location -> Cellar"],
+        usage: {
+          inputTokens: 20,
+          outputTokens: 8,
+          totalTokens: 28,
+        },
+      },
+    ],
+    providerKeyStatus: "Mock provider active; no API key needed.",
+    generatedMaps: [
+      {
+        id: "map-1",
+        cardId: "card_blank_slate_rpg",
+        chatId: "chat-card",
+        prompt: "Birdseye map of the cellar",
+        negativePrompt: "first-person view",
+        provider: "comfyui",
+        model: "FLUX.1-schnell",
+        status: "generated",
+        imageUrl: "http://127.0.0.1:8188/view?filename=map.png&type=output&subfolder=",
+        createdAt: "2026-06-27T20:00:01.000Z",
+      },
+    ],
+    savedAt: "2026-06-27T20:00:00.000Z",
   };
 }
 

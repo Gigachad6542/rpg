@@ -86,6 +86,13 @@ export class ImagePromptRunRepository {
     );
     return rows.map(mapImagePromptRun);
   }
+
+  async list(): Promise<ImagePromptRunRecord[]> {
+    const rows = await this.driver.select<ImagePromptRunRow>(
+      "SELECT * FROM image_prompt_runs ORDER BY created_at ASC",
+    );
+    return rows.map(mapImagePromptRun);
+  }
 }
 
 type ImagePromptRunRow = SqlRow & {

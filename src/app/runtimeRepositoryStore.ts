@@ -1,12 +1,12 @@
 import { createMigratedDatabaseDriver } from "../db/client";
 import { CharacterRepository } from "../db/repositories/characters";
 import { ChatRepository } from "../db/repositories/chats";
-import { ImagePromptRunRepository } from "../db/repositories/imagePromptRuns";
+import { ImagePromptRunRepository, type ImagePromptRunRecord } from "../db/repositories/imagePromptRuns";
 import { LorebookEntryRepository, LorebookRepository } from "../db/repositories/lorebooks";
 import { MemoryEntryRepository } from "../db/repositories/memoryEntries";
 import { ModelProviderConfigRepository } from "../db/repositories/modelProviderConfigs";
-import { MessageRepository } from "../db/repositories/messages";
-import { PromptRunRepository } from "../db/repositories/promptRuns";
+import { MessageRepository, type MessageRecord } from "../db/repositories/messages";
+import { PromptRunRepository, type PromptRunRecord } from "../db/repositories/promptRuns";
 import { RpgStateSnapshotRepository } from "../db/repositories/rpgStateSnapshots";
 import { runInTransaction } from "../db/transaction";
 import type { SqlDriver } from "../db/types";
@@ -20,6 +20,7 @@ import { TauriRuntimeRepositoryStore, type TauriInvoke } from "./tauriRuntimeRep
 export const RUNTIME_CHAT_ID = "chat_local_cards_runtime";
 export const RUNTIME_BRANCH_ID = "branch_local_cards_runtime";
 export const RUNTIME_SNAPSHOT_CHARACTER_ID = "char_local_cards_runtime_snapshot";
+const RUNTIME_SESSION_IDS_METADATA_KEY = "__runtimeChatSessionIds";
 
 type RuntimeCardRecord = Record<string, unknown> & {
   id: string;
@@ -146,14 +147,20 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
     const branchId = chat?.activeBranchId ?? RUNTIME_BRANCH_ID;
     const messageRows = chat ? await this.messages.listByBranch(RUNTIME_CHAT_ID, branchId) : [];
     const promptRunRows = chat ? await this.promptRuns.listByChat(RUNTIME_CHAT_ID) : [];
+    const generatedMapRows = chat ? await this.imagePromptRuns.list() : [];
+    const normalizedMessages = messageRows.map(mapRuntimeMessageRow);
+    const activeChatIds = getStringRecord(snapshotMeta.activeChatIds);
     const snapshotMessages = Array.isArray(snapshotMeta.messages)
       ? (snapshotMeta.messages as RuntimeMessageRecord[])
       : undefined;
     const snapshotPromptRuns = Array.isArray(snapshotMeta.promptRuns)
       ? (snapshotMeta.promptRuns as RuntimePromptRunRecord[])
       : undefined;
+    const runtimeRowsAreAuthoritative = Boolean(chat);
 
-    const normalizedCards = await this.overlayNormalizedCardData(snapshotMeta.cards as RuntimeCardRecord[]);
+    const normalizedCards = await this.overlayNormalizedCardData(snapshotMeta.cards as RuntimeCardRecord[], {
+      authoritative: runtimeRowsAreAuthoritative,
+    });
 
     return {
       version: 2,
@@ -163,35 +170,20 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
           ? snapshotMeta.activeCardId
           : normalizedCards[0]?.id ?? "",
       cards: normalizedCards,
-      messages:
-        snapshotMessages ??
-        messageRows.map((message) => ({
-          id: message.id,
-          role: normalizeMessageRole(message.role),
-          content: message.content,
-          ...message.metadata,
-        })),
-      chatSessions: Array.isArray(snapshotMeta.chatSessions)
-        ? (snapshotMeta.chatSessions as RuntimeChatSessionRecord[])
-        : undefined,
-      activeChatIds: getStringRecord(snapshotMeta.activeChatIds),
-      promptRuns:
-        snapshotPromptRuns ??
-        promptRunRows.map((run) => ({
-          id: run.id,
-          cardId: getString(run.request.cardId, ""),
-          chatId: getString(run.request.chatId, RUNTIME_CHAT_ID),
-          compiledPrompt: run.compiledPrompt,
-          response: run.responseText ?? "",
-          provider: run.provider,
-          model: run.model,
-          tokenEstimate: getNumber(run.modelSettings.tokenEstimate, 0),
-          includedLayerIds: getStringArray(run.request.includedLayerIds),
-          includedLoreEntryIds: run.includedLoreEntryIds,
-          warnings: getStringArray(run.stateChanges.warnings),
-          stateChanges: getStringArray(run.stateChanges.changes),
-          usage: readUsage(run.modelSettings.usage),
-        })),
+      messages: runtimeRowsAreAuthoritative
+        ? normalizedMessages.map(stripRuntimeMessageMetadata)
+        : (snapshotMessages ?? normalizedMessages.map(stripRuntimeMessageMetadata)),
+      chatSessions: buildRuntimeChatSessions({
+        snapshotSessions: Array.isArray(snapshotMeta.chatSessions)
+          ? (snapshotMeta.chatSessions as RuntimeChatSessionRecord[])
+          : undefined,
+        normalizedMessages,
+        runtimeRowsAreAuthoritative,
+      }),
+      activeChatIds,
+      promptRuns: runtimeRowsAreAuthoritative
+        ? promptRunRows.map(mapPromptRunRecord)
+        : (snapshotPromptRuns ?? promptRunRows.map(mapPromptRunRecord)),
       providerKeyStatus:
         typeof snapshotMeta.providerKeyStatus === "string"
           ? snapshotMeta.providerKeyStatus
@@ -199,7 +191,9 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
       providerSettings: sanitizePersistedProviderSettings(snapshotMeta.providerSettings),
       imageProviderSettings: getRecord(snapshotMeta.imageProviderSettings),
       runtimeSettings: getRecord(snapshotMeta.runtimeSettings),
-      generatedMaps: getArray(snapshotMeta.generatedMaps),
+      generatedMaps: runtimeRowsAreAuthoritative
+        ? mapImagePromptRunsToGeneratedMaps(generatedMapRows, snapshotMeta)
+        : getArray(snapshotMeta.generatedMaps),
       savedAt: typeof snapshotMeta.savedAt === "string" ? snapshotMeta.savedAt : storedCards.updatedAt,
     };
   }
@@ -297,20 +291,34 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
     }
   }
 
-  private async overlayNormalizedCardData(cards: RuntimeCardRecord[]): Promise<RuntimeCardRecord[]> {
+  private async overlayNormalizedCardData(
+    cards: RuntimeCardRecord[],
+    options: { authoritative?: boolean } = {},
+  ): Promise<RuntimeCardRecord[]> {
     const memories = await this.memories.listByChat(RUNTIME_CHAT_ID).catch(() => []);
     const rpgSnapshots = await this.rpgStateSnapshots.listByChat(RUNTIME_CHAT_ID).catch(() => []);
+    const lorebooks = options.authoritative ? await this.lorebooks.list().catch(() => []) : [];
 
     return Promise.all(
       cards.map(async (card) => {
-        const lorebooks = Array.isArray(card.lorebooks) ? card.lorebooks : [];
+        const cardLorebooks = options.authoritative
+          ? lorebooks
+              .filter((lorebook) => lorebook.description === `card:${card.id}`)
+              .map((lorebook) => ({
+                id: lorebook.id,
+                name: lorebook.name,
+                description: lorebook.description,
+              }))
+          : Array.isArray(card.lorebooks)
+            ? card.lorebooks
+            : [];
         const normalizedLorebooks = await Promise.all(
-          lorebooks.map(async (lorebook) => {
+          cardLorebooks.map(async (lorebook) => {
             if (!isRecord(lorebook) || typeof lorebook.id !== "string") {
               return lorebook;
             }
             const entries = await this.lorebookEntries.listByLorebook(lorebook.id).catch(() => []);
-            if (entries.length === 0) {
+            if (entries.length === 0 && !options.authoritative) {
               return lorebook;
             }
             return {
@@ -340,11 +348,14 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
             detail: memory.text,
           }));
         const rpgSnapshot = rpgSnapshots.find((snapshot) => snapshot.worldId === card.id);
+        const baseCard = options.authoritative
+          ? omitRuntimeCardSideData(card)
+          : card;
 
         return {
-          ...card,
-          ...(normalizedLorebooks.length > 0 ? { lorebooks: normalizedLorebooks } : {}),
-          ...(cardMemories.length > 0 ? { memory: cardMemories } : {}),
+          ...baseCard,
+          ...(options.authoritative || normalizedLorebooks.length > 0 ? { lorebooks: normalizedLorebooks } : {}),
+          ...(options.authoritative || cardMemories.length > 0 ? { memory: cardMemories } : {}),
           ...(rpgSnapshot ? { rpg: rpgSnapshot.payload } : {}),
         };
       }),
@@ -539,6 +550,125 @@ function stripMessageMetadata(message: RuntimeMessageRecord): JsonObject {
   return metadata as JsonObject;
 }
 
+function mapRuntimeMessageRow(message: MessageRecord): RuntimeMessageRecord {
+  return {
+    id: message.id,
+    role: normalizeMessageRole(message.role),
+    content: message.content,
+    ...message.metadata,
+  };
+}
+
+function stripRuntimeMessageMetadata(message: RuntimeMessageRecord): RuntimeMessageRecord {
+  const {
+    [RUNTIME_SESSION_IDS_METADATA_KEY]: _sessionIds,
+    ...publicMessage
+  } = message as RuntimeMessageRecord & Record<string, unknown>;
+  return publicMessage;
+}
+
+function mapPromptRunRecord(run: PromptRunRecord): RuntimePromptRunRecord {
+  return {
+    id: run.id,
+    cardId: getString(run.request.cardId, ""),
+    chatId: getString(run.request.chatId, RUNTIME_CHAT_ID),
+    compiledPrompt: run.compiledPrompt,
+    response: run.responseText ?? "",
+    provider: run.provider,
+    model: run.model,
+    tokenEstimate: getNumber(run.modelSettings.tokenEstimate, 0),
+    includedLayerIds: getStringArray(run.request.includedLayerIds),
+    includedLoreEntryIds: run.includedLoreEntryIds,
+    warnings: getStringArray(run.stateChanges.warnings),
+    stateChanges: getStringArray(run.stateChanges.changes),
+    usage: readUsage(run.modelSettings.usage),
+  };
+}
+
+function buildRuntimeChatSessions({
+  snapshotSessions,
+  normalizedMessages,
+  runtimeRowsAreAuthoritative,
+}: {
+  snapshotSessions: RuntimeChatSessionRecord[] | undefined;
+  normalizedMessages: RuntimeMessageRecord[];
+  runtimeRowsAreAuthoritative: boolean;
+}): RuntimeChatSessionRecord[] | undefined {
+  if (!snapshotSessions) {
+    return undefined;
+  }
+  if (!runtimeRowsAreAuthoritative) {
+    return snapshotSessions;
+  }
+
+  const publicMessages = normalizedMessages.map(stripRuntimeMessageMetadata);
+  const messagesBySession = new Map<string, RuntimeMessageRecord[]>();
+  for (const message of normalizedMessages) {
+    const sessionIds = getStringArray((message as Record<string, unknown>)[RUNTIME_SESSION_IDS_METADATA_KEY]);
+    for (const sessionId of sessionIds) {
+      const existing = messagesBySession.get(sessionId) ?? [];
+      existing.push(stripRuntimeMessageMetadata(message));
+      messagesBySession.set(sessionId, existing);
+    }
+  }
+
+  return snapshotSessions.map((session, index) => ({
+    ...session,
+    messages:
+      messagesBySession.get(session.id) ??
+      (index === 0 ? publicMessages : []),
+  }));
+}
+
+function mapImagePromptRunsToGeneratedMaps(
+  rows: ImagePromptRunRecord[],
+  snapshotMeta: Partial<RepositoryRuntimeSnapshot>,
+): unknown[] {
+  const activeChatIds = getStringRecord(snapshotMeta.activeChatIds) ?? {};
+  const cardIdByChatId = new Map(Object.entries(activeChatIds).map(([cardId, chatId]) => [chatId, cardId]));
+  const knownChatIds = new Set(cardIdByChatId.keys());
+  const snapshotMapsById = new Map<string, Record<string, unknown>>(
+    getArray(snapshotMeta.generatedMaps)
+      .filter(isRecord)
+      .filter((map): map is Record<string, unknown> & { id: string } => typeof map.id === "string")
+      .map((map) => [map.id, map]),
+  );
+  const activeCardId = typeof snapshotMeta.activeCardId === "string" ? snapshotMeta.activeCardId : "";
+
+  return rows
+    .filter((row) => knownChatIds.size === 0 || knownChatIds.has(row.chatId) || row.chatId === RUNTIME_CHAT_ID)
+    .map((row) => {
+      const snapshotMap = snapshotMapsById.get(row.id) ?? {};
+      return {
+        ...snapshotMap,
+        id: row.id,
+        cardId: getString(snapshotMap.cardId, cardIdByChatId.get(row.chatId) ?? activeCardId),
+        chatId: row.chatId,
+        prompt: row.compiledPrompt,
+        ...(row.negativePrompt ? { negativePrompt: row.negativePrompt } : {}),
+        ...(row.provider ? { provider: row.provider } : {}),
+        ...(row.stylePreset ? { model: row.stylePreset } : {}),
+        status: getString(snapshotMap.status, row.resultUri ? "generated" : "prompt_ready"),
+        ...(row.resultUri ? { imageUrl: row.resultUri } : {}),
+        createdAt: row.createdAt,
+      };
+    });
+}
+
+function omitRuntimeCardSideData(card: RuntimeCardRecord): RuntimeCardRecord {
+  const {
+    memory: _memory,
+    lorebooks: _lorebooks,
+    rpg: _rpg,
+    ...baseCard
+  } = card as RuntimeCardRecord & {
+    memory?: unknown;
+    lorebooks?: unknown;
+    rpg?: unknown;
+  };
+  return baseCard;
+}
+
 function collectSnapshotSideTableIds(snapshot: Partial<RepositoryRuntimeSnapshot> | null): {
   imagePromptRunIds: Set<string>;
   lorebookIds: Set<string>;
@@ -593,7 +723,15 @@ function flattenSnapshotMessages(snapshot: RepositoryRuntimeSnapshot): RuntimeMe
   }
   for (const session of snapshot.chatSessions ?? []) {
     for (const message of session.messages ?? []) {
-      messages.set(message.id, message);
+      const existing = messages.get(message.id) ?? message;
+      const existingSessionIds = getStringArray(
+        (existing as Record<string, unknown>)[RUNTIME_SESSION_IDS_METADATA_KEY],
+      );
+      messages.set(message.id, {
+        ...existing,
+        ...message,
+        [RUNTIME_SESSION_IDS_METADATA_KEY]: [...new Set([...existingSessionIds, session.id])],
+      });
     }
   }
   return [...messages.values()];

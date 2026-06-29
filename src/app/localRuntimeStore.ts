@@ -77,17 +77,70 @@ export function saveLocalRuntimeSnapshot<Card, Message, PromptRun, ChatSession =
     return;
   }
 
-  window.localStorage.setItem(
-    RUNTIME_STORAGE_KEY,
-    JSON.stringify({
-      ...snapshot,
-      chatSessions: Array.isArray(snapshot.chatSessions) ? snapshot.chatSessions : undefined,
-      activeChatIds: sanitizeStringRecord(snapshot.activeChatIds),
-      providerSettings: sanitizePersistedProviderSettings(snapshot.providerSettings),
-      imageProviderSettings: sanitizePersistedImageProviderSettings(snapshot.imageProviderSettings),
-      runtimeSettings: sanitizePersistedRuntimeSettings(snapshot.runtimeSettings),
-      generatedMaps: sanitizeGeneratedMaps(snapshot.generatedMaps),
-    }),
+  const persisted = toPersistedLocalRuntimeSnapshot(snapshot);
+  try {
+    window.localStorage.setItem(RUNTIME_STORAGE_KEY, JSON.stringify(persisted));
+  } catch (error) {
+    if (!isQuotaExceededError(error)) {
+      throw error;
+    }
+
+    try {
+      window.localStorage.setItem(RUNTIME_STORAGE_KEY, JSON.stringify(compactLocalRuntimeSnapshot(persisted)));
+    } catch (retryError) {
+      if (!isQuotaExceededError(retryError)) {
+        throw retryError;
+      }
+    }
+  }
+}
+
+function toPersistedLocalRuntimeSnapshot<Card, Message, PromptRun, ChatSession>(
+  snapshot: LocalRuntimeSnapshot<Card, Message, PromptRun, ChatSession>,
+): LocalRuntimeSnapshot<Card, Message, PromptRun, ChatSession> {
+  return {
+    ...snapshot,
+    chatSessions: Array.isArray(snapshot.chatSessions) ? snapshot.chatSessions : undefined,
+    activeChatIds: sanitizeStringRecord(snapshot.activeChatIds),
+    providerSettings: sanitizePersistedProviderSettings(snapshot.providerSettings),
+    imageProviderSettings: sanitizePersistedImageProviderSettings(snapshot.imageProviderSettings),
+    runtimeSettings: sanitizePersistedRuntimeSettings(snapshot.runtimeSettings),
+    generatedMaps: sanitizeGeneratedMaps(snapshot.generatedMaps),
+  };
+}
+
+function compactLocalRuntimeSnapshot<Card, Message, PromptRun, ChatSession>(
+  snapshot: LocalRuntimeSnapshot<Card, Message, PromptRun, ChatSession>,
+): LocalRuntimeSnapshot<Card, Message, PromptRun, ChatSession> {
+  return {
+    ...snapshot,
+    messages: snapshot.messages.slice(-100),
+    chatSessions: compactChatSessions(snapshot.chatSessions),
+    promptRuns: snapshot.promptRuns.slice(-100),
+    generatedMaps: sanitizeGeneratedMaps(snapshot.generatedMaps).slice(-5),
+  };
+}
+
+function compactChatSessions<ChatSession>(chatSessions: ChatSession[] | undefined): ChatSession[] | undefined {
+  if (!Array.isArray(chatSessions)) {
+    return undefined;
+  }
+
+  return chatSessions.map((session) => {
+    if (!isRecord(session) || !Array.isArray(session.messages)) {
+      return session;
+    }
+    return {
+      ...session,
+      messages: session.messages.slice(-50),
+    } as ChatSession;
+  });
+}
+
+function isQuotaExceededError(error: unknown): boolean {
+  return (
+    error instanceof DOMException &&
+    (error.name === "QuotaExceededError" || error.name === "NS_ERROR_DOM_QUOTA_REACHED")
   );
 }
 

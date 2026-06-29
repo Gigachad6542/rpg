@@ -67,6 +67,19 @@ describe("SQLite migrations", () => {
     ).resolves.toEqual([]);
     expect(db.hasTable("transient_table")).toBe(false);
   });
+
+  it("defines runtime relation constraints and lookup indexes", () => {
+    const schemaSql = sqliteMigrations.flatMap((migration) => migration.statements).join("\n");
+
+    expect(schemaSql).toMatch(/FOREIGN KEY\s*\(chat_id\)\s+REFERENCES chats\(id\)/i);
+    expect(schemaSql).toMatch(/CHECK\s*\(role IN \('system', 'user', 'assistant', 'tool', 'narrator'\)\)/i);
+    expect(schemaSql).toContain("idx_messages_chat_branch_created");
+    expect(schemaSql).toContain("idx_prompt_runs_chat_created");
+    expect(schemaSql).toContain("idx_image_prompt_runs_chat_created");
+    expect(schemaSql).toContain("idx_lorebook_entries_lorebook_updated");
+    expect(schemaSql).toContain("idx_memory_entries_chat_updated");
+    expect(schemaSql).toContain("idx_rpg_state_snapshots_chat_created");
+  });
 });
 
 function createStrictSqliteLikeDriver(): SqlDriver {

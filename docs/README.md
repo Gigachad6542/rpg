@@ -13,3 +13,5 @@ This folder keeps operational notes and verification evidence for the local-firs
   migration, provider-secret, and prompt-debugger hardening pass.
 - [Continuity hardening TDD evidence](testing/continuity-hardening.tdd.md) records the branch id,
   prompt-run id, RPG side-table pruning, domain-contract, CI, and desktop-build hardening pass.
+- [Next-step hardening TDD evidence](testing/next-step-hardening.tdd.md) records the normalized
+  persistence authority, schema integrity, dev path confinement, and quota fallback pass.

@@ -12,6 +12,7 @@ const SCHEMA_NAME: &str = "initial_core_schema";
 const RUNTIME_CHAT_ID: &str = "chat_local_cards_runtime";
 const RUNTIME_BRANCH_ID: &str = "branch_local_cards_runtime";
 const RUNTIME_SNAPSHOT_CHARACTER_ID: &str = "char_local_cards_runtime_snapshot";
+const RUNTIME_SESSION_IDS_METADATA_KEY: &str = "__runtimeChatSessionIds";
 const MAX_SNAPSHOT_BYTES: usize = 10 * 1024 * 1024;
 const MAX_CARDS: usize = 500;
 const MAX_CHAT_SESSIONS: usize = 1_000;
@@ -131,6 +132,12 @@ fn resolve_development_database_path(input: &str) -> RepoResult<PathBuf> {
     #[cfg(debug_assertions)]
     {
         let path = PathBuf::from(input);
+        if path.is_absolute() {
+            return Err(RuntimeRepositoryError::Validation(
+                "databasePath must be relative to the development runtime data directory."
+                    .to_string(),
+            ));
+        }
         if path.as_os_str().is_empty()
             || path
                 .components()
@@ -145,12 +152,14 @@ fn resolve_development_database_path(input: &str) -> RepoResult<PathBuf> {
                 "databasePath must include a database file name.".to_string(),
             ));
         }
-        if let Some(parent) = path.parent() {
+        let base = std::env::temp_dir().join("local-first-ai-rpg-runtime-dev");
+        let resolved = base.join(path);
+        if let Some(parent) = resolved.parent() {
             if !parent.as_os_str().is_empty() {
                 std::fs::create_dir_all(parent).map_err(|_| RuntimeRepositoryError::Storage)?;
             }
         }
-        Ok(path)
+        Ok(resolved)
     }
 }
 
@@ -162,12 +171,23 @@ fn initialize_repository_at_path(path: &Path) -> RepoResult<Vec<MigrationRun>> {
     }
 
     let mut conn = Connection::open(path).map_err(|_| RuntimeRepositoryError::Storage)?;
+    configure_connection(&conn)?;
     run_migrations(&mut conn)
 }
 
 fn open_migrated_connection(path: &Path) -> RepoResult<Connection> {
     initialize_repository_at_path(path)?;
-    Connection::open(path).map_err(|_| RuntimeRepositoryError::Storage)
+    let conn = Connection::open(path).map_err(|_| RuntimeRepositoryError::Storage)?;
+    configure_connection(&conn)?;
+    Ok(conn)
+}
+
+fn configure_connection(conn: &Connection) -> RepoResult<()> {
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+    conn.busy_timeout(std::time::Duration::from_millis(5_000))
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+    Ok(())
 }
 
 fn run_migrations(conn: &mut Connection) -> RepoResult<Vec<MigrationRun>> {
@@ -234,6 +254,22 @@ fn load_runtime_snapshot_at_path(path: &Path) -> RepoResult<Option<Value>> {
         return Ok(None);
     }
 
+    let runtime_branch_id = conn
+        .query_row(
+            "SELECT active_branch_id FROM chats WHERE id = ?1 LIMIT 1",
+            params![RUNTIME_CHAT_ID],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+    let runtime_rows_are_authoritative = runtime_branch_id.is_some();
+    let branch_id = runtime_branch_id.unwrap_or_else(|| RUNTIME_BRANCH_ID.to_string());
+    let normalized_messages = if runtime_rows_are_authoritative {
+        load_normalized_messages(&conn, &branch_id)?
+    } else {
+        Vec::new()
+    };
+
     let cards = overlay_normalized_card_data(
         &conn,
         object
@@ -241,6 +277,7 @@ fn load_runtime_snapshot_at_path(path: &Path) -> RepoResult<Option<Value>> {
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default(),
+        runtime_rows_are_authoritative,
     )?;
     object.insert("version".to_string(), json!(2));
     object.insert(
@@ -267,28 +304,31 @@ fn load_runtime_snapshot_at_path(path: &Path) -> RepoResult<Option<Value>> {
     object.insert("activeCardId".to_string(), json!(active_card_id));
     object.insert("cards".to_string(), Value::Array(cards));
 
-    let branch_id = conn
-        .query_row(
-            "SELECT active_branch_id FROM chats WHERE id = ?1 LIMIT 1",
-            params![RUNTIME_CHAT_ID],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(|_| RuntimeRepositoryError::Storage)?
-        .unwrap_or_else(|| RUNTIME_BRANCH_ID.to_string());
-    if !matches!(object.get("messages"), Some(Value::Array(_))) {
+    if runtime_rows_are_authoritative || !matches!(object.get("messages"), Some(Value::Array(_))) {
         object.insert(
             "messages".to_string(),
-            Value::Array(load_normalized_messages(&conn, &branch_id)?),
+            Value::Array(
+                normalized_messages
+                    .iter()
+                    .map(strip_runtime_message_metadata)
+                    .collect(),
+            ),
         );
     }
-    if !matches!(object.get("promptRuns"), Some(Value::Array(_))) {
+    if runtime_rows_are_authoritative || !matches!(object.get("promptRuns"), Some(Value::Array(_)))
+    {
         object.insert(
             "promptRuns".to_string(),
             Value::Array(load_normalized_prompt_runs(&conn)?),
         );
     }
-    if !matches!(object.get("chatSessions"), Some(Value::Array(_))) {
+    if let Some(chat_sessions) = build_runtime_chat_sessions(
+        object.get("chatSessions"),
+        &normalized_messages,
+        runtime_rows_are_authoritative,
+    ) {
+        object.insert("chatSessions".to_string(), chat_sessions);
+    } else {
         object.remove("chatSessions");
     }
     if let Some(active_chat_ids) = sanitize_string_record(object.get("activeChatIds")) {
@@ -313,7 +353,12 @@ fn load_runtime_snapshot_at_path(path: &Path) -> RepoResult<Option<Value>> {
     if !matches!(object.get("runtimeSettings"), Some(Value::Object(_))) {
         object.remove("runtimeSettings");
     }
-    if !matches!(object.get("generatedMaps"), Some(Value::Array(_))) {
+    if runtime_rows_are_authoritative {
+        object.insert(
+            "generatedMaps".to_string(),
+            Value::Array(load_normalized_generated_maps(&conn, object)?),
+        );
+    } else if !matches!(object.get("generatedMaps"), Some(Value::Array(_))) {
         object.insert("generatedMaps".to_string(), Value::Array(Vec::new()));
     }
     if !matches!(object.get("savedAt"), Some(Value::String(_))) {
@@ -354,9 +399,18 @@ fn save_runtime_snapshot_in_transaction(
     Ok(())
 }
 
-fn overlay_normalized_card_data(conn: &Connection, cards: Vec<Value>) -> RepoResult<Vec<Value>> {
+fn overlay_normalized_card_data(
+    conn: &Connection,
+    cards: Vec<Value>,
+    authoritative: bool,
+) -> RepoResult<Vec<Value>> {
     let memories = load_memory_rows(conn)?;
     let rpg_snapshots = load_rpg_rows(conn)?;
+    let lorebooks_by_card = if authoritative {
+        load_lorebooks_by_card(conn)?
+    } else {
+        HashMap::new()
+    };
     let mut result = Vec::with_capacity(cards.len());
 
     for mut card in cards {
@@ -370,7 +424,23 @@ fn overlay_normalized_card_data(conn: &Connection, cards: Vec<Value>) -> RepoRes
             .unwrap_or_default()
             .to_string();
 
-        if let Some(Value::Array(lorebooks)) = card_object.get_mut("lorebooks") {
+        if authoritative {
+            card_object.remove("memory");
+            card_object.remove("lorebooks");
+            card_object.remove("rpg");
+            let mut lorebooks = lorebooks_by_card.get(&card_id).cloned().unwrap_or_default();
+            for lorebook in lorebooks.iter_mut() {
+                let Some(lorebook_object) = lorebook.as_object_mut() else {
+                    continue;
+                };
+                let Some(lorebook_id) = lorebook_object.get("id").and_then(Value::as_str) else {
+                    continue;
+                };
+                let entries = load_lorebook_entries(conn, lorebook_id)?;
+                lorebook_object.insert("entries".to_string(), Value::Array(entries));
+            }
+            card_object.insert("lorebooks".to_string(), Value::Array(lorebooks));
+        } else if let Some(Value::Array(lorebooks)) = card_object.get_mut("lorebooks") {
             for lorebook in lorebooks.iter_mut() {
                 let Some(lorebook_object) = lorebook.as_object_mut() else {
                     continue;
@@ -396,7 +466,7 @@ fn overlay_normalized_card_data(conn: &Connection, cards: Vec<Value>) -> RepoRes
                 })
             })
             .collect();
-        if !card_memories.is_empty() {
+        if authoritative || !card_memories.is_empty() {
             card_object.insert("memory".to_string(), Value::Array(card_memories));
         }
 
@@ -440,6 +510,65 @@ fn load_normalized_messages(conn: &Connection, branch_id: &str) -> RepoResult<Ve
         messages.push(Value::Object(object));
     }
     Ok(messages)
+}
+
+fn strip_runtime_message_metadata(message: &Value) -> Value {
+    let Some(object) = message.as_object() else {
+        return message.clone();
+    };
+    let mut public_message = object.clone();
+    public_message.remove(RUNTIME_SESSION_IDS_METADATA_KEY);
+    Value::Object(public_message)
+}
+
+fn build_runtime_chat_sessions(
+    snapshot_sessions: Option<&Value>,
+    normalized_messages: &[Value],
+    runtime_rows_are_authoritative: bool,
+) -> Option<Value> {
+    let sessions = snapshot_sessions?.as_array()?;
+    if !runtime_rows_are_authoritative {
+        return Some(Value::Array(sessions.clone()));
+    }
+
+    let public_messages: Vec<Value> = normalized_messages
+        .iter()
+        .map(strip_runtime_message_metadata)
+        .collect();
+    let mut messages_by_session: HashMap<String, Vec<Value>> = HashMap::new();
+    for message in normalized_messages {
+        for session_id in string_vec_at(message, RUNTIME_SESSION_IDS_METADATA_KEY) {
+            messages_by_session
+                .entry(session_id)
+                .or_default()
+                .push(strip_runtime_message_metadata(message));
+        }
+    }
+
+    let rebuilt: Vec<Value> = sessions
+        .iter()
+        .enumerate()
+        .map(|(index, session)| {
+            let mut session = session.clone();
+            let Some(object) = session.as_object_mut() else {
+                return session;
+            };
+            let session_id = object.get("id").and_then(Value::as_str).unwrap_or_default();
+            let messages = messages_by_session
+                .get(session_id)
+                .cloned()
+                .unwrap_or_else(|| {
+                    if index == 0 {
+                        public_messages.clone()
+                    } else {
+                        Vec::new()
+                    }
+                });
+            object.insert("messages".to_string(), Value::Array(messages));
+            session
+        })
+        .collect();
+    Some(Value::Array(rebuilt))
 }
 
 fn load_normalized_prompt_runs(conn: &Connection) -> RepoResult<Vec<Value>> {
@@ -527,6 +656,115 @@ fn load_normalized_prompt_runs(conn: &Connection) -> RepoResult<Vec<Value>> {
     Ok(prompt_runs)
 }
 
+fn load_normalized_generated_maps(
+    conn: &Connection,
+    snapshot_object: &Map<String, Value>,
+) -> RepoResult<Vec<Value>> {
+    let active_chat_ids = sanitize_string_record(snapshot_object.get("activeChatIds"))
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    let mut card_id_by_chat_id = HashMap::<String, String>::new();
+    for (card_id, chat_id) in active_chat_ids {
+        if let Some(chat_id) = chat_id.as_str() {
+            card_id_by_chat_id.insert(chat_id.to_string(), card_id);
+        }
+    }
+    let snapshot_maps_by_id: HashMap<String, Map<String, Value>> = snapshot_object
+        .get("generatedMaps")
+        .and_then(Value::as_array)
+        .map(|maps| {
+            maps.iter()
+                .filter_map(|map| {
+                    let object = map.as_object()?.clone();
+                    let id = object.get("id")?.as_str()?.to_string();
+                    Some((id, object))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let active_card_id = snapshot_object
+        .get("activeCardId")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+
+    let mut statement = conn
+        .prepare(
+            "SELECT id, chat_id, provider, compiled_prompt, negative_prompt, style_preset, result_uri, created_at FROM image_prompt_runs ORDER BY created_at ASC",
+        )
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, String>(7)?,
+            ))
+        })
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+
+    let mut maps = Vec::new();
+    for row in rows {
+        let (
+            id,
+            chat_id,
+            provider,
+            compiled_prompt,
+            negative_prompt,
+            style_preset,
+            result_uri,
+            created_at,
+        ) = row.map_err(|_| RuntimeRepositoryError::Storage)?;
+        if !card_id_by_chat_id.is_empty()
+            && !card_id_by_chat_id.contains_key(&chat_id)
+            && chat_id != RUNTIME_CHAT_ID
+        {
+            continue;
+        }
+        let mut object = snapshot_maps_by_id.get(&id).cloned().unwrap_or_default();
+        let card_id = object
+            .get("cardId")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+            .or_else(|| card_id_by_chat_id.get(&chat_id).cloned())
+            .unwrap_or_else(|| active_card_id.clone());
+        object.insert("id".to_string(), json!(id));
+        object.insert("cardId".to_string(), json!(card_id));
+        object.insert("chatId".to_string(), json!(chat_id));
+        object.insert("prompt".to_string(), json!(compiled_prompt));
+        if let Some(negative_prompt) = negative_prompt {
+            object.insert("negativePrompt".to_string(), json!(negative_prompt));
+        }
+        if let Some(provider) = provider {
+            object.insert("provider".to_string(), json!(provider));
+        }
+        if let Some(style_preset) = style_preset {
+            object.insert("model".to_string(), json!(style_preset));
+        }
+        if !matches!(object.get("status"), Some(Value::String(_))) {
+            object.insert(
+                "status".to_string(),
+                json!(if result_uri.is_some() {
+                    "generated"
+                } else {
+                    "prompt_ready"
+                }),
+            );
+        }
+        if let Some(result_uri) = result_uri {
+            object.insert("imageUrl".to_string(), json!(result_uri));
+        }
+        object.insert("createdAt".to_string(), json!(created_at));
+        maps.push(Value::Object(object));
+    }
+    Ok(maps)
+}
+
 fn load_memory_rows(conn: &Connection) -> RepoResult<Vec<MemoryRow>> {
     let mut statement = conn
         .prepare(
@@ -564,6 +802,41 @@ fn load_rpg_rows(conn: &Connection) -> RepoResult<HashMap<String, Value>> {
         map.insert(world_id, payload);
     }
     Ok(map)
+}
+
+fn load_lorebooks_by_card(conn: &Connection) -> RepoResult<HashMap<String, Vec<Value>>> {
+    let mut statement = conn
+        .prepare("SELECT id, name, description FROM lorebooks WHERE description LIKE 'card:%' ORDER BY updated_at ASC")
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+
+    let mut lorebooks_by_card: HashMap<String, Vec<Value>> = HashMap::new();
+    for row in rows {
+        let (id, name, description) = row.map_err(|_| RuntimeRepositoryError::Storage)?;
+        let Some(description) = description else {
+            continue;
+        };
+        let Some(card_id) = description.strip_prefix("card:") else {
+            continue;
+        };
+        lorebooks_by_card
+            .entry(card_id.to_string())
+            .or_default()
+            .push(json!({
+                "id": id,
+                "name": name,
+                "description": description,
+            }));
+    }
+    Ok(lorebooks_by_card)
 }
 
 fn load_lorebook_entries(conn: &Connection, lorebook_id: &str) -> RepoResult<Vec<Value>> {
@@ -1233,24 +1506,51 @@ fn collect_snapshot_side_table_ids(snapshot: Option<&Value>) -> SnapshotSideTabl
 
 fn flatten_snapshot_messages(snapshot: &Value) -> Vec<Value> {
     let mut messages = Vec::<Value>::new();
-    let mut seen = BTreeSet::new();
+    let mut positions = HashMap::<String, usize>::new();
     for message in array_at(snapshot, "messages") {
         if let Some(id) = message.get("id").and_then(Value::as_str) {
-            if seen.insert(id.to_string()) {
+            if !positions.contains_key(id) {
+                positions.insert(id.to_string(), messages.len());
                 messages.push(message.clone());
             }
         }
     }
     for session in array_at(snapshot, "chatSessions") {
+        let session_id = string_at(session, "id", "");
+        if session_id.is_empty() {
+            continue;
+        }
         for message in array_at(session, "messages") {
             if let Some(id) = message.get("id").and_then(Value::as_str) {
-                if seen.insert(id.to_string()) {
-                    messages.push(message.clone());
+                if let Some(position) = positions.get(id).copied() {
+                    messages[position] = with_runtime_session_id(&messages[position], &session_id);
+                } else {
+                    positions.insert(id.to_string(), messages.len());
+                    messages.push(with_runtime_session_id(message, &session_id));
                 }
             }
         }
     }
     messages
+}
+
+fn with_runtime_session_id(message: &Value, session_id: &str) -> Value {
+    let mut message = message.clone();
+    let Some(object) = message.as_object_mut() else {
+        return message;
+    };
+    let mut session_ids = string_vec_at(
+        &Value::Object(object.clone()),
+        RUNTIME_SESSION_IDS_METADATA_KEY,
+    );
+    if !session_ids.iter().any(|id| id == session_id) {
+        session_ids.push(session_id.to_string());
+    }
+    object.insert(
+        RUNTIME_SESSION_IDS_METADATA_KEY.to_string(),
+        Value::Array(session_ids.into_iter().map(Value::String).collect()),
+    );
+    message
 }
 
 fn find_assistant_message_id_for_run(messages: &[Value], run_id: &str) -> Option<String> {
@@ -1380,6 +1680,20 @@ fn string_array_at(value: &Value, key: &str) -> Value {
     Value::Array(items)
 }
 
+fn string_vec_at(value: &Value, key: &str) -> Vec<String> {
+    value
+        .get(key)
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(ToOwned::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn parse_json(value: &str, fallback: Value) -> Value {
     serde_json::from_str(value).unwrap_or(fallback)
 }
@@ -1484,7 +1798,8 @@ const SCHEMA_STATEMENTS: &[&str] = &[
       version INTEGER NOT NULL,
       card_json TEXT NOT NULL,
       change_reason TEXT,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE
     )"#,
     r#"CREATE TABLE IF NOT EXISTS chats (
       id TEXT PRIMARY KEY,
@@ -1506,22 +1821,26 @@ const SCHEMA_STATEMENTS: &[&str] = &[
       head_message_id TEXT,
       base_message_id TEXT,
       label TEXT NOT NULL,
-      is_active INTEGER NOT NULL,
+      is_active INTEGER NOT NULL CHECK (is_active IN (0, 1)),
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
     )"#,
     r#"CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
       chat_id TEXT NOT NULL,
       branch_id TEXT NOT NULL,
       parent_message_id TEXT,
-      role TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool', 'narrator')),
       content TEXT NOT NULL,
       state_snapshot_id TEXT,
       prompt_run_id TEXT,
       metadata_json TEXT NOT NULL DEFAULT '{}',
       updated_at TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+      FOREIGN KEY (branch_id) REFERENCES message_branches(id) ON DELETE CASCADE,
+      FOREIGN KEY (parent_message_id) REFERENCES messages(id) ON DELETE SET NULL
     )"#,
     r#"CREATE TABLE IF NOT EXISTS events (
       id TEXT PRIMARY KEY,
@@ -1532,9 +1851,12 @@ const SCHEMA_STATEMENTS: &[&str] = &[
       occurred_at TEXT,
       location TEXT,
       participant_character_ids_json TEXT NOT NULL,
-      world_truth INTEGER NOT NULL,
+      world_truth INTEGER NOT NULL CHECK (world_truth IN (0, 1)),
       metadata_json TEXT,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+      FOREIGN KEY (branch_id) REFERENCES message_branches(id) ON DELETE SET NULL,
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE SET NULL
     )"#,
     r#"CREATE TABLE IF NOT EXISTS character_knowledge (
       id TEXT PRIMARY KEY,
@@ -1547,7 +1869,10 @@ const SCHEMA_STATEMENTS: &[&str] = &[
       emotional_reaction TEXT,
       can_discuss_with_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE,
+      FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
+      FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE SET NULL
     )"#,
     r#"CREATE TABLE IF NOT EXISTS relationships (
       id TEXT PRIMARY KEY,
@@ -1571,14 +1896,17 @@ const SCHEMA_STATEMENTS: &[&str] = &[
       related_event_ids_json TEXT NOT NULL,
       last_accessed_at TEXT,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      CHECK (pinned IN (0, 1)),
+      FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
     )"#,
     r#"CREATE TABLE IF NOT EXISTS memory_archive (
       id TEXT PRIMARY KEY,
       source_memory_id TEXT NOT NULL,
       archive_reason TEXT NOT NULL,
       payload_json TEXT NOT NULL,
-      archived_at TEXT NOT NULL
+      archived_at TEXT NOT NULL,
+      FOREIGN KEY (source_memory_id) REFERENCES memory_entries(id) ON DELETE CASCADE
     )"#,
     r#"CREATE TABLE IF NOT EXISTS lorebooks (
       id TEXT PRIMARY KEY,
@@ -1592,11 +1920,12 @@ const SCHEMA_STATEMENTS: &[&str] = &[
       lorebook_id TEXT NOT NULL,
       title TEXT NOT NULL,
       content TEXT NOT NULL,
-      constant INTEGER NOT NULL,
+      constant INTEGER NOT NULL CHECK (constant IN (0, 1)),
       triggers_json TEXT NOT NULL,
       token_budget INTEGER,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (lorebook_id) REFERENCES lorebooks(id) ON DELETE CASCADE
     )"#,
     r#"CREATE TABLE IF NOT EXISTS rpg_worlds (
       id TEXT PRIMARY KEY,
@@ -1613,7 +1942,9 @@ const SCHEMA_STATEMENTS: &[&str] = &[
       branch_id TEXT NOT NULL,
       message_id TEXT NOT NULL,
       payload_json TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+      FOREIGN KEY (branch_id) REFERENCES message_branches(id) ON DELETE CASCADE
     )"#,
     r#"CREATE TABLE IF NOT EXISTS prompt_runs (
       id TEXT PRIMARY KEY,
@@ -1632,7 +1963,9 @@ const SCHEMA_STATEMENTS: &[&str] = &[
       state_changes_json TEXT,
       request_json TEXT NOT NULL DEFAULT '{}',
       model_settings_json TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE SET NULL
     )"#,
     r#"CREATE TABLE IF NOT EXISTS image_prompt_runs (
       id TEXT PRIMARY KEY,
@@ -1643,8 +1976,23 @@ const SCHEMA_STATEMENTS: &[&str] = &[
       negative_prompt TEXT,
       style_preset TEXT,
       result_uri TEXT,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE SET NULL
     )"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_message_branches_chat_active
+      ON message_branches(chat_id, is_active)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_messages_chat_branch_created
+      ON messages(chat_id, branch_id, created_at)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_prompt_runs_chat_created
+      ON prompt_runs(chat_id, created_at)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_image_prompt_runs_chat_created
+      ON image_prompt_runs(chat_id, created_at)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_lorebook_entries_lorebook_updated
+      ON lorebook_entries(lorebook_id, updated_at)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_memory_entries_chat_updated
+      ON memory_entries(chat_id, updated_at)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_rpg_state_snapshots_chat_created
+      ON rpg_state_snapshots(chat_id, created_at)"#,
 ];
 
 #[cfg(test)]
@@ -1724,6 +2072,136 @@ mod tests {
         let loaded = load_runtime_snapshot_at_path(&path).unwrap().unwrap();
         assert_eq!(string_at(&loaded, "activeCardId", ""), "legacy-card");
         cleanup(&path);
+    }
+
+    #[test]
+    fn normalized_rows_win_over_stale_snapshot_blob() {
+        let path = temp_db_path("normalized_rows_win_over_stale_snapshot_blob");
+        let mut snapshot = fixture_snapshot("card_blank_slate_rpg");
+        snapshot["chatSessions"] = json!([
+            {
+                "id": "chat-card",
+                "cardId": "card_blank_slate_rpg",
+                "title": "Card chat",
+                "messages": snapshot["messages"].clone()
+            }
+        ]);
+        snapshot["activeChatIds"] = json!({
+            "card_blank_slate_rpg": "chat-card"
+        });
+        snapshot["promptRuns"][0]["chatId"] = json!("chat-card");
+        snapshot["generatedMaps"][0]["chatId"] = json!("chat-card");
+        save_runtime_snapshot_at_path(&path, snapshot.clone()).unwrap();
+
+        let mut stale_snapshot = snapshot;
+        stale_snapshot["cards"][0]["memory"] = json!([
+            {
+                "id": "stale-memory",
+                "label": "Stale",
+                "detail": "This stale memory should not load."
+            }
+        ]);
+        stale_snapshot["cards"][0]["lorebooks"] = json!([]);
+        stale_snapshot["cards"][0]["rpg"] = json!({ "location": "Wrong room" });
+        stale_snapshot["messages"] = json!([
+            { "id": "stale-message", "role": "assistant", "content": "stale" }
+        ]);
+        stale_snapshot["chatSessions"][0]["messages"] = json!([
+            { "id": "stale-session-message", "role": "assistant", "content": "stale" }
+        ]);
+        stale_snapshot["promptRuns"] = json!([
+            {
+                "id": "stale-run",
+                "cardId": "card_blank_slate_rpg",
+                "chatId": "chat-card",
+                "compiledPrompt": "stale",
+                "response": "stale",
+                "provider": "mock",
+                "model": "mock",
+                "tokenEstimate": 1,
+                "includedLayerIds": [],
+                "includedLoreEntryIds": [],
+                "warnings": [],
+                "stateChanges": []
+            }
+        ]);
+        stale_snapshot["generatedMaps"] = json!([
+            {
+                "id": "stale-map",
+                "cardId": "card_blank_slate_rpg",
+                "chatId": "chat-card",
+                "prompt": "stale map",
+                "status": "prompt_ready",
+                "createdAt": "2026-06-27T20:01:00.000Z"
+            }
+        ]);
+
+        let conn = open_migrated_connection(&path).unwrap();
+        conn.execute(
+            "UPDATE characters SET profile_json = ?1 WHERE id = ?2",
+            params![
+                json_string(&json!({ "snapshot": stale_snapshot })),
+                RUNTIME_SNAPSHOT_CHARACTER_ID
+            ],
+        )
+        .unwrap();
+        drop(conn);
+
+        let loaded = load_runtime_snapshot_at_path(&path).unwrap().unwrap();
+        assert_eq!(loaded["cards"][0]["memory"][0]["id"], json!("memory-1"));
+        assert_eq!(loaded["cards"][0]["lorebooks"][0]["id"], json!("lore-1"));
+        assert_eq!(
+            loaded["cards"][0]["lorebooks"][0]["entries"][0]["id"],
+            json!("lore-gate")
+        );
+        assert_eq!(loaded["cards"][0]["rpg"]["location"], json!("Cellar"));
+        assert_eq!(loaded["messages"][0]["id"], json!("assistant-run_001"));
+        assert_eq!(
+            loaded["chatSessions"][0]["messages"][0]["id"],
+            json!("assistant-run_001")
+        );
+        assert_eq!(loaded["promptRuns"][0]["id"], json!("run_001"));
+        assert_eq!(loaded["generatedMaps"][0]["id"], json!("map-1"));
+        assert_eq!(loaded["generatedMaps"][0]["chatId"], json!("chat-card"));
+        cleanup(&path);
+    }
+
+    #[test]
+    fn sqlite_foreign_keys_are_enforced() {
+        let path = temp_db_path("sqlite_foreign_keys_are_enforced");
+        initialize_repository_at_path(&path).unwrap();
+        let conn = open_migrated_connection(&path).unwrap();
+        let result = conn.execute(
+            "INSERT INTO messages (id, chat_id, branch_id, role, content, metadata_json, updated_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                "orphan-message",
+                "missing-chat",
+                "missing-branch",
+                "assistant",
+                "orphan",
+                "{}",
+                now_iso(),
+                now_iso()
+            ],
+        );
+        assert!(result.is_err());
+        cleanup(&path);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn development_database_path_is_confined_to_temp_workspace() {
+        let base = std::env::temp_dir().join("local-first-ai-rpg-runtime-dev");
+        let path = resolve_development_database_path("nested/test.db").unwrap();
+        assert!(path.starts_with(&base));
+        assert!(resolve_development_database_path("../escape.db").is_err());
+        assert!(resolve_development_database_path(
+            &std::env::temp_dir()
+                .join("outside-runtime-dev.db")
+                .to_string_lossy()
+        )
+        .is_err());
+        let _ = std::fs::remove_dir_all(base);
     }
 
     #[test]

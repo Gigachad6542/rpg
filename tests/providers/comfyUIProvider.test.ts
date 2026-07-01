@@ -530,6 +530,25 @@ describe("ComfyUI image provider", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("redacts secret-like details from ComfyUI error bodies", async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(
+      new Response("bad Authorization Bearer sk-comfy-secret-token and another_token_value_12345678901234567890", {
+        status: 401,
+        statusText: "Unauthorized",
+      }),
+    );
+    const provider = new ComfyUIImageProvider({
+      endpoint: "http://127.0.0.1:8188",
+      apiKey: "comfy-session-key",
+      workflowJson: JSON.stringify({ "1": { class_type: "SaveImage", inputs: { text: "{{prompt}}" } } }),
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    await expect(provider.generateImage({ model: "local-image", prompt: "map" })).rejects.toThrow(
+      /ComfyUI queue failed \(401\): \[redacted\]/,
+    );
+  });
+
   it("binds the default browser fetch before queueing workflows", async () => {
     const fetchImpl = vi
       .fn()

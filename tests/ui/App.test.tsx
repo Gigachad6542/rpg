@@ -340,6 +340,35 @@ describe("local-first card runtime UI", () => {
     });
   });
 
+  it("does not persist full compiled prompts unless prompt debug logs are enabled", async () => {
+    await renderApp();
+
+    openBlankRpgCard();
+    sendRuntimeMessage("I inspect the private room.");
+    await waitFor(() => expect(screen.getByRole("log", { name: /Chat transcript/i })).toHaveTextContent(/private room/i));
+
+    await waitFor(() => {
+      const snapshot = JSON.parse(window.localStorage.getItem(RUNTIME_STORAGE_KEY) ?? "{}") as {
+        promptRuns?: Array<{ compiledPrompt?: string; includedLayerIds?: string[] }>;
+      };
+      expect(snapshot.promptRuns?.[0]?.includedLayerIds?.length).toBeGreaterThan(0);
+      expect(snapshot.promptRuns?.[0]?.compiledPrompt).toBe("");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Settings/i }));
+    fireEvent.click(screen.getByLabelText(/Prompt debug logs/i));
+
+    sendRuntimeMessage("I inspect the logged room.");
+    await waitFor(() => expect(screen.getByRole("log", { name: /Chat transcript/i })).toHaveTextContent(/logged room/i));
+
+    await waitFor(() => {
+      const snapshot = JSON.parse(window.localStorage.getItem(RUNTIME_STORAGE_KEY) ?? "{}") as {
+        promptRuns?: Array<{ compiledPrompt?: string }>;
+      };
+      expect(snapshot.promptRuns?.slice(-1)[0]?.compiledPrompt).toContain("I inspect the logged room.");
+    });
+  });
+
   it("surfaces validation for required creation fields", async () => {
     await renderApp();
 

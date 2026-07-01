@@ -81,4 +81,4 @@ In browser/dev mode the compatibility snapshot is saved to `localStorage`. In th
 
 ## Project Docs
 
-Start with `docs/README.md` for the hardening notes and TDD evidence reports.
+Start with `docs/README.md` for the hardening notes.

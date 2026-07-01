@@ -1,4 +1,4 @@
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
   Brush,
@@ -12,6 +12,7 @@ import {
   Layers3,
   LockKeyhole,
   Map,
+  Maximize2,
   MessageSquare,
   Moon,
   Plus,
@@ -31,7 +32,7 @@ import {
   X,
 } from "lucide-react";
 import profileImageUrl from "../assets/local-cards-profile.png";
-import { compileImagePrompt } from "../runtime/imagePromptCompiler";
+import { compileImagePrompt, type CompiledImagePrompt } from "../runtime/imagePromptCompiler";
 import { selectActiveLorebookEntries } from "../runtime/loreTriggerEngine";
 import { type CompiledPrompt } from "../runtime/promptCompiler";
 import { compileTurnPrompt, runTurnPipeline, type RunTurnPipelineRequest } from "../runtime/turnPipeline";
@@ -40,7 +41,7 @@ import {
   type PlayerRuleDefinition,
   type PlayerRuleEnforcement,
 } from "../runtime/playerRuleEngine";
-import { ComfyUIImageProvider } from "../providers/comfyUIProvider";
+import { ComfyUIImageProvider, fetchComfyUIImageModels } from "../providers/comfyUIProvider";
 import { MockTextProvider } from "../providers/mockTextProvider";
 import { OpenAICompatibleTextProvider } from "../providers/openAICompatibleProvider";
 import { qwen37MaxReferencePreset, recommendedLocalImageProvider } from "../providers/modelPresets";
@@ -230,8 +231,11 @@ type ModelChoice = {
   label: string;
 };
 
+type GeneratedImageKind = "map" | "photo";
+
 type GeneratedMapArtifact = {
   id: string;
+  imageKind: GeneratedImageKind;
   cardId: string;
   chatId: string;
   prompt: string;
@@ -241,7 +245,13 @@ type GeneratedMapArtifact = {
   status: "prompt-only" | "generated" | "error";
   imageUrl?: string;
   error?: string;
+  userInput?: string;
   createdAt: string;
+};
+
+type MediaPreviewArtifact = {
+  artifact: GeneratedMapArtifact;
+  label: string;
 };
 
 type AppRuntimeSnapshot = LocalRuntimeSnapshot<RuntimeCard, Message, PromptRun, ChatSession> & {
@@ -345,67 +355,122 @@ const alibabaModelChoices: ModelChoice[] = [
 
 const defaultComfyWorkflowJson = JSON.stringify(
   {
-    "3": {
-      class_type: "KSampler",
+    "1": {
+      class_type: "UNETLoader",
       inputs: {
-        seed: "{{seed}}",
-        steps: "{{steps}}",
-        cfg: "{{cfg}}",
-        sampler_name: "{{sampler}}",
-        scheduler: "{{scheduler}}",
-        denoise: 1,
-        model: ["4", 0],
-        positive: ["6", 0],
-        negative: ["7", 0],
-        latent_image: ["5", 0],
+        unet_name: "{{model}}",
+        weight_dtype: "default",
+      },
+    },
+    "2": {
+      class_type: "CLIPLoader",
+      inputs: {
+        clip_name: "mistral_3_small_flux2_fp8.safetensors",
+        type: "flux2",
+      },
+    },
+    "3": {
+      class_type: "VAELoader",
+      inputs: {
+        vae_name: "flux2-vae.safetensors",
       },
     },
     "4": {
-      class_type: "CheckpointLoaderSimple",
+      class_type: "CLIPTextEncode",
       inputs: {
-        ckpt_name: "{{model}}",
+        clip: ["2", 0],
+        text: "{{prompt}}",
       },
     },
     "5": {
-      class_type: "EmptyLatentImage",
+      class_type: "FluxGuidance",
+      inputs: {
+        conditioning: ["4", 0],
+        guidance: "{{cfg}}",
+      },
+    },
+    "6": {
+      class_type: "ModelSamplingFlux",
+      inputs: {
+        model: ["1", 0],
+        width: "{{width}}",
+        height: "{{height}}",
+        max_shift: 1.15,
+        base_shift: 0.5,
+      },
+    },
+    "7": {
+      class_type: "EmptyFlux2LatentImage",
       inputs: {
         width: "{{width}}",
         height: "{{height}}",
         batch_size: 1,
       },
     },
-    "6": {
-      class_type: "CLIPTextEncode",
-      inputs: {
-        text: "{{prompt}}",
-        clip: ["4", 1],
-      },
-    },
-    "7": {
-      class_type: "CLIPTextEncode",
-      inputs: {
-        text: "{{negative_prompt}}",
-        clip: ["4", 1],
-      },
-    },
     "8": {
-      class_type: "VAEDecode",
+      class_type: "BasicGuider",
       inputs: {
-        samples: ["3", 0],
-        vae: ["4", 2],
+        model: ["6", 0],
+        conditioning: ["5", 0],
       },
     },
     "9": {
+      class_type: "KSamplerSelect",
+      inputs: {
+        sampler_name: "{{sampler}}",
+      },
+    },
+    "10": {
+      class_type: "Flux2Scheduler",
+      inputs: {
+        steps: "{{steps}}",
+        width: "{{width}}",
+        height: "{{height}}",
+      },
+    },
+    "11": {
+      class_type: "RandomNoise",
+      inputs: {
+        noise_seed: "{{seed}}",
+      },
+    },
+    "12": {
+      class_type: "SamplerCustomAdvanced",
+      inputs: {
+        noise: ["11", 0],
+        guider: ["8", 0],
+        sampler: ["9", 0],
+        sigmas: ["10", 0],
+        latent_image: ["7", 0],
+      },
+    },
+    "13": {
+      class_type: "VAEDecode",
+      inputs: {
+        samples: ["12", 0],
+        vae: ["3", 0],
+      },
+    },
+    "14": {
       class_type: "SaveImage",
       inputs: {
         filename_prefix: "local_cards",
-        images: ["8", 0],
+        images: ["13", 0],
       },
     },
   },
   null,
   2,
 );
+
+const localImageRecommendedImageSize = 1024;
+const localImageMinimumImageSize = 768;
+const localImageRecommendedSteps = 28;
+const localImageMinimumUsableSteps = 8;
+const localImageRecommendedCfg = 3.5;
+const localImageMinimumUsableCfg = 1.5;
+const localImageRecommendedSampler = "euler";
+const localImageRecommendedScheduler = "simple";
 
 const defaultImageProviderSettings: ImageProviderSettings = {
   mode: "comfyui",
@@ -414,18 +479,25 @@ const defaultImageProviderSettings: ImageProviderSettings = {
   endpoint: recommendedLocalImageProvider.endpoint,
   model: recommendedLocalImageProvider.model,
   workflowJson: defaultComfyWorkflowJson,
-  width: 1024,
-  height: 1024,
+  width: localImageRecommendedImageSize,
+  height: localImageRecommendedImageSize,
   seed: -1,
-  steps: 20,
-  cfg: 7,
-  samplerName: "euler",
-  scheduler: "normal",
-  pollTimeoutMs: 120_000,
+  steps: localImageRecommendedSteps,
+  cfg: localImageRecommendedCfg,
+  samplerName: localImageRecommendedSampler,
+  scheduler: localImageRecommendedScheduler,
+  pollTimeoutMs: 600_000,
 };
 
+const customImagePresetPrompt =
+  "realistic, 4k, high-detail, sharp focus, natural lighting, cinematic composition, vivid but grounded colors";
+
+const customImageNegativePrompt =
+  "low resolution, blurry, watermark, logo, text artifacts, distorted anatomy, malformed objects, noisy artifacts";
+
 const comfyUiModelChoices: ModelChoice[] = [
-  { id: recommendedLocalImageProvider.model, label: "Juggernaut XL v9" },
+  { id: recommendedLocalImageProvider.model, label: "FLUX.2 dev FP8 mixed" },
+  { id: "flux2-dev-nvfp4-mixed.safetensors", label: "FLUX.2 dev NVFP4 mixed" },
   { id: "sd_xl_base_1.0.safetensors", label: "SDXL Base 1.0" },
   { id: "dreamshaperXL_v21TurboDPMSDE.safetensors", label: "DreamShaper XL Turbo" },
 ];
@@ -547,13 +619,25 @@ export function App() {
   const [imagePromptDraft, setImagePromptDraft] = useState("");
   const [imageNegativePromptDraft, setImageNegativePromptDraft] = useState("");
   const [mapArtifact, setMapArtifact] = useState<GeneratedMapArtifact | null>(() =>
-    parseGeneratedMaps(initialSnapshot?.generatedMaps).find((artifact) => artifact.cardId === initialSnapshot?.activeCardId) ??
+    parseGeneratedMaps(initialSnapshot?.generatedMaps).find(
+      (artifact) => artifact.cardId === initialSnapshot?.activeCardId && artifact.imageKind === "map",
+    ) ??
+    null,
+  );
+  const [photoSpecDraft, setPhotoSpecDraft] = useState("");
+  const [photoPrompt, setPhotoPrompt] = useState("");
+  const [photoArtifact, setPhotoArtifact] = useState<GeneratedMapArtifact | null>(() =>
+    parseGeneratedMaps(initialSnapshot?.generatedMaps).find(
+      (artifact) => artifact.cardId === initialSnapshot?.activeCardId && artifact.imageKind === "photo",
+    ) ??
     null,
   );
   const [generatedMaps, setGeneratedMaps] = useState<GeneratedMapArtifact[]>(() =>
     parseGeneratedMaps(initialSnapshot?.generatedMaps),
   );
-  const [isGeneratingMap, setIsGeneratingMap] = useState(false);
+  const [isDraftingMapPrompt, setIsDraftingMapPrompt] = useState(false);
+  const [isGeneratingMapImage, setIsGeneratingMapImage] = useState(false);
+  const [isGeneratingPhoto, setIsGeneratingPhoto] = useState(false);
   const [newCard, setNewCard] = useState(defaultNewCard);
   const [providerKeyStatus, setProviderKeyStatus] = useState(
     () => initialSnapshot?.providerKeyStatus ?? "No plaintext keys stored.",
@@ -565,10 +649,13 @@ export function App() {
   const [imageProviderSettings, setImageProviderSettings] = useState<ImageProviderSettings>(() =>
     parseImageProviderSettings(initialSnapshot?.imageProviderSettings),
   );
+  const [comfyUiCheckpointModels, setComfyUiCheckpointModels] = useState<string[]>([]);
+  const [imageProviderStatus, setImageProviderStatus] = useState("ComfyUI image model check has not run yet.");
   const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettings>(() =>
     parseRuntimeSettings(initialSnapshot?.runtimeSettings),
   );
   const [sessionApiKey, setSessionApiKey] = useState("");
+  const [imageSessionApiKey, setImageSessionApiKey] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [saveStatus, setSaveStatus] = useState(initialSnapshot ? "Loaded local runtime snapshot." : "Ready for local save.");
   const [repositoryStatus, setRepositoryStatus] = useState("Repository store initializing.");
@@ -577,6 +664,7 @@ export function App() {
   const [pendingDeleteCardId, setPendingDeleteCardId] = useState<string | null>(null);
   const [newCardError, setNewCardError] = useState<string | null>(null);
   const [lorebookEntryError, setLorebookEntryError] = useState<string | null>(null);
+  const [mediaPreview, setMediaPreview] = useState<MediaPreviewArtifact | null>(null);
   const [secureStorageStatus, setSecureStorageStatus] = useState<SecureStorageStatus>({
     available: false,
     storageKind: "memory-only",
@@ -656,6 +744,101 @@ export function App() {
   );
 
   useEffect(() => {
+    function handleWheelZoom(event: WheelEvent) {
+      if (!event.ctrlKey && !event.metaKey) {
+        return;
+      }
+
+      event.preventDefault();
+      const scrollTarget = findScrollableAncestor(event.target);
+      if (scrollTarget) {
+        scrollTarget.scrollTop += event.deltaY;
+        scrollTarget.scrollLeft += event.deltaX;
+        return;
+      }
+
+      window.scrollBy({
+        left: event.deltaX,
+        top: event.deltaY,
+      });
+    }
+
+    window.addEventListener("wheel", handleWheelZoom, { capture: true, passive: false });
+    return () => window.removeEventListener("wheel", handleWheelZoom, { capture: true });
+  }, []);
+
+  useEffect(() => {
+    const normalizedSettings = normalizeImageProviderQualitySettings(imageProviderSettings);
+    if (normalizedSettings !== imageProviderSettings) {
+      setImageProviderSettings(normalizedSettings);
+    }
+  }, [imageProviderSettings]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (imageProviderSettings.mode !== "comfyui") {
+      setComfyUiCheckpointModels([]);
+      setImageProviderStatus("Prompt-only image mode active.");
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setImageProviderStatus("Checking ComfyUI startup requirements...");
+    void fetchComfyUIImageModels({
+      endpoint: imageProviderSettings.endpoint,
+      apiKey: imageSessionApiKey,
+    })
+      .then((models) => {
+        if (cancelled) {
+          return;
+        }
+        setComfyUiCheckpointModels(models);
+        if (models.length === 0) {
+          setImageProviderStatus(
+            "ComfyUI is reachable, but no image diffusion models are visible. Install a FLUX.2 model in models/diffusion_models, then refresh ComfyUI.",
+          );
+          return;
+        }
+
+        if (models.includes(imageProviderSettings.model)) {
+          setImageProviderStatus(
+            `Startup check ready: ${models.length} image model${models.length === 1 ? "" : "s"} visible. Selected ${imageProviderSettings.model}.`,
+          );
+          return;
+        }
+
+        const installedModel = models[0];
+        if (!installedModel) {
+          return;
+        }
+        setImageProviderSettings((current) =>
+          current.mode === "comfyui" && !models.includes(current.model)
+            ? {
+                ...current,
+                model: installedModel,
+              }
+            : current,
+        );
+        setImageProviderStatus(
+          `Startup check ready: selected installed image model ${installedModel} because the saved model was not visible to ComfyUI.`,
+        );
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        setComfyUiCheckpointModels([]);
+        setImageProviderStatus(`ComfyUI startup check failed: ${getErrorMessage(error)}`);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [imageProviderSettings.endpoint, imageProviderSettings.mode, imageProviderSettings.model, imageSessionApiKey]);
+
+  useEffect(() => {
     let cancelled = false;
     setRepositoryHydrated(false);
 
@@ -710,8 +893,19 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    setMapArtifact(activeCard ? findGeneratedMapForChat(generatedMaps, activeCard.id, activeChat?.id) : null);
+    setMapArtifact(activeCard ? findGeneratedMapForChat(generatedMaps, activeCard.id, activeChat?.id, "map") : null);
+    setPhotoArtifact(activeCard ? findGeneratedMapForChat(generatedMaps, activeCard.id, activeChat?.id, "photo") : null);
   }, [activeCard, activeChat?.id, generatedMaps]);
+
+  useEffect(() => {
+    if (!mapArtifact) {
+      return;
+    }
+
+    setMapPrompt(mapArtifact.prompt);
+    setImagePromptDraft(mapArtifact.prompt);
+    setImageNegativePromptDraft(mapArtifact.negativePrompt);
+  }, [mapArtifact]);
 
   useEffect(() => {
     let cancelled = false;
@@ -773,7 +967,8 @@ export function App() {
     setRuntimeSettings(parseRuntimeSettings(snapshot.runtimeSettings));
     const hydratedMaps = parseGeneratedMaps(snapshot.generatedMaps);
     setGeneratedMaps(hydratedMaps);
-    setMapArtifact(hydratedActiveCardId ? findGeneratedMapForChat(hydratedMaps, hydratedActiveCardId, undefined) : null);
+    setMapArtifact(hydratedActiveCardId ? findGeneratedMapForChat(hydratedMaps, hydratedActiveCardId, undefined, "map") : null);
+    setPhotoArtifact(hydratedActiveCardId ? findGeneratedMapForChat(hydratedMaps, hydratedActiveCardId, undefined, "photo") : null);
     setSaveStatus("Loaded repository runtime snapshot.");
   }
 
@@ -787,8 +982,21 @@ export function App() {
     setMapPrompt(null);
     setImagePromptDraft("");
     setImageNegativePromptDraft("");
-    setMapArtifact(findGeneratedMapForChat(generatedMaps, card.id, activeChatIds[card.id]));
+    setPhotoSpecDraft("");
+    setPhotoPrompt("");
+    setMapArtifact(findGeneratedMapForChat(generatedMaps, card.id, activeChatIds[card.id], "map"));
+    setPhotoArtifact(findGeneratedMapForChat(generatedMaps, card.id, activeChatIds[card.id], "photo"));
     setRuntimeRunning(true);
+    ensureChatForCard(card);
+  }
+
+  function editCard(card: RuntimeCard) {
+    setActiveCardId(card.id);
+    setCardTab("instructions");
+    setSection("cards");
+    setRuleWarning(null);
+    setPendingDeleteChatId(null);
+    setPendingDeleteCardId(null);
     ensureChatForCard(card);
   }
 
@@ -883,10 +1091,13 @@ export function App() {
     setRuleWarning(null);
     setPendingDeleteChatId(null);
     setDraft("");
-    setMapArtifact(findGeneratedMapForChat(generatedMaps, activeCard.id, chat.id));
+    setMapArtifact(findGeneratedMapForChat(generatedMaps, activeCard.id, chat.id, "map"));
+    setPhotoArtifact(findGeneratedMapForChat(generatedMaps, activeCard.id, chat.id, "photo"));
     setMapPrompt(null);
     setImagePromptDraft("");
     setImageNegativePromptDraft("");
+    setPhotoSpecDraft("");
+    setPhotoPrompt("");
   }
 
   function startNewChatForActiveCard() {
@@ -902,6 +1113,10 @@ export function App() {
     setMapPrompt(null);
     setImagePromptDraft("");
     setImageNegativePromptDraft("");
+    setPhotoSpecDraft("");
+    setPhotoPrompt("");
+    setMapArtifact(null);
+    setPhotoArtifact(null);
   }
 
   function branchActiveChat() {
@@ -921,6 +1136,13 @@ export function App() {
     setRuleWarning(null);
     setPendingDeleteChatId(null);
     setDraft("");
+    setMapPrompt(null);
+    setImagePromptDraft("");
+    setImageNegativePromptDraft("");
+    setPhotoSpecDraft("");
+    setPhotoPrompt("");
+    setMapArtifact(null);
+    setPhotoArtifact(null);
   }
 
   function deleteActiveChat() {
@@ -944,9 +1166,12 @@ export function App() {
     setPromptRuns((current) => current.filter((run) => run.chatId !== activeChat.id));
     setGeneratedMaps((current) => current.filter((artifact) => artifact.chatId !== activeChat.id));
     setMapArtifact(null);
+    setPhotoArtifact(null);
     setMapPrompt(null);
     setImagePromptDraft("");
     setImageNegativePromptDraft("");
+    setPhotoSpecDraft("");
+    setPhotoPrompt("");
     setDraft("");
     setRuleWarning(null);
   }
@@ -974,7 +1199,8 @@ export function App() {
     if (activeCard?.id === cardId) {
       setActiveCardId(fallback.id);
       ensureChatForCard(fallback);
-      setMapArtifact(findGeneratedMapForChat(generatedMaps, fallback.id, activeChatIds[fallback.id]));
+      setMapArtifact(findGeneratedMapForChat(generatedMaps, fallback.id, activeChatIds[fallback.id], "map"));
+      setPhotoArtifact(findGeneratedMapForChat(generatedMaps, fallback.id, activeChatIds[fallback.id], "photo"));
     }
   }
 
@@ -1212,7 +1438,7 @@ export function App() {
     }
   }
 
-  function prepareImagePrompt() {
+  async function prepareImagePrompt() {
     if (!activeCard) {
       return;
     }
@@ -1220,10 +1446,31 @@ export function App() {
       return;
     }
 
-    const compiled = compileImagePrompt(buildImagePromptRequest(activeCard, messages));
-    setMapPrompt(compiled.prompt);
-    setImagePromptDraft(compiled.prompt);
-    setImageNegativePromptDraft(compiled.negativePrompt);
+    setIsDraftingMapPrompt(true);
+    try {
+      const planned =
+        providerSettings.mode === "mock"
+          ? compileImagePrompt(buildImagePromptRequest(activeCard, messages))
+          : await planImagePromptWithTextModel({
+              card: activeCard,
+              messages,
+              providerSettings,
+              sessionApiKey,
+              activeLoreCount: activeLorebookEntries.length,
+              runtimeSettings,
+            });
+      setMapPrompt(planned.prompt);
+      setImagePromptDraft(planned.prompt);
+      setImageNegativePromptDraft(sanitizeMapNegativePrompt(planned.negativePrompt));
+    } catch (error) {
+      const fallback = compileImagePrompt(buildImagePromptRequest(activeCard, messages));
+      setMapPrompt(fallback.prompt);
+      setImagePromptDraft(fallback.prompt);
+      setImageNegativePromptDraft(sanitizeMapNegativePrompt(fallback.negativePrompt));
+      setRuleWarning(`Map prompt planner fell back to local summary: ${getErrorMessage(error)}`);
+    } finally {
+      setIsDraftingMapPrompt(false);
+    }
   }
 
   async function generateImageFromPrompt() {
@@ -1234,13 +1481,14 @@ export function App() {
       return;
     }
 
-    setIsGeneratingMap(true);
+    setIsGeneratingMapImage(true);
     const baseArtifact: GeneratedMapArtifact = {
       id: createRuntimeEntityId("map"),
+      imageKind: "map",
       cardId: activeCard.id,
       chatId: activeChat?.id ?? `chat_${activeCard.id}`,
       prompt: imagePromptDraft.trim(),
-      negativePrompt: imageNegativePromptDraft.trim(),
+      negativePrompt: sanitizeMapNegativePrompt(imageNegativePromptDraft),
       provider: imageProviderSettings.mode === "comfyui" ? "comfyui" : "prompt-only",
       model: imageProviderSettings.model,
       status: "prompt-only",
@@ -1248,48 +1496,16 @@ export function App() {
     };
 
     try {
-      if (imageProviderSettings.mode === "prompt-only" || !imageProviderSettings.workflowJson.trim()) {
-        const artifact: GeneratedMapArtifact = {
-          ...baseArtifact,
-          error:
-            imageProviderSettings.mode === "comfyui"
-              ? "Paste a ComfyUI API workflow in Image Provider settings to generate an image."
-              : undefined,
-        };
-        setMapArtifact(artifact);
-        setGeneratedMaps((current) => upsertGeneratedMap(current, artifact));
-        return;
-      }
-
-      const provider = new ComfyUIImageProvider({
-        endpoint: imageProviderSettings.endpoint,
-        workflowJson: imageProviderSettings.workflowJson,
-        model: imageProviderSettings.model,
-        pollTimeoutMs: imageProviderSettings.pollTimeoutMs,
-      });
-      const result = await provider.generateImage({
-        model: imageProviderSettings.model,
+      const artifact = await runConfiguredImageGeneration({
+        baseArtifact,
         prompt: imagePromptDraft.trim(),
-        negativePrompt: imageNegativePromptDraft.trim(),
-        width: imageProviderSettings.width,
-        height: imageProviderSettings.height,
-        seed: imageProviderSettings.seed,
-        steps: imageProviderSettings.steps,
-        cfg: imageProviderSettings.cfg,
-        samplerName: imageProviderSettings.samplerName,
-        scheduler: imageProviderSettings.scheduler,
+        negativePrompt: sanitizeMapNegativePrompt(imageNegativePromptDraft),
         metadata: {
           cardId: activeCard.id,
           chatId: activeChat?.id,
           cardName: activeCard.name,
         },
       });
-      const artifact: GeneratedMapArtifact = {
-        ...baseArtifact,
-        provider: result.providerId,
-        status: "generated",
-        imageUrl: result.images[0]?.url,
-      };
       setMapArtifact(artifact);
       setGeneratedMaps((current) => upsertGeneratedMap(current, artifact));
     } catch (error) {
@@ -1301,8 +1517,212 @@ export function App() {
       setMapArtifact(artifact);
       setGeneratedMaps((current) => upsertGeneratedMap(current, artifact));
     } finally {
-      setIsGeneratingMap(false);
+      setIsGeneratingMapImage(false);
     }
+  }
+
+  function resetMapPrompt() {
+    setMapPrompt(null);
+    setImagePromptDraft("");
+    setImageNegativePromptDraft("");
+  }
+
+  function deleteCurrentMap() {
+    if (!activeCard) {
+      return;
+    }
+
+    const chatId = activeChat?.id;
+    setGeneratedMaps((current) =>
+      current.filter(
+        (artifact) =>
+          artifact.imageKind !== "map" ||
+          artifact.cardId !== activeCard.id ||
+          (chatId ? artifact.chatId !== chatId : false),
+      ),
+    );
+    setMapArtifact(null);
+  }
+
+  async function generateCustomImageFromRequest() {
+    if (!activeCard || !photoSpecDraft.trim()) {
+      return;
+    }
+
+    const userInput = photoSpecDraft.trim();
+    const prompt = buildCustomImagePrompt(userInput);
+    setPhotoPrompt(prompt);
+    setIsGeneratingPhoto(true);
+    const baseArtifact: GeneratedMapArtifact = {
+      id: createRuntimeEntityId("image"),
+      imageKind: "photo",
+      cardId: activeCard.id,
+      chatId: activeChat?.id ?? `chat_${activeCard.id}`,
+      prompt,
+      negativePrompt: customImageNegativePrompt,
+      provider: imageProviderSettings.mode === "comfyui" ? "comfyui" : "prompt-only",
+      model: imageProviderSettings.model,
+      status: "prompt-only",
+      userInput,
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      const artifact = await runConfiguredImageGeneration({
+        baseArtifact,
+        prompt,
+        negativePrompt: customImageNegativePrompt,
+        metadata: {
+          cardId: activeCard.id,
+          chatId: activeChat?.id,
+          cardName: activeCard.name,
+          imageKind: "photo",
+          userInput,
+        },
+      });
+      setPhotoArtifact(artifact);
+      setGeneratedMaps((current) => upsertGeneratedMap(current, artifact));
+    } catch (error) {
+      const artifact: GeneratedMapArtifact = {
+        ...baseArtifact,
+        status: "error",
+        error: getErrorMessage(error),
+      };
+      setPhotoArtifact(artifact);
+      setGeneratedMaps((current) => upsertGeneratedMap(current, artifact));
+    } finally {
+      setIsGeneratingPhoto(false);
+    }
+  }
+
+  function resetCustomImageRequest() {
+    setPhotoSpecDraft("");
+    setPhotoPrompt("");
+  }
+
+  function deleteCurrentPhoto() {
+    if (!activeCard) {
+      return;
+    }
+
+    const chatId = activeChat?.id;
+    setGeneratedMaps((current) =>
+      current.filter(
+        (artifact) =>
+          artifact.imageKind !== "photo" ||
+          artifact.cardId !== activeCard.id ||
+          (chatId ? artifact.chatId !== chatId : false),
+      ),
+    );
+    setPhotoArtifact(null);
+    setPhotoPrompt("");
+  }
+
+  async function runConfiguredImageGeneration(input: {
+    baseArtifact: GeneratedMapArtifact;
+    prompt: string;
+    negativePrompt: string;
+    metadata: Record<string, unknown>;
+  }): Promise<GeneratedMapArtifact> {
+    const effectiveImageProviderSettings = normalizeImageProviderQualitySettings(imageProviderSettings);
+    if (effectiveImageProviderSettings !== imageProviderSettings) {
+      setImageProviderSettings(effectiveImageProviderSettings);
+    }
+
+    if (
+      effectiveImageProviderSettings.mode === "prompt-only" ||
+      !effectiveImageProviderSettings.workflowJson.trim()
+    ) {
+      return {
+        ...input.baseArtifact,
+        error:
+          effectiveImageProviderSettings.mode === "comfyui"
+            ? "Paste a ComfyUI API workflow in Image Provider settings to generate an image."
+            : undefined,
+      };
+    }
+
+    const provider = new ComfyUIImageProvider({
+      endpoint: effectiveImageProviderSettings.endpoint,
+      workflowJson: effectiveImageProviderSettings.workflowJson,
+      model: effectiveImageProviderSettings.model,
+      apiKey: imageSessionApiKey,
+      pollTimeoutMs: effectiveImageProviderSettings.pollTimeoutMs,
+    });
+    const result = await provider.generateImage({
+      model: effectiveImageProviderSettings.model,
+      prompt: input.prompt,
+      negativePrompt: input.negativePrompt,
+      width: effectiveImageProviderSettings.width,
+      height: effectiveImageProviderSettings.height,
+      seed: effectiveImageProviderSettings.seed,
+      steps: effectiveImageProviderSettings.steps,
+      cfg: effectiveImageProviderSettings.cfg,
+      samplerName: effectiveImageProviderSettings.samplerName,
+      scheduler: effectiveImageProviderSettings.scheduler,
+      metadata: input.metadata,
+    });
+
+    return {
+      ...input.baseArtifact,
+      provider: result.providerId,
+      status: "generated",
+      imageUrl: result.images[0]?.url,
+    };
+  }
+
+  async function refreshComfyUICheckpoints() {
+    if (imageProviderSettings.mode !== "comfyui") {
+      setComfyUiCheckpointModels([]);
+      setImageProviderStatus("Prompt-only image mode active.");
+      return;
+    }
+
+    setImageProviderStatus("Checking ComfyUI image models...");
+    try {
+      const models = await fetchComfyUIImageModels({
+        endpoint: imageProviderSettings.endpoint,
+        apiKey: imageSessionApiKey,
+      });
+      applyComfyUiCheckpointModels(models, "manual");
+    } catch (error) {
+      setComfyUiCheckpointModels([]);
+      setImageProviderStatus(`ComfyUI image model check failed: ${getErrorMessage(error)}`);
+    }
+  }
+
+  function applyComfyUiCheckpointModels(models: string[], source: "startup" | "manual") {
+    setComfyUiCheckpointModels(models);
+    if (models.length === 0) {
+      setImageProviderStatus(
+        "ComfyUI is reachable, but no image diffusion models are visible. Install a FLUX.2 model in models/diffusion_models, then refresh ComfyUI.",
+      );
+      return;
+    }
+
+    const sourceLabel = source === "startup" ? "Startup check" : "Image model refresh";
+    if (models.includes(imageProviderSettings.model)) {
+      setImageProviderStatus(
+        `${sourceLabel} ready: ${models.length} image model${models.length === 1 ? "" : "s"} visible. Selected ${imageProviderSettings.model}.`,
+      );
+      return;
+    }
+
+    const installedModel = models[0];
+    if (!installedModel) {
+      return;
+    }
+    setImageProviderSettings((current) =>
+      current.mode === "comfyui" && !models.includes(current.model)
+        ? {
+            ...current,
+            model: installedModel,
+          }
+        : current,
+    );
+    setImageProviderStatus(
+      `${sourceLabel} ready: selected installed image model ${installedModel} because the saved model was not visible to ComfyUI.`,
+    );
   }
 
   async function saveProviderKey() {
@@ -1496,7 +1916,7 @@ export function App() {
           <dl className="compact-dl">
             <div>
               <dt>Name</dt>
-              <dd>{activeCard?.name ?? "No card open"}</dd>
+              <dd>{activeCard?.name ?? "Select a card"}</dd>
             </div>
             <div>
               <dt>Type</dt>
@@ -1575,9 +1995,21 @@ export function App() {
               setImagePromptDraft={setImagePromptDraft}
               imageNegativePromptDraft={imageNegativePromptDraft}
               setImageNegativePromptDraft={setImageNegativePromptDraft}
-              isGeneratingMap={isGeneratingMap}
+              photoSpecDraft={photoSpecDraft}
+              setPhotoSpecDraft={setPhotoSpecDraft}
+              photoPrompt={photoPrompt}
+              photoArtifact={photoArtifact}
+              isDraftingMapPrompt={isDraftingMapPrompt}
+              isGeneratingMapImage={isGeneratingMapImage}
+              isGeneratingPhoto={isGeneratingPhoto}
               prepareImagePrompt={prepareImagePrompt}
-              generateImageFromPrompt={generateImageFromPrompt}
+              generateMapImage={generateImageFromPrompt}
+              resetMapPrompt={resetMapPrompt}
+              deleteCurrentMap={deleteCurrentMap}
+              generateCustomImageFromRequest={generateCustomImageFromRequest}
+              resetCustomImageRequest={resetCustomImageRequest}
+              deleteCurrentPhoto={deleteCurrentPhoto}
+              openMediaPreview={setMediaPreview}
             />
           ) : (
             <NoActiveCardRuntimePanel openCards={() => setSection("cards")} />
@@ -1590,6 +2022,7 @@ export function App() {
             activeCard={activeCard}
             activeCardId={activeCardId}
             selectCard={selectCard}
+            editCard={editCard}
             deleteCard={deleteCard}
             pendingDeleteCardId={pendingDeleteCardId}
             newCard={newCard}
@@ -1627,12 +2060,17 @@ export function App() {
             setProviderSettings={setProviderSettings}
             imageProviderSettings={imageProviderSettings}
             setImageProviderSettings={setImageProviderSettings}
+            comfyUiCheckpointModels={comfyUiCheckpointModels}
+            imageProviderStatus={imageProviderStatus}
+            imageSessionApiKey={imageSessionApiKey}
+            setImageSessionApiKey={setImageSessionApiKey}
             secureStorageStatus={secureStorageStatus}
             sessionApiKey={sessionApiKey}
             setSessionApiKey={setSessionApiKey}
             saveProviderKey={saveProviderKey}
             forgetProviderKey={forgetProviderKey}
             testTextProvider={testTextProvider}
+            refreshComfyUICheckpoints={refreshComfyUICheckpoints}
           />
         ) : null}
 
@@ -1641,6 +2079,7 @@ export function App() {
         ) : null}
       </section>
 
+      {mediaPreview ? <MediaPreviewDialog preview={mediaPreview} close={() => setMediaPreview(null)} /> : null}
       {memoryOpen && activeCard ? <MemoryDrawer card={activeCard} close={() => setMemoryOpen(false)} /> : null}
     </main>
   );
@@ -1671,15 +2110,39 @@ function RuntimeSection(props: {
   setImagePromptDraft: (value: string) => void;
   imageNegativePromptDraft: string;
   setImageNegativePromptDraft: (value: string) => void;
-  isGeneratingMap: boolean;
-  prepareImagePrompt: () => void;
-  generateImageFromPrompt: () => Promise<void>;
+  photoSpecDraft: string;
+  setPhotoSpecDraft: (value: string) => void;
+  photoPrompt: string;
+  photoArtifact: GeneratedMapArtifact | null;
+  isDraftingMapPrompt: boolean;
+  isGeneratingMapImage: boolean;
+  isGeneratingPhoto: boolean;
+  prepareImagePrompt: () => Promise<void>;
+  generateMapImage: () => Promise<void>;
+  resetMapPrompt: () => void;
+  deleteCurrentMap: () => void;
+  generateCustomImageFromRequest: () => Promise<void>;
+  resetCustomImageRequest: () => void;
+  deleteCurrentPhoto: () => void;
+  openMediaPreview: (preview: MediaPreviewArtifact) => void;
 }) {
   const showMapPanel = props.activeCard.mapEnabled;
-  const promptButtonLabel = props.activeCard.kind === "rpg" ? "Generate birdseye view" : "Generate image prompt";
+  const showMediaPanel = true;
+  const isMapBusy = props.isDraftingMapPrompt || props.isGeneratingMapImage;
+  const promptButtonLabel = props.activeCard.kind === "rpg" ? "Draft map prompt" : "Draft image prompt";
+  const generateMapButtonLabel = props.mapArtifact ? "Regenerate map image" : "Generate map image";
+  const mapPromptDraft = props.imagePromptDraft.trim();
+  const negativePromptDraft = props.imageNegativePromptDraft.trim();
+  const mapArtifactMatchesDraft =
+    props.mapArtifact &&
+    props.mapArtifact.prompt.trim() === mapPromptDraft &&
+    (props.mapArtifact.negativePrompt ?? "").trim() === negativePromptDraft;
+  const hasPendingMapPromptDraft = Boolean(
+    mapPromptDraft && (!props.mapArtifact || !mapArtifactMatchesDraft),
+  );
 
   return (
-    <div className={`runtime-chat-layout ${showMapPanel ? "" : "no-map"}`}>
+    <div className={`runtime-chat-layout ${showMediaPanel ? "" : "no-map"}`}>
       <section className="chat-shell" aria-label="Runtime chat">
         <div className="chat-session-bar" aria-label="Chat controls">
           <label className="field chat-select">
@@ -1747,7 +2210,7 @@ function RuntimeSection(props: {
                   {message.role === "assistant" ? props.activeCard.name : "You"}
                 </span>
               </header>
-              <p>{message.content}</p>
+              <MessageContent message={message} />
             </article>
           ))}
         </div>
@@ -1770,6 +2233,14 @@ function RuntimeSection(props: {
               aria-label="Message input"
               value={props.draft}
               onChange={(event) => props.setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  if (props.draft.trim() && props.runtimeRunning && !props.isGenerating) {
+                    void props.sendMessage();
+                  }
+                }
+              }}
               disabled={!props.runtimeRunning}
               rows={4}
               placeholder="Type what you want to say or do..."
@@ -1797,77 +2268,301 @@ function RuntimeSection(props: {
         </form>
       </section>
 
-      {showMapPanel ? (
-        <section className="map-side-panel" aria-label="Map and image generator">
-          <div className="section-title">
-            <Map size={17} />
-            <h3>{props.activeCard.kind === "rpg" ? "Map" : "Image"}</h3>
-          </div>
-          <button
-            className="primary-button compact-button"
-            type="button"
-            onClick={props.prepareImagePrompt}
-            disabled={!props.runtimeRunning}
-          >
-            <Image size={16} />
-            {promptButtonLabel}
-          </button>
-          <label className="field">
-            <span>Image prompt</span>
-            <textarea
-              value={props.imagePromptDraft}
-              onChange={(event) => props.setImagePromptDraft(event.target.value)}
-              rows={8}
-              placeholder="Generate a prompt from the latest chat, then edit it before sending."
-            />
-          </label>
-          <label className="field">
-            <span>Negative prompt</span>
-            <textarea
-              value={props.imageNegativePromptDraft}
-              onChange={(event) => props.setImageNegativePromptDraft(event.target.value)}
-              rows={4}
-              placeholder="Things to avoid in the image"
-            />
-          </label>
-          <button
-            className="secondary-button compact-button"
-            type="button"
-            onClick={() => void props.generateImageFromPrompt()}
-            disabled={!props.imagePromptDraft.trim() || props.isGeneratingMap}
-          >
-            <Play size={16} />
-            {props.isGeneratingMap ? "Generating..." : "Send to image provider"}
-          </button>
-          {props.mapArtifact ? (
-            <div className="map-output" role="region" aria-label="Generated image">
-              {props.mapArtifact.imageUrl ? (
-                <img className="generated-map-image" src={props.mapArtifact.imageUrl} alt="Generated scene" />
-              ) : (
-                <div className="map-placeholder">
-                  <Map size={42} />
-                  <span>
-                    {props.mapArtifact.status === "error"
-                      ? "Image generation needs attention"
-                      : "Prompt ready for image provider"}
-                  </span>
+      {showMediaPanel ? (
+        <aside className="media-side-panel" aria-label="Image tools">
+          {showMapPanel ? (
+            <section className="media-section map-generator-section" aria-label="Map generator">
+              <div className="section-title">
+                <Map size={17} />
+                <h3>Map</h3>
+              </div>
+              {hasPendingMapPromptDraft ? (
+                <div className="map-output compact-map-output map-draft-output" role="region" aria-label="Map prompt draft">
+                  <div className="map-placeholder compact-placeholder">
+                    <Map size={34} />
+                    <span>
+                      {props.mapArtifact
+                        ? "Map prompt draft ready. Select Generate map image to replace the current map."
+                        : "Map prompt draft ready. Select Generate map image to create the map."}
+                    </span>
+                  </div>
                 </div>
-              )}
-              <div className={`map-status ${props.mapArtifact.status}`}>
-                <strong>{props.mapArtifact.status}</strong>
-                <span>{props.mapArtifact.provider} / {props.mapArtifact.model}</span>
+              ) : null}
+              {props.mapArtifact ? (
+                <div className="map-output compact-map-output" role="region" aria-label="Generated map">
+                  {props.mapArtifact.imageUrl ? (
+                    <div className="generated-image-frame">
+                      <img className="generated-map-image" src={toGeneratedImageSrc(props.mapArtifact)} alt="Generated map" />
+                      <button
+                        className="icon-button image-maximize-button"
+                        type="button"
+                        onClick={() =>
+                          props.openMediaPreview({
+                            artifact: props.mapArtifact as GeneratedMapArtifact,
+                            label: "Generated map",
+                          })
+                        }
+                        aria-label="Maximize map"
+                        title="Maximize map"
+                      >
+                        <Maximize2 size={17} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="map-placeholder compact-placeholder">
+                      <Map size={34} />
+                      <span>
+                        {props.mapArtifact.status === "error"
+                          ? "Map generation needs attention"
+                          : "Map prompt ready for image provider"}
+                      </span>
+                    </div>
+                  )}
+                  <div className={`map-status ${props.mapArtifact.status}`}>
+                    <strong>{props.mapArtifact.status}</strong>
+                    <span>{props.mapArtifact.provider} / {props.mapArtifact.model}</span>
+                  </div>
+                  {props.mapArtifact.error ? <p className="rule-warning">{props.mapArtifact.error}</p> : null}
+                </div>
+              ) : props.mapPrompt && !hasPendingMapPromptDraft ? (
+                <div className="map-output compact-map-output" role="region" aria-label="Map prompt draft">
+                  <div className="map-placeholder compact-placeholder">
+                    <Map size={34} />
+                    <span>Map prompt ready to edit</span>
+                  </div>
+                </div>
+              ) : null}
+              <div className="button-row media-actions">
+                <button
+                  className="primary-button compact-button"
+                  type="button"
+                  onClick={() => void props.prepareImagePrompt()}
+                  disabled={!props.runtimeRunning || isMapBusy}
+                >
+                  <Image size={16} />
+                  {props.isDraftingMapPrompt ? "Drafting..." : promptButtonLabel}
+                </button>
+                <button
+                  className="secondary-button compact-button"
+                  type="button"
+                  onClick={() => void props.generateMapImage()}
+                  disabled={!props.runtimeRunning || isMapBusy || !props.imagePromptDraft.trim()}
+                >
+                  <Play size={16} />
+                  {props.isGeneratingMapImage ? "Generating image..." : generateMapButtonLabel}
+                </button>
+                <button
+                  className="secondary-button compact-button"
+                  type="button"
+                  onClick={props.resetMapPrompt}
+                  disabled={!props.imagePromptDraft.trim() && !props.imageNegativePromptDraft.trim() && !props.mapPrompt}
+                >
+                  <RotateCcw size={16} />
+                  Reset map prompt
+                </button>
+                <button
+                  className="secondary-button danger-button compact-button"
+                  type="button"
+                  onClick={props.deleteCurrentMap}
+                  disabled={!props.mapArtifact}
+                >
+                  <Trash2 size={16} />
+                  Delete map
+                </button>
               </div>
-              {props.mapArtifact.error ? <p className="rule-warning">{props.mapArtifact.error}</p> : null}
-            </div>
-          ) : props.mapPrompt ? (
-            <div className="map-output" role="region" aria-label="Generated image prompt">
-              <div className="map-placeholder">
-                <Map size={42} />
-                <span>Prompt ready to edit</span>
-              </div>
-            </div>
+              <label className="field">
+                <span>Image prompt</span>
+                <textarea
+                  value={props.imagePromptDraft}
+                  onChange={(event) => props.setImagePromptDraft(event.target.value)}
+                  rows={5}
+                  placeholder="Generate a prompt from the latest chat, then edit it before sending."
+                />
+              </label>
+              <label className="field">
+                <span>Negative prompt</span>
+                <textarea
+                  value={props.imageNegativePromptDraft}
+                  onChange={(event) => props.setImageNegativePromptDraft(event.target.value)}
+                  rows={3}
+                  placeholder="Things to avoid in the map"
+                />
+              </label>
+            </section>
           ) : null}
-        </section>
+
+          <section className="media-section photo-generator-section" aria-label="Image generator">
+            <div className="section-title">
+              <Image size={17} />
+              <h3>Image</h3>
+            </div>
+            <p className="field-help">
+              Preset prompt: <strong>{customImagePresetPrompt}</strong>
+            </p>
+            <label className="field">
+              <span>Image request</span>
+              <textarea
+                value={props.photoSpecDraft}
+                onChange={(event) => props.setPhotoSpecDraft(event.target.value)}
+                rows={5}
+                placeholder="Vaguely describe the picture you want..."
+              />
+            </label>
+            <div className="button-row media-actions">
+              <button
+                className="primary-button compact-button"
+                type="button"
+                onClick={() => void props.generateCustomImageFromRequest()}
+                disabled={!props.photoSpecDraft.trim() || props.isGeneratingPhoto}
+              >
+                <Play size={16} />
+                {props.isGeneratingPhoto ? "Generating..." : "Generate custom image"}
+              </button>
+              <button
+                className="secondary-button compact-button"
+                type="button"
+                onClick={props.resetCustomImageRequest}
+                disabled={!props.photoSpecDraft.trim() && !props.photoPrompt}
+              >
+                <RotateCcw size={16} />
+                Reset image request
+              </button>
+              <button
+                className="secondary-button danger-button compact-button"
+                type="button"
+                onClick={props.deleteCurrentPhoto}
+                disabled={!props.photoArtifact}
+              >
+                <Trash2 size={16} />
+                Delete image
+              </button>
+            </div>
+            {props.photoPrompt ? (
+              <p className="compiled-image-prompt">
+                {props.photoPrompt}
+              </p>
+            ) : null}
+            {props.photoArtifact ? (
+              <div className="map-output photo-output" role="region" aria-label="Generated custom image">
+                {props.photoArtifact.imageUrl ? (
+                  <div className="generated-image-frame">
+                    <img
+                      className="generated-photo-image"
+                      src={toGeneratedImageSrc(props.photoArtifact)}
+                      alt="Generated custom scene"
+                    />
+                    <button
+                      className="icon-button image-maximize-button"
+                      type="button"
+                      onClick={() =>
+                        props.openMediaPreview({
+                          artifact: props.photoArtifact as GeneratedMapArtifact,
+                          label: "Generated custom image",
+                        })
+                      }
+                      aria-label="Maximize image"
+                      title="Maximize image"
+                    >
+                      <Maximize2 size={17} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="map-placeholder photo-placeholder">
+                    <Image size={42} />
+                    <span>
+                      {props.photoArtifact.status === "error"
+                        ? "Image generation needs attention"
+                        : "Custom image prompt ready for image provider"}
+                    </span>
+                  </div>
+                )}
+                <div className={`map-status ${props.photoArtifact.status}`}>
+                  <strong>{props.photoArtifact.status}</strong>
+                  <span>{props.photoArtifact.provider} / {props.photoArtifact.model}</span>
+                </div>
+                {props.photoArtifact.error ? <p className="rule-warning">{props.photoArtifact.error}</p> : null}
+              </div>
+            ) : null}
+          </section>
+        </aside>
+      ) : null}
+    </div>
+  );
+}
+
+function MediaPreviewDialog(props: { preview: MediaPreviewArtifact; close: () => void }) {
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        props.close();
+      }
+    }
+
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [props]);
+
+  const previewName = `${props.preview.label} preview`;
+
+  return (
+    <div className="media-preview-backdrop" role="presentation" onMouseDown={props.close}>
+      <section
+        className="media-preview-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={previewName}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="media-preview-header">
+          <div>
+            <p className="eyebrow">Preview</p>
+            <h3>{props.preview.label}</h3>
+          </div>
+          <button className="icon-button" type="button" onClick={props.close} aria-label="Close media preview">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="media-preview-image-wrap">
+          <img
+            className="media-preview-image"
+            src={toGeneratedImageSrc(props.preview.artifact)}
+            alt={previewName}
+          />
+        </div>
+        <div className={`map-status ${props.preview.artifact.status}`}>
+          <strong>{props.preview.artifact.status}</strong>
+          <span>{props.preview.artifact.provider} / {props.preview.artifact.model}</span>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function MessageContent(props: { message: Message }) {
+  if (props.message.role !== "assistant") {
+    return <p className="message-paragraph">{props.message.content}</p>;
+  }
+
+  const display = parseAssistantMessageDisplay(props.message.content);
+
+  return (
+    <div className="message-content">
+      <div className="message-prose">
+        {display.paragraphs.map((paragraph, index) => (
+          <p className="message-paragraph" key={`${paragraph}-${index}`}>
+            {renderNarrativeMarkup(paragraph)}
+          </p>
+        ))}
+      </div>
+      {display.statusItems.length > 0 ? (
+        <dl className="message-status-footer" aria-label="Scene status">
+          {display.statusItems.map((item) => (
+            <div key={item.label}>
+              <dt>{item.label}</dt>
+              <dd>{item.value}</dd>
+            </div>
+          ))}
+        </dl>
       ) : null}
     </div>
   );
@@ -1875,7 +2570,7 @@ function RuntimeSection(props: {
 
 function NoActiveCardRuntimePanel(props: { openCards: () => void }) {
   return (
-    <section className="panel empty-chat" aria-label="No active card">
+    <section className="panel empty-chat no-active-card-panel" aria-label="No active card">
       <BookOpen size={30} />
       <h3>No card is open</h3>
       <p>Saved cards stay in the library until you open one for runtime chat.</p>
@@ -2013,6 +2708,22 @@ function InstructionsPanel(props: {
       <div className="section-title">
         <BookOpen size={17} />
         <h3>Card Instructions</h3>
+      </div>
+      <div className="instruction-grid">
+        <label className="field">
+          <span>Name</span>
+          <input
+            value={props.activeCard.name}
+            onChange={(event) => props.updateActiveCard({ name: event.target.value })}
+          />
+        </label>
+        <label className="field">
+          <span>Summary</span>
+          <input
+            value={props.activeCard.summary}
+            onChange={(event) => props.updateActiveCard({ summary: event.target.value })}
+          />
+        </label>
       </div>
       <label className="toggle-row">
         <input
@@ -2627,7 +3338,13 @@ function GlobalLorebooksSection(props: {
           <h3>Import From Chub</h3>
         </div>
         <p>
-          Imported lorebooks are stored on the active card: <strong>{activeCard?.name ?? "No card open"}</strong>.
+          {activeCard
+            ? (
+                <>
+                  Imported lorebooks are stored on the active card: <strong>{activeCard.name}</strong>.
+                </>
+              )
+            : "Open a card from the library before importing a lorebook."}
         </p>
         <label className="field">
           <span>Upload Chub lorebook file</span>
@@ -2657,6 +3374,7 @@ function CardsSection(props: {
   activeCard: RuntimeCard | null;
   activeCardId: string;
   selectCard: (card: RuntimeCard) => void;
+  editCard: (card: RuntimeCard) => void;
   deleteCard: (cardId: string) => void;
   pendingDeleteCardId: string | null;
   newCard: typeof defaultNewCard;
@@ -2733,6 +3451,10 @@ function CardsSection(props: {
                 <button className="secondary-button compact-button" type="button" onClick={() => props.selectCard(card)}>
                   <BookOpen size={16} />
                   Open
+                </button>
+                <button className="secondary-button compact-button" type="button" onClick={() => props.editCard(card)}>
+                  <Settings2 size={16} />
+                  Edit
                 </button>
                 <button
                   className="secondary-button danger-button compact-button"
@@ -2911,15 +3633,7 @@ function CardsSection(props: {
           addLorebookEntry={props.addLorebookEntry}
           lorebookEntryError={props.lorebookEntryError}
         />
-      ) : (
-        <section className="panel selected-card-panel" aria-label="Selected card editor">
-          <div className="section-title">
-            <Settings2 size={17} />
-            <h3>No Card Open</h3>
-          </div>
-          <p>Choose Open on a saved card to edit it or run it.</p>
-        </section>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -2997,15 +3711,20 @@ function ProvidersSection(props: {
   setProviderSettings: (settings: ProviderSettings) => void;
   imageProviderSettings: ImageProviderSettings;
   setImageProviderSettings: (settings: ImageProviderSettings) => void;
+  comfyUiCheckpointModels: string[];
+  imageProviderStatus: string;
+  imageSessionApiKey: string;
+  setImageSessionApiKey: (value: string) => void;
   secureStorageStatus: SecureStorageStatus;
   sessionApiKey: string;
   setSessionApiKey: (value: string) => void;
   saveProviderKey: () => Promise<void>;
   forgetProviderKey: () => Promise<void>;
   testTextProvider: () => Promise<void>;
+  refreshComfyUICheckpoints: () => Promise<void>;
 }) {
   const textModelChoices = getTextModelChoices(props.providerSettings);
-  const imageModelChoices = withCurrentModelChoice(comfyUiModelChoices, props.imageProviderSettings.model);
+  const imageModelChoices = getImageModelChoices(props.comfyUiCheckpointModels, props.imageProviderSettings.model);
 
   function updateSettings(patch: Partial<ProviderSettings>) {
     const next = { ...props.providerSettings, ...patch };
@@ -3209,6 +3928,16 @@ function ProvidersSection(props: {
           />
         </label>
         <label className="field">
+          <span>ComfyUI API key</span>
+          <input
+            type="password"
+            value={props.imageSessionApiKey}
+            onChange={(event) => props.setImageSessionApiKey(event.target.value)}
+            placeholder="Optional; held in memory for this session only"
+          />
+          <p className="field-help">Leave this blank for a normal local ComfyUI server. Use it only if your ComfyUI endpoint is behind an auth proxy.</p>
+        </label>
+        <label className="field">
           <span>Default model</span>
           <select
             value={props.imageProviderSettings.model}
@@ -3226,19 +3955,26 @@ function ProvidersSection(props: {
             ))}
           </select>
         </label>
+        <button className="secondary-button full-width" type="button" onClick={() => void props.refreshComfyUICheckpoints()}>
+          <RotateCcw size={16} />
+          Refresh installed image models
+        </button>
+        <p className="status-line" role="status" aria-live="polite">
+          {props.imageProviderStatus}
+        </p>
         <div className="instruction-grid compact-fields">
           <label className="field">
             <span>Width</span>
             <input
               type="number"
-              min={256}
+              min={localImageMinimumImageSize}
               max={2048}
               step={64}
               value={props.imageProviderSettings.width}
               onChange={(event) =>
                 props.setImageProviderSettings({
                   ...props.imageProviderSettings,
-                  width: toBoundedNumber(event.target.value, 1024, 256, 2048),
+                  width: toLocalImageQualityDimension(event.target.value),
                 })
               }
             />
@@ -3247,14 +3983,14 @@ function ProvidersSection(props: {
             <span>Height</span>
             <input
               type="number"
-              min={256}
+              min={localImageMinimumImageSize}
               max={2048}
               step={64}
               value={props.imageProviderSettings.height}
               onChange={(event) =>
                 props.setImageProviderSettings({
                   ...props.imageProviderSettings,
-                  height: toBoundedNumber(event.target.value, 1024, 256, 2048),
+                  height: toLocalImageQualityDimension(event.target.value),
                 })
               }
             />
@@ -3291,6 +4027,7 @@ function ProvidersSection(props: {
                 })
               }
             />
+            <p className="field-help">Use 0 or -1 for a fresh random seed each generation; use a positive number to repeat.</p>
           </label>
           <label className="field">
             <span>Steps</span>
@@ -3302,7 +4039,7 @@ function ProvidersSection(props: {
               onChange={(event) =>
                 props.setImageProviderSettings({
                   ...props.imageProviderSettings,
-                  steps: toBoundedNumber(event.target.value, 20, 1, 150),
+                  steps: toBoundedNumber(event.target.value, localImageRecommendedSteps, 1, 150),
                 })
               }
             />
@@ -3318,7 +4055,7 @@ function ProvidersSection(props: {
               onChange={(event) =>
                 props.setImageProviderSettings({
                   ...props.imageProviderSettings,
-                  cfg: toBoundedFloat(event.target.value, 7, 1, 30),
+                  cfg: toBoundedFloat(event.target.value, localImageRecommendedCfg, 1, 30),
                 })
               }
             />
@@ -3352,6 +4089,12 @@ function ProvidersSection(props: {
         </div>
         <label className="field">
           <span>ComfyUI API workflow JSON</span>
+          <p className="field-help">
+            Export a workflow from ComfyUI with Save (API Format), then paste the JSON here. The app fills
+            placeholders such as <code className="inline-code">{"{{prompt}}"}</code>,
+            <code className="inline-code">{"{{negative_prompt}}"}</code>, width, height, seed, and model
+            before sending it to your local ComfyUI server.
+          </p>
           <textarea
             value={props.imageProviderSettings.workflowJson}
             onChange={(event) =>
@@ -3657,17 +4400,146 @@ function buildWriteForMeDraft(card: RuntimeCard, messages: Message[]): string {
     : "I start the conversation naturally, staying within this card's scenario and boundaries.";
 }
 
-function buildImagePromptRequest(card: RuntimeCard, messages: Message[]): Parameters<typeof compileImagePrompt>[0] {
-  const recentStory = messages
+async function planImagePromptWithTextModel(input: {
+  card: RuntimeCard;
+  messages: Message[];
+  providerSettings: ProviderSettings;
+  sessionApiKey: string;
+  activeLoreCount: number;
+  runtimeSettings: RuntimeSettings;
+}): Promise<CompiledImagePrompt> {
+  const fallback = compileImagePrompt(buildImagePromptRequest(input.card, input.messages));
+  const provider = createTextProvider(
+    input.providerSettings,
+    input.sessionApiKey,
+    input.card,
+    "Map prompt planning",
+    input.activeLoreCount,
+  );
+  const response = await provider.generateText({
+    model: input.providerSettings.model,
+    temperature: 0.2,
+    maxOutputTokens: 700,
+    prompt: buildMapPromptPlannerPrompt(input.card, input.messages, fallback, input.runtimeSettings),
+    metadata: {
+      purpose: "image_prompt_planning",
+      cardId: input.card.id,
+      cardKind: input.card.kind,
+    },
+  });
+  const planned = parsePlannedImagePrompt(response.text);
+
+  return {
+    prompt: planned.prompt || fallback.prompt,
+    negativePrompt: planned.negativePrompt || fallback.negativePrompt,
+    includedLayers: [...fallback.includedLayers, "textModelPlanner"],
+    providerFormatting: fallback.providerFormatting,
+  };
+}
+
+function buildMapPromptPlannerPrompt(
+  card: RuntimeCard,
+  messages: Message[],
+  fallback: CompiledImagePrompt,
+  runtimeSettings: RuntimeSettings,
+): string {
+  const recentChat = formatRecentChatForMapPlanner(card, messages);
+  const state = card.rpg
+    ? [
+        `Location: ${card.rpg.location || "unmapped area"}`,
+        `Known places: ${card.rpg.knownPlaces.join(", ") || "none established"}`,
+        `Inventory: ${card.rpg.inventory.join(", ") || "none"}`,
+        `Health/status: ${card.rpg.health || "not configured"}`,
+        `Map style: ${card.rpg.mapStyle}`,
+      ].join("\n")
+    : [`Scenario: ${card.scenario || card.summary}`, `Character: ${card.characterName || card.name}`].join("\n");
+
+  return [
+    "You are a map/image prompt planner, not the story narrator and not an in-character speaker.",
+    "Read the recent chat and create a concise prompt for the image generator. Do not continue the roleplay. Do not quote the transcript wholesale.",
+    "Focus only on visual requirements: layout, landmarks, spatial relationships, labels, mood, lighting, camera, and continuity details needed to generate the map/image.",
+    card.kind === "rpg"
+      ? "For RPG maps, always describe a very high-altitude birdseye view and include an approximate height such as 500 feet, 1000 feet, or 2000 feet above ground. Do not include people, characters, player figures, silhouettes, tokens, portraits, or a single figure in the map. Put those exclusions in negativePrompt. Do not put natural terrain or useful map features in negativePrompt; trees, forests, rivers, roads, paths, hills, rocks, grass, buildings, ruins, landmarks, water, and labels are allowed when the scene calls for them."
+      : "",
+    "Return only compact JSON with keys `prompt` and `negativePrompt`. No markdown, no commentary.",
+    runtimeSettings.banEmojis ? "Do not use emojis." : "",
+    "",
+    "Active visual state:",
+    state,
+    "",
+    "Recent chat context:",
+    recentChat || "(no chat yet)",
+    "",
+    "Local fallback prompt to improve, not copy:",
+    fallback.prompt,
+    "",
+    "JSON response shape:",
+    card.kind === "rpg"
+      ? `{"prompt":"very high-altitude birdseye map from about 1000 feet above ground, top-down cartographic layout here","negativePrompt":"people, characters, player figure, single figure, silhouettes, portraits, first-person view"}`
+      : `{"prompt":"image prompt here","negativePrompt":"things to avoid here"}`,
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
+}
+
+function parsePlannedImagePrompt(text: string): Pick<CompiledImagePrompt, "prompt" | "negativePrompt"> {
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+      return {
+        prompt: typeof parsed.prompt === "string" ? parsed.prompt.trim() : "",
+        negativePrompt:
+          typeof parsed.negativePrompt === "string"
+            ? parsed.negativePrompt.trim()
+            : typeof parsed.negative_prompt === "string"
+              ? parsed.negative_prompt.trim()
+              : "",
+      };
+    } catch {
+      // Fall through to plain text handling.
+    }
+  }
+
+  return {
+    prompt: text.trim(),
+    negativePrompt: "",
+  };
+}
+
+function sanitizeMapNegativePrompt(value: string): string {
+  const allowedMapFeaturePattern =
+    /\b(?:trees?|forests?|woods?|rivers?|streams?|creeks?|roads?|paths?|trails?|hills?|mountains?|rocks?|boulders?|grass|plains?|fields?|buildings?|ruins?|landmarks?|water|lakes?|ponds?|labels?|terrain|vegetation|foliage)\b/i;
+
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item) => !allowedMapFeaturePattern.test(item))
+    .join(", ");
+}
+
+function formatRecentChatForMapPlanner(card: RuntimeCard, messages: Message[]): string {
+  return messages
     .filter((message) => message.role !== "system")
     .slice(-8)
-    .map((message) => `${message.role === "user" ? "Player" : card.name}: ${message.content}`)
-    .join(" | ");
+    .map((message) => {
+      const content = message.role === "assistant"
+        ? parseAssistantMessageDisplay(message.content).paragraphs.join(" ")
+        : message.content;
+      return `${message.role === "user" ? "Player" : card.name}: ${compactForPromptPlanning(content)}`;
+    })
+    .join("\n");
+}
+
+function buildImagePromptRequest(card: RuntimeCard, messages: Message[]): Parameters<typeof compileImagePrompt>[0] {
+  const recentStory = summarizeRecentMessagesForMap(card, messages);
 
   if (card.kind === "rpg" && card.rpg) {
     return {
       scene: `Birdseye view map for ${card.name}`,
       locationVisuals: [
+        "very high-altitude view from about 1000 feet above ground",
         `current location: ${card.rpg.location || "unmapped area"}`,
         `known places: ${card.rpg.knownPlaces.join(", ") || "none established"}`,
         recentStory ? `story so far: ${recentStory}` : "",
@@ -3676,14 +4548,28 @@ function buildImagePromptRequest(card: RuntimeCard, messages: Message[]): Parame
         .join("; "),
       currentAction: recentStory ? `latest exchange perspective: ${recentStory}` : undefined,
       mood: "clear tabletop reference, useful for navigation and play",
-      camera: "top-down birdseye view",
+      camera: "strict top-down birdseye view from very high up, about 1000 feet above ground",
       stylePreset: card.rpg.mapStyle,
       continuityLocks: [
         `health/status: ${card.rpg.health || "not configured"}`,
         `inventory: ${card.rpg.inventory.join(", ") || "none"}`,
         ...Object.entries(card.rpg.flags).map(([flag, value]) => `${flag}=${value}`),
       ],
-      negativePrompt: ["first-person view", "unreadable labels", "random extra buildings", "cropped map", "blurry"],
+      negativePrompt: [
+        "people",
+        "characters",
+        "player figure",
+        "single figure",
+        "silhouettes",
+        "portraits",
+        "tokens",
+        "first-person view",
+        "low-angle view",
+        "unreadable labels",
+        "random extra buildings",
+        "cropped map",
+        "blurry",
+      ],
       providerFormatting: "generic",
     };
   }
@@ -3705,6 +4591,29 @@ function buildImagePromptRequest(card: RuntimeCard, messages: Message[]): Parame
     negativePrompt: ["off-model character", "random extra characters", "unrelated setting", "blurry", "watermark"],
     providerFormatting: "generic",
   };
+}
+
+function summarizeRecentMessagesForMap(card: RuntimeCard, messages: Message[]): string {
+  return messages
+    .filter((message) => message.role !== "system")
+    .slice(-5)
+    .map((message) => {
+      const content = message.role === "assistant"
+        ? parseAssistantMessageDisplay(message.content).paragraphs.join(" ")
+        : message.content;
+      return `${message.role === "user" ? "Player" : card.name}: ${compactForPromptPlanning(content)}`;
+    })
+    .join(" | ");
+}
+
+function compactForPromptPlanning(value: string): string {
+  const cleaned = value
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+  const sentence = cleaned.match(/^(.{1,220}?[.!?])(?:\s|$)/)?.[1] ?? cleaned.slice(0, 220);
+  return sentence.trim();
 }
 
 function normalizeRuntimeCards(cards: RuntimeCard[]): RuntimeCard[] {
@@ -3810,6 +4719,30 @@ function getTextModelChoices(settings: ProviderSettings): ModelChoice[] {
   return withCurrentModelChoice(alibabaModelChoices, settings.model);
 }
 
+function getImageModelChoices(installedModels: string[], currentModel: string): ModelChoice[] {
+  return withCurrentModelChoice(
+    dedupeModelChoices([
+      ...comfyUiModelChoices,
+      ...installedModels.map((model) => ({
+        id: model,
+        label: model,
+      })),
+    ]),
+    currentModel,
+  );
+}
+
+function dedupeModelChoices(choices: ModelChoice[]): ModelChoice[] {
+  const seen = new Set<string>();
+  return choices.filter((choice) => {
+    if (seen.has(choice.id)) {
+      return false;
+    }
+    seen.add(choice.id);
+    return true;
+  });
+}
+
 function withCurrentModelChoice(choices: ModelChoice[], currentModel: string): ModelChoice[] {
   if (!currentModel || choices.some((choice) => choice.id === currentModel)) {
     return choices;
@@ -3819,18 +4752,25 @@ function withCurrentModelChoice(choices: ModelChoice[], currentModel: string): M
 
 function parseImageProviderSettings(value?: Record<string, unknown>): ImageProviderSettings {
   const mode = value?.mode === "prompt-only" ? "prompt-only" : "comfyui";
-  return {
+  const storedWorkflowJson = typeof value?.workflowJson === "string" ? value.workflowJson : "";
+  const model = typeof value?.model === "string" && !isLegacyRemovedImageModel(value.model)
+    ? value.model
+    : defaultImageProviderSettings.model;
+  return normalizeImageProviderQualitySettings({
     mode,
     providerId: "comfyui",
     displayName: "ComfyUI local API",
     endpoint: typeof value?.endpoint === "string" ? value.endpoint : defaultImageProviderSettings.endpoint,
-    model: typeof value?.model === "string" ? value.model : defaultImageProviderSettings.model,
-    workflowJson: typeof value?.workflowJson === "string" ? value.workflowJson : defaultImageProviderSettings.workflowJson,
-    width: toBoundedNumber(typeof value?.width === "number" ? value.width : "", 1024, 256, 2048),
-    height: toBoundedNumber(typeof value?.height === "number" ? value.height : "", 1024, 256, 2048),
+    model,
+    workflowJson:
+      storedWorkflowJson && !isLegacyDefaultSdxlWorkflow(storedWorkflowJson)
+        ? storedWorkflowJson
+        : defaultImageProviderSettings.workflowJson,
+    width: toBoundedNumber(typeof value?.width === "number" ? value.width : "", localImageRecommendedImageSize, 1, 2048),
+    height: toBoundedNumber(typeof value?.height === "number" ? value.height : "", localImageRecommendedImageSize, 1, 2048),
     seed: toBoundedNumber(typeof value?.seed === "number" ? value.seed : "", -1, -1, 2_147_483_647),
-    steps: toBoundedNumber(typeof value?.steps === "number" ? value.steps : "", 20, 1, 150),
-    cfg: toBoundedFloat(typeof value?.cfg === "number" ? value.cfg : "", 7, 1, 30),
+    steps: toBoundedNumber(typeof value?.steps === "number" ? value.steps : "", localImageRecommendedSteps, 1, 150),
+    cfg: toBoundedFloat(typeof value?.cfg === "number" ? value.cfg : "", localImageRecommendedCfg, 1, 30),
     samplerName: typeof value?.samplerName === "string" ? value.samplerName : defaultImageProviderSettings.samplerName,
     scheduler: typeof value?.scheduler === "string" ? value.scheduler : defaultImageProviderSettings.scheduler,
     pollTimeoutMs: toBoundedNumber(
@@ -3839,7 +4779,71 @@ function parseImageProviderSettings(value?: Record<string, unknown>): ImageProvi
       15_000,
       600_000,
     ),
+  });
+}
+
+function isLegacyRemovedImageModel(model: unknown): boolean {
+  return typeof model === "string" && /juggernaut[-_]?xl/i.test(model);
+}
+
+function isLegacyDefaultSdxlWorkflow(workflowJson: string): boolean {
+  return (
+    workflowJson.includes("CheckpointLoaderSimple") &&
+    workflowJson.includes("EmptyLatentImage") &&
+    workflowJson.includes("{{model}}") &&
+    workflowJson.includes("local_cards")
+  );
+}
+
+function normalizeImageProviderQualitySettings(settings: ImageProviderSettings): ImageProviderSettings {
+  const width = toLocalImageQualityDimension(settings.width);
+  const height = toLocalImageQualityDimension(settings.height);
+  const hadLowResolution = settings.width < localImageMinimumImageSize || settings.height < localImageMinimumImageSize;
+  const hadPreviewQualitySettings =
+    hadLowResolution || settings.steps < localImageMinimumUsableSteps || settings.cfg < localImageMinimumUsableCfg;
+  const steps = hadPreviewQualitySettings ? Math.max(settings.steps, localImageRecommendedSteps) : settings.steps;
+  const cfg = hadPreviewQualitySettings ? localImageRecommendedCfg : settings.cfg;
+  const samplerName =
+    hadPreviewQualitySettings && settings.samplerName.trim().toLowerCase() === "euler"
+      ? localImageRecommendedSampler
+      : settings.samplerName;
+  const scheduler =
+    hadPreviewQualitySettings && settings.scheduler.trim().toLowerCase() === "normal"
+      ? localImageRecommendedScheduler
+      : settings.scheduler;
+
+  if (
+    width === settings.width &&
+    height === settings.height &&
+    steps === settings.steps &&
+    cfg === settings.cfg &&
+    samplerName === settings.samplerName &&
+    scheduler === settings.scheduler
+  ) {
+    return settings;
+  }
+
+  return {
+    ...settings,
+    width,
+    height,
+    steps,
+    cfg,
+    samplerName,
+    scheduler,
   };
+}
+
+function toLocalImageQualityDimension(value: string | number): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) {
+    return localImageRecommendedImageSize;
+  }
+  const dimension = Math.trunc(parsed);
+  if (dimension < localImageMinimumImageSize) {
+    return localImageRecommendedImageSize;
+  }
+  return Math.min(2048, dimension);
 }
 
 function parseRuntimeSettings(value?: Record<string, unknown>): RuntimeSettings {
@@ -3858,10 +4862,11 @@ function parseGeneratedMaps(value: unknown): GeneratedMapArtifact[] {
     return [];
   }
 
-  return value
+  const parsed = value
     .filter(isRecord)
     .map((artifact) => ({
       ...artifact,
+      imageKind: artifact.imageKind === "photo" ? "photo" : "map",
       chatId:
         typeof artifact.chatId === "string"
           ? artifact.chatId
@@ -3870,6 +4875,8 @@ function parseGeneratedMaps(value: unknown): GeneratedMapArtifact[] {
             : "",
     }))
     .filter(isGeneratedMapArtifact);
+
+  return dedupeGeneratedMaps(parsed);
 }
 
 function isGeneratedMapArtifact(value: unknown): value is GeneratedMapArtifact {
@@ -3879,6 +4886,7 @@ function isGeneratedMapArtifact(value: unknown): value is GeneratedMapArtifact {
 
   return (
     typeof value.id === "string" &&
+    (value.imageKind === "map" || value.imageKind === "photo") &&
     typeof value.cardId === "string" &&
     typeof value.chatId === "string" &&
     typeof value.prompt === "string" &&
@@ -3888,27 +4896,76 @@ function isGeneratedMapArtifact(value: unknown): value is GeneratedMapArtifact {
     (value.status === "prompt-only" || value.status === "generated" || value.status === "error") &&
     typeof value.createdAt === "string" &&
     (value.imageUrl === undefined || typeof value.imageUrl === "string") &&
-    (value.error === undefined || typeof value.error === "string")
+    (value.error === undefined || typeof value.error === "string") &&
+    (value.userInput === undefined || typeof value.userInput === "string")
   );
 }
 
 function upsertGeneratedMap(current: GeneratedMapArtifact[], artifact: GeneratedMapArtifact): GeneratedMapArtifact[] {
-  const withoutSameChat = current.filter(
-    (candidate) => candidate.cardId !== artifact.cardId || candidate.chatId !== artifact.chatId,
-  );
-  return [...withoutSameChat, artifact].slice(-20);
+  return dedupeGeneratedMaps([...current, artifact]).slice(-20);
 }
 
 function findGeneratedMapForChat(
   artifacts: GeneratedMapArtifact[],
   cardId: string,
   chatId: string | undefined,
+  imageKind: GeneratedImageKind = "map",
 ): GeneratedMapArtifact | null {
-  return (
-    (chatId ? artifacts.find((artifact) => artifact.cardId === cardId && artifact.chatId === chatId) : undefined) ??
-    artifacts.find((artifact) => artifact.cardId === cardId && artifact.chatId.startsWith(`chat_${cardId}`)) ??
-    null
+  const exactChatArtifact = chatId
+    ? getNewestGeneratedMap(
+        artifacts.filter(
+          (artifact) => artifact.cardId === cardId && artifact.chatId === chatId && artifact.imageKind === imageKind,
+        ),
+      )
+    : null;
+  if (exactChatArtifact) {
+    return exactChatArtifact;
+  }
+
+  return getNewestGeneratedMap(
+    artifacts.filter((artifact) => artifact.cardId === cardId && artifact.imageKind === imageKind),
   );
+}
+
+function dedupeGeneratedMaps(artifacts: GeneratedMapArtifact[]): GeneratedMapArtifact[] {
+  const latestByKey = new globalThis.Map<string, GeneratedMapArtifact>();
+  for (const artifact of artifacts) {
+    const key = `${artifact.cardId}\u0000${artifact.chatId}\u0000${artifact.imageKind}`;
+    const current = latestByKey.get(key);
+    if (!current || compareGeneratedArtifactRecency(artifact, current) > 0) {
+      latestByKey.set(key, artifact);
+    }
+  }
+
+  return Array.from(latestByKey.values()).sort(compareGeneratedArtifactRecency);
+}
+
+function getNewestGeneratedMap(artifacts: GeneratedMapArtifact[]): GeneratedMapArtifact | null {
+  return artifacts.reduce<GeneratedMapArtifact | null>(
+    (newest, artifact) => (!newest || compareGeneratedArtifactRecency(artifact, newest) > 0 ? artifact : newest),
+    null,
+  );
+}
+
+function compareGeneratedArtifactRecency(a: GeneratedMapArtifact, b: GeneratedMapArtifact): number {
+  const createdDelta = Date.parse(a.createdAt) - Date.parse(b.createdAt);
+  if (createdDelta !== 0 && Number.isFinite(createdDelta)) {
+    return createdDelta;
+  }
+  return a.id.localeCompare(b.id);
+}
+
+function toGeneratedImageSrc(artifact: GeneratedMapArtifact): string {
+  if (!artifact.imageUrl) {
+    return "";
+  }
+
+  const separator = artifact.imageUrl.includes("?") ? "&" : "?";
+  return `${artifact.imageUrl}${separator}lc_run=${encodeURIComponent(artifact.id)}`;
+}
+
+function buildCustomImagePrompt(userInput: string): string {
+  return `${customImagePresetPrompt}\n\nplus user inputs: ${userInput.trim()}`;
 }
 
 function getAllowedProviderBaseUrl(settings: ProviderSettings): string | null {
@@ -4026,6 +5083,22 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function findScrollableAncestor(target: EventTarget | null): HTMLElement | null {
+  let element = target instanceof HTMLElement ? target : null;
+  while (element) {
+    const style = window.getComputedStyle(element);
+    const canScrollY = /(auto|scroll)/.test(style.overflowY) && element.scrollHeight > element.clientHeight;
+    const canScrollX = /(auto|scroll)/.test(style.overflowX) && element.scrollWidth > element.clientWidth;
+    if (canScrollY || canScrollX) {
+      return element;
+    }
+    element = element.parentElement;
+  }
+
+  const root = document.scrollingElement;
+  return root instanceof HTMLElement ? root : null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -4053,9 +5126,126 @@ function formatRuntimeSettingsForPrompt(settings: RuntimeSettings): string {
     .join("\n\n");
 }
 
+interface AssistantMessageDisplay {
+  paragraphs: string[];
+  statusItems: Array<{ label: string; value: string }>;
+}
+
+function parseAssistantMessageDisplay(content: string): AssistantMessageDisplay {
+  const { body, statusBlock } = splitTrailingStatusBlock(content);
+  const statusItems = parseStatusItems(statusBlock);
+  const paragraphs = body
+    .trim()
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.replace(/\s*\n\s*/g, " ").trim())
+    .filter(Boolean);
+
+  return {
+    paragraphs: paragraphs.length > 0 ? paragraphs : [content.trim()].filter(Boolean),
+    statusItems,
+  };
+}
+
+function splitTrailingStatusBlock(content: string): { body: string; statusBlock: string } {
+  const trimmed = content.trim();
+  const fenced = trimmed.match(/(?:\n|^)```(?:status|text)?\s*\n([\s\S]*?)\n```\s*$/i);
+  if (fenced?.[1] && looksLikeStatusBlock(fenced[1])) {
+    return {
+      body: trimmed.slice(0, fenced.index).trim(),
+      statusBlock: fenced[1],
+    };
+  }
+
+  const lines = trimmed.split(/\r?\n/);
+  const statusLines: string[] = [];
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index].trim();
+    if (!line) {
+      if (statusLines.length > 0) {
+        break;
+      }
+      continue;
+    }
+    if (!isStatusLine(line)) {
+      break;
+    }
+    statusLines.unshift(line);
+  }
+
+  if (statusLines.length >= 2) {
+    return {
+      body: lines.slice(0, lines.length - statusLines.length).join("\n").trim(),
+      statusBlock: statusLines.join("\n"),
+    };
+  }
+
+  return { body: trimmed, statusBlock: "" };
+}
+
+function looksLikeStatusBlock(value: string): boolean {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .some(isStatusLine);
+}
+
+function parseStatusItems(block: string): Array<{ label: string; value: string }> {
+  return block
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(isStatusLine)
+    .map((line) => {
+      const separatorIndex = line.indexOf(":");
+      return {
+        label: line.slice(0, separatorIndex).trim(),
+        value: line.slice(separatorIndex + 1).trim(),
+      };
+    })
+    .filter((item) => item.label && item.value);
+}
+
+function isStatusLine(line: string): boolean {
+  return /^(?:current\s+)?(?:date|time|location|weather|health|inventory|quest|status)\s*:/i.test(line);
+}
+
+function renderNarrativeMarkup(text: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const pattern = /(\*\*[^*]+?\*\*|\*[^*]+?\*)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+
+    const token = match[0];
+    const key = `${match.index}-${token}`;
+    if (token.startsWith("**")) {
+      nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>);
+    } else {
+      nodes.push(
+        <em className="message-aside" key={key}>
+          {token.slice(1, -1)}
+        </em>,
+      );
+    }
+    lastIndex = match.index + token.length;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+
+  return nodes;
+}
+
 function buildResponseContract(settings: RuntimeSettings): string {
   return [
     "Write the in-card response.",
+    "Presentation rules: use *single asterisks* only for quiet narration/asides, **double asterisks** only for strong emphasis, and normal quotation marks for spoken dialogue.",
+    "Do not show raw Markdown fences in the main prose. If useful, put Date, Time, Location, Weather, Health, Inventory, Quest, or Status as a short `status` fenced block at the very end.",
     "If state should change, imply only plausible proposals; the local app validates extraction before saving.",
     settings.banEmojis ? "Do not include emojis or emoticons in the response." : "",
     settings.impersonationPrompt.trim()

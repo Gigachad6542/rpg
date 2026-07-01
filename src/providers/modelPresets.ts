@@ -26,11 +26,11 @@ export const mockNarratorModel: ModelInfo = Object.freeze({
 });
 
 export const recommendedLocalImageProvider = Object.freeze({
-  id: "comfyui-sdxl-local",
-  displayName: "ComfyUI local + user-installed SDXL checkpoint",
+  id: "comfyui-flux2-local",
+  displayName: "ComfyUI local + FLUX.2 dev",
   providerId: "comfyui",
   endpoint: "http://127.0.0.1:8188",
-  model: "juggernautXL_v9Rundiffusionphoto2.safetensors",
+  model: "flux2_dev_fp8mixed.safetensors",
   notes:
-    "Free local recommendation for maps and card art. User supplies the exact installed checkpoint filename; app should enforce lawful-use boundaries.",
+    "Free local recommendation for high-quality local images. User supplies the exact installed ComfyUI model filename; app should enforce lawful-use boundaries.",
 });

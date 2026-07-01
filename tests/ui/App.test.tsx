@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { App } from "../../src/app/App";
 import { RUNTIME_STORAGE_KEY } from "../../src/app/localRuntimeStore";
@@ -74,6 +74,81 @@ describe("local-first card runtime UI", () => {
     expect(screen.getByRole("dialog", { name: /Memory inspector/i })).toBeInTheDocument();
   });
 
+  it("renders assistant emphasis and scene status without raw markdown clutter", async () => {
+    window.localStorage.setItem(
+      RUNTIME_STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        theme: "dark",
+        activeCardId: "card_blank_slate_rpg",
+        cards: [
+          {
+            id: "card_blank_slate_rpg",
+            name: "Blank Slate RPG",
+            kind: "rpg",
+            summary: "Empty RPG card for user-defined world rules, lore, state, and map generation.",
+            systemPrompt: "Run only the RPG defined by this card.",
+            preHistoryInstructions: "",
+            postHistoryInstructions: "",
+            playerRules: [],
+            lorebooks: [],
+            memory: [],
+            rpg: {
+              location: "Unmapped starting area",
+              health: "not configured",
+              inventory: [],
+              quests: [],
+              flags: {},
+              knownPlaces: [],
+              mapStyle: "map",
+            },
+          },
+        ],
+        messages: [],
+        chatSessions: [
+          {
+            id: "chat-display",
+            cardId: "card_blank_slate_rpg",
+            title: "Display chat",
+            createdAt: "2026-06-29T00:00:00.000Z",
+            updatedAt: "2026-06-29T00:00:00.000Z",
+            messages: [
+              {
+                id: "assistant-display",
+                role: "assistant",
+                content:
+                  '**SUCCESS** You hear "wind over grass" as *the plain opens around you.*\n\n**What do you do?**\n```status\nCurrent Date: March 15, 2023\nCurrent Time: 22:47\nLocation: Unmapped starting area\nWeather: Clear night sky\n```',
+              },
+            ],
+          },
+        ],
+        activeChatIds: {
+          card_blank_slate_rpg: "chat-display",
+        },
+        promptRuns: [],
+        providerKeyStatus: "No plaintext keys stored.",
+        savedAt: "2026-06-29T00:00:00.000Z",
+      }),
+    );
+    const { container } = await renderApp();
+
+    openBlankRpgCard();
+    const transcript = screen.getByRole("log", { name: /Chat transcript/i });
+    expect(within(transcript).getByText(/You hear "wind over grass"/i)).toBeInTheDocument();
+    expect(within(transcript).queryByText(/```status/i)).not.toBeInTheDocument();
+    expect(within(transcript).queryByText(/Current Date:/i)).not.toBeInTheDocument();
+    expect(container.querySelector(".message-paragraph strong")).toHaveTextContent("SUCCESS");
+    expect(container.querySelector(".message-aside")).toHaveTextContent("the plain opens around you.");
+
+    const status = within(transcript).getByLabelText(/Scene status/i);
+    expect(status).toHaveTextContent("Current Date");
+    expect(status).toHaveTextContent("March 15, 2023");
+    expect(status).toHaveTextContent("Current Time");
+    expect(status).toHaveTextContent("22:47");
+    expect(status).toHaveTextContent("Location");
+    expect(status).toHaveTextContent("Unmapped starting area");
+  });
+
   it("creates a user card with card-local pre-history, post-history, and rules", async () => {
     await renderApp();
 
@@ -104,6 +179,23 @@ describe("local-first card runtime UI", () => {
     expect(within(rulesPanel).getAllByDisplayValue(/No supernatural clues unless established/i)).not.toHaveLength(0);
     expect(within(rulesPanel).getByLabelText(/Prompt debugger/i)).toHaveTextContent(/Pre-history instructions/i);
     expect(within(rulesPanel).getByLabelText(/Prompt debugger/i)).toHaveTextContent(/Post-history instructions/i);
+  });
+
+  it("opens an existing saved card directly in the editor", async () => {
+    await renderApp();
+
+    openCards();
+    const cardLibrary = screen.getByRole("region", { name: /Card library/i });
+    const blankRow = within(cardLibrary).getByText("Blank Slate RPG").closest(".card-row") as HTMLElement;
+    fireEvent.click(within(blankRow).getByRole("button", { name: /^Edit$/i }));
+
+    const editor = screen.getByRole("region", { name: /Selected card editor/i });
+    expect(within(editor).getByRole("heading", { name: /Edit Selected Card/i })).toBeInTheDocument();
+    const summary = within(editor).getByLabelText(/^Summary$/i);
+    fireEvent.change(summary, { target: { value: "Edited existing RPG card." } });
+
+    openCards();
+    expect(within(cardLibrary).getByText("Edited existing RPG card.")).toBeInTheDocument();
   });
 
   it("toggles dark mode and enforces editable RPG player rules on the blank RPG card", async () => {
@@ -142,6 +234,22 @@ describe("local-first card runtime UI", () => {
     expect(screen.queryByRole("region", { name: /Runtime stopped/i })).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/Message input/i), { target: { value: "I continue." } });
     expect(screen.getByRole("button", { name: /^Send$/i })).not.toBeDisabled();
+  });
+
+  it("sends chat messages with Enter while keeping Shift+Enter for multiline drafts", async () => {
+    await renderApp();
+
+    openBlankRpgCard();
+    const input = screen.getByLabelText(/Message input/i);
+    const transcript = screen.getByRole("log", { name: /Chat transcript/i });
+    fireEvent.change(input, { target: { value: "I look around" } });
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter", shiftKey: true });
+    expect(within(transcript).queryByText("I look around")).not.toBeInTheDocument();
+
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+
+    await waitFor(() => expect(within(transcript).getByText("I look around")).toBeInTheDocument());
+    expect(screen.getByLabelText(/Message input/i)).toHaveValue("");
   });
 
   it("branches, starts, deletes chats, and deletes user-created cards", async () => {
@@ -478,7 +586,288 @@ describe("local-first card runtime UI", () => {
     const imageProviderSection = screen.getByRole("region", { name: /Image provider/i });
     const comfyModelSelect = within(imageProviderSection).getByLabelText(/Default model/i) as HTMLSelectElement;
     expect(comfyModelSelect.tagName).toBe("SELECT");
-    expect(within(comfyModelSelect).getByRole("option", { name: /Juggernaut XL/i })).toBeInTheDocument();
+    expect(within(comfyModelSelect).getByRole("option", { name: /FLUX\.2 dev FP8 mixed/i })).toBeInTheDocument();
+  });
+
+  it("checks ComfyUI image models on startup and selects an installed model when saved settings are stale", async () => {
+    const installedModel = "flux2_dev_fp8mixed.safetensors";
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          UNETLoader: {
+            input: {
+              required: {
+                unet_name: [[installedModel], {}],
+              },
+            },
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    window.localStorage.setItem(
+      RUNTIME_STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        theme: "dark",
+        activeCardId: "card_blank_slate_rpg",
+        cards: [
+          {
+            id: "card_blank_slate_rpg",
+            name: "Blank Slate RPG",
+            kind: "rpg",
+            summary: "test",
+            systemPrompt: "test",
+            preHistoryInstructions: "",
+            postHistoryInstructions: "",
+            playerRules: [],
+            lorebooks: [],
+            memory: [],
+            mapEnabled: true,
+            rpg: {
+              location: "start",
+              health: "not configured",
+              inventory: [],
+              quests: [],
+              flags: {},
+              knownPlaces: [],
+              mapStyle: "map",
+            },
+          },
+        ],
+        messages: [],
+        chatSessions: [
+          {
+            id: "chat-low-quality-settings",
+            cardId: "card_blank_slate_rpg",
+            title: "Low quality settings",
+            createdAt: "2026-06-30T00:00:00.000Z",
+            updatedAt: "2026-06-30T00:00:00.000Z",
+            messages: [],
+          },
+        ],
+        activeChatIds: {
+          card_blank_slate_rpg: "chat-low-quality-settings",
+        },
+        promptRuns: [],
+        providerKeyStatus: "No plaintext keys stored.",
+        imageProviderSettings: {
+          mode: "comfyui",
+          endpoint: "http://127.0.0.1:8188",
+          model: "missing-image-model.safetensors",
+        },
+        savedAt: "2026-06-29T00:00:00.000Z",
+      }),
+    );
+
+    try {
+      await renderApp();
+
+      fireEvent.click(screen.getByRole("button", { name: /API Keys/i }));
+      const imageProviderSection = screen.getByRole("region", { name: /Image provider/i });
+      await waitFor(() =>
+        expect(within(imageProviderSection).getByText(/image model visible.*Selected/i)).toBeInTheDocument(),
+      );
+      expect(within(imageProviderSection).getByLabelText(/Default model/i)).toHaveValue(installedModel);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("lifts stale low-resolution ComfyUI settings back to local-image-safe defaults", async () => {
+    const installedModel = "flux2_dev_fp8mixed.safetensors";
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          UNETLoader: {
+            input: {
+              required: {
+                unet_name: [[installedModel], {}],
+              },
+            },
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    window.localStorage.setItem(
+      RUNTIME_STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        theme: "dark",
+        activeCardId: "card_blank_slate_rpg",
+        cards: [
+          {
+            id: "card_blank_slate_rpg",
+            name: "Blank Slate RPG",
+            kind: "rpg",
+            summary: "test",
+            systemPrompt: "test",
+            preHistoryInstructions: "",
+            postHistoryInstructions: "",
+            playerRules: [],
+            lorebooks: [],
+            memory: [],
+            mapEnabled: true,
+            rpg: {
+              location: "start",
+              health: "not configured",
+              inventory: [],
+              quests: [],
+              flags: {},
+              knownPlaces: [],
+              mapStyle: "map",
+            },
+          },
+        ],
+        messages: [],
+        chatSessions: [
+          {
+            id: "chat-low-quality-settings",
+            cardId: "card_blank_slate_rpg",
+            title: "Low quality settings",
+            createdAt: "2026-06-30T00:00:00.000Z",
+            updatedAt: "2026-06-30T00:00:00.000Z",
+            messages: [],
+          },
+        ],
+        activeChatIds: {
+          card_blank_slate_rpg: "chat-low-quality-settings",
+        },
+        promptRuns: [],
+        providerKeyStatus: "No plaintext keys stored.",
+        imageProviderSettings: {
+          mode: "comfyui",
+          endpoint: "http://127.0.0.1:8188",
+          model: installedModel,
+          width: 256,
+          height: 256,
+          steps: 20,
+          cfg: 7,
+          samplerName: "euler",
+          scheduler: "normal",
+        },
+        savedAt: "2026-06-30T00:00:00.000Z",
+      }),
+    );
+
+    try {
+      await renderApp();
+
+      fireEvent.click(screen.getByRole("button", { name: /API Keys/i }));
+      const imageProviderSection = screen.getByRole("region", { name: /Image provider/i });
+      const widthInput = within(imageProviderSection).getByLabelText(/^Width$/i);
+      const heightInput = within(imageProviderSection).getByLabelText(/^Height$/i);
+      expect(widthInput).toHaveValue(1024);
+      expect(heightInput).toHaveValue(1024);
+      expect(within(imageProviderSection).getByLabelText(/^Steps$/i)).toHaveValue(28);
+      expect(within(imageProviderSection).getByLabelText(/^CFG$/i)).toHaveValue(3.5);
+      expect(within(imageProviderSection).getByLabelText(/^Sampler$/i)).toHaveValue("euler");
+      expect(within(imageProviderSection).getByLabelText(/^Scheduler$/i)).toHaveValue("simple");
+
+      fireEvent.change(widthInput, { target: { value: "256" } });
+      fireEvent.change(heightInput, { target: { value: "256" } });
+      expect(widthInput).toHaveValue(1024);
+      expect(heightInput).toHaveValue(1024);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("lifts stale one-step ComfyUI settings back to local-image-safe defaults", async () => {
+    const installedModel = "flux2_dev_fp8mixed.safetensors";
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          UNETLoader: {
+            input: {
+              required: {
+                unet_name: [[installedModel], {}],
+              },
+            },
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    window.localStorage.setItem(
+      RUNTIME_STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        theme: "dark",
+        activeCardId: "card_blank_slate_rpg",
+        cards: [
+          {
+            id: "card_blank_slate_rpg",
+            name: "Blank Slate RPG",
+            kind: "rpg",
+            summary: "test",
+            systemPrompt: "test",
+            preHistoryInstructions: "",
+            postHistoryInstructions: "",
+            playerRules: [],
+            lorebooks: [],
+            memory: [],
+            mapEnabled: true,
+            rpg: {
+              location: "start",
+              health: "not configured",
+              inventory: [],
+              quests: [],
+              flags: {},
+              knownPlaces: [],
+              mapStyle: "map",
+            },
+          },
+        ],
+        messages: [],
+        chatSessions: [
+          {
+            id: "chat-one-step-settings",
+            cardId: "card_blank_slate_rpg",
+            title: "One-step settings",
+            createdAt: "2026-06-30T00:00:00.000Z",
+            updatedAt: "2026-06-30T00:00:00.000Z",
+            messages: [],
+          },
+        ],
+        activeChatIds: {
+          card_blank_slate_rpg: "chat-one-step-settings",
+        },
+        promptRuns: [],
+        providerKeyStatus: "No plaintext keys stored.",
+        imageProviderSettings: {
+          mode: "comfyui",
+          endpoint: "http://127.0.0.1:8188",
+          model: installedModel,
+          width: 1024,
+          height: 1024,
+          steps: 1,
+          cfg: 1,
+          samplerName: "euler",
+          scheduler: "normal",
+        },
+        savedAt: "2026-06-30T00:00:00.000Z",
+      }),
+    );
+
+    try {
+      await renderApp();
+
+      fireEvent.click(screen.getByRole("button", { name: /API Keys/i }));
+      const imageProviderSection = screen.getByRole("region", { name: /Image provider/i });
+      expect(within(imageProviderSection).getByLabelText(/^Width$/i)).toHaveValue(1024);
+      expect(within(imageProviderSection).getByLabelText(/^Height$/i)).toHaveValue(1024);
+      expect(within(imageProviderSection).getByLabelText(/^Steps$/i)).toHaveValue(28);
+      expect(within(imageProviderSection).getByLabelText(/^CFG$/i)).toHaveValue(3.5);
+      expect(within(imageProviderSection).getByLabelText(/^Sampler$/i)).toHaveValue("euler");
+      expect(within(imageProviderSection).getByLabelText(/^Scheduler$/i)).toHaveValue("simple");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("does not persist typed provider API keys in browser storage", async () => {
@@ -495,6 +884,19 @@ describe("local-first card runtime UI", () => {
 
     await waitFor(() => expect(screen.getByText(/Session key active in memory only/i)).toBeInTheDocument());
     expect(window.localStorage.getItem(RUNTIME_STORAGE_KEY)).not.toContain("sk-browser-session-secret");
+  });
+
+  it("keeps the ComfyUI API key session-only", async () => {
+    await renderApp();
+
+    fireEvent.click(screen.getByRole("button", { name: /API Keys/i }));
+    const imageProviderSection = screen.getByRole("region", { name: /Image provider/i });
+    fireEvent.change(within(imageProviderSection).getByLabelText(/ComfyUI API key/i), {
+      target: { value: "comfy-secret-session-key" },
+    });
+
+    expect(within(imageProviderSection).getByLabelText(/ComfyUI API key/i)).toHaveValue("comfy-secret-session-key");
+    await waitFor(() => expect(window.localStorage.getItem(RUNTIME_STORAGE_KEY)).not.toContain("comfy-secret-session-key"));
   });
 
   it("runs a local provider health check without needing a real key in mock mode", async () => {
@@ -689,15 +1091,171 @@ describe("local-first card runtime UI", () => {
   });
 
   it("generates an editable birdseye image prompt for the blank RPG card", async () => {
+    window.localStorage.setItem(
+      RUNTIME_STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        theme: "dark",
+        activeCardId: "card_blank_slate_rpg",
+        cards: [
+          {
+            id: "card_blank_slate_rpg",
+            name: "Blank Slate RPG",
+            kind: "rpg",
+            summary: "test",
+            systemPrompt: "test",
+            preHistoryInstructions: "",
+            postHistoryInstructions: "",
+            playerRules: [],
+            lorebooks: [],
+            memory: [],
+            mapEnabled: true,
+            rpg: {
+              location: "Moonlit plain",
+              health: "not configured",
+              inventory: [],
+              quests: [],
+              flags: {},
+              knownPlaces: ["standing stones"],
+              mapStyle: "clean tabletop map",
+            },
+          },
+        ],
+        messages: [],
+        chatSessions: [
+          {
+            id: "chat-map",
+            cardId: "card_blank_slate_rpg",
+            title: "Map chat",
+            createdAt: "2026-06-29T00:00:00.000Z",
+            updatedAt: "2026-06-29T00:00:00.000Z",
+            messages: [
+              {
+                id: "assistant-map",
+                role: "assistant",
+                content:
+                  "You stand in a moonlit plain near standing stones. This extra sentence is intentionally long and should not be copied wholesale into the map prompt because the map generator only needs the visual requirements and spatial landmarks.",
+              },
+            ],
+          },
+        ],
+        activeChatIds: {
+          card_blank_slate_rpg: "chat-map",
+        },
+        promptRuns: [],
+        providerKeyStatus: "No plaintext keys stored.",
+        savedAt: "2026-06-29T00:00:00.000Z",
+      }),
+    );
     await renderApp();
 
     openBlankRpgCard();
-    fireEvent.click(screen.getByRole("button", { name: /Generate birdseye view/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Draft map prompt/i }));
 
     const prompt = screen.getByRole("textbox", { name: /Image prompt/i }) as HTMLTextAreaElement;
-    expect(prompt.value).toMatch(/Unmapped starting area/i);
+    await waitFor(() => expect(prompt.value).toMatch(/Moonlit plain/i));
     expect(prompt.value).toMatch(/top-down birdseye view/i);
-    expect(screen.getByRole("button", { name: /Send to image provider/i })).not.toBeDisabled();
+    expect(prompt.value).toMatch(/1000 feet/i);
+    expect(prompt.value).toMatch(/standing stones/i);
+    expect(prompt.value).not.toMatch(/intentionally long and should not be copied wholesale/i);
+    const negativePrompt = screen.getByRole("textbox", { name: /Negative prompt/i }) as HTMLTextAreaElement;
+    expect(negativePrompt.value).toMatch(/people/i);
+    expect(negativePrompt.value).toMatch(/single figure/i);
+    expect(negativePrompt.value).toMatch(/first-person view/i);
+    expect(screen.getByRole("button", { name: /Generate map image/i })).not.toBeDisabled();
+  });
+
+  it("removes natural map features from AI-planned negative prompts", async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  prompt: "very high-altitude birdseye map from about 1000 feet above ground, forest plain and river",
+                  negativePrompt: "people, trees, forests, single figure, rivers, first-person view",
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    window.localStorage.setItem(
+      RUNTIME_STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        theme: "dark",
+        activeCardId: "card_blank_slate_rpg",
+        cards: [
+          {
+            id: "card_blank_slate_rpg",
+            name: "Blank Slate RPG",
+            kind: "rpg",
+            summary: "test",
+            systemPrompt: "test",
+            preHistoryInstructions: "",
+            postHistoryInstructions: "",
+            playerRules: [],
+            lorebooks: [],
+            memory: [],
+            mapEnabled: true,
+            rpg: {
+              location: "Forest plain",
+              health: "not configured",
+              inventory: [],
+              quests: [],
+              flags: {},
+              knownPlaces: ["river", "tree line"],
+              mapStyle: "clean tabletop map",
+            },
+          },
+        ],
+        messages: [],
+        chatSessions: [
+          {
+            id: "chat-map-ai",
+            cardId: "card_blank_slate_rpg",
+            title: "Map chat",
+            createdAt: "2026-06-29T00:00:00.000Z",
+            updatedAt: "2026-06-29T00:00:00.000Z",
+            messages: [{ id: "user-map", role: "user", content: "I climb a hill and look over the forest." }],
+          },
+        ],
+        activeChatIds: {
+          card_blank_slate_rpg: "chat-map-ai",
+        },
+        promptRuns: [],
+        providerKeyStatus: "No plaintext keys stored.",
+        providerSettings: {
+          mode: "openai-compatible",
+          providerId: "local",
+          displayName: "Local OpenAI-compatible endpoint",
+          baseUrl: "http://127.0.0.1:1234/v1",
+          model: "local-model",
+        },
+        savedAt: "2026-06-29T00:00:00.000Z",
+      }),
+    );
+
+    try {
+      await renderApp();
+      openBlankRpgCard();
+      fireEvent.click(screen.getByRole("button", { name: /Draft map prompt/i }));
+
+      const negativePrompt = screen.getByRole("textbox", { name: /Negative prompt/i }) as HTMLTextAreaElement;
+      await waitFor(() => expect(negativePrompt.value).toMatch(/people/i));
+      expect(negativePrompt.value).toMatch(/single figure/i);
+      expect(negativePrompt.value).toMatch(/first-person view/i);
+      expect(negativePrompt.value).not.toMatch(/\btrees?\b/i);
+      expect(negativePrompt.value).not.toMatch(/\bforests?\b/i);
+      expect(negativePrompt.value).not.toMatch(/\brivers?\b/i);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("shows the generated image artifact for the active chat only", async () => {
@@ -786,8 +1344,951 @@ describe("local-first card runtime UI", () => {
     await renderApp();
     openBlankRpgCard();
 
-    await waitFor(() => expect(screen.getByRole("region", { name: /Generated image/i })).toHaveTextContent("Model B"));
-    expect(screen.getByRole("region", { name: /Generated image/i })).not.toHaveTextContent("Model A");
+    await waitFor(() => expect(screen.getByRole("region", { name: /Generated map/i })).toHaveTextContent("Model B"));
+    expect(screen.getByRole("region", { name: /Generated map/i })).not.toHaveTextContent("Model A");
+  });
+
+  it("shows the newest persisted map when duplicate artifacts exist for the same chat", async () => {
+    window.localStorage.setItem(
+      RUNTIME_STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        theme: "dark",
+        activeCardId: "card_blank_slate_rpg",
+        cards: [
+          {
+            id: "card_blank_slate_rpg",
+            name: "Blank Slate RPG",
+            kind: "rpg",
+            summary: "test",
+            systemPrompt: "test",
+            preHistoryInstructions: "",
+            postHistoryInstructions: "",
+            playerRules: [],
+            lorebooks: [],
+            memory: [],
+            mapEnabled: true,
+            rpg: {
+              location: "start",
+              health: "not configured",
+              inventory: [],
+              quests: [],
+              flags: {},
+              knownPlaces: [],
+              mapStyle: "map",
+            },
+          },
+        ],
+        messages: [],
+        chatSessions: [
+          {
+            id: "chat-duplicate-map",
+            cardId: "card_blank_slate_rpg",
+            title: "Duplicate map chat",
+            createdAt: "2026-06-30T00:00:00.000Z",
+            updatedAt: "2026-06-30T00:00:00.000Z",
+            messages: [],
+          },
+        ],
+        activeChatIds: {
+          card_blank_slate_rpg: "chat-duplicate-map",
+        },
+        promptRuns: [],
+        providerKeyStatus: "No plaintext keys stored.",
+        generatedMaps: [
+          {
+            id: "stale-map",
+            imageKind: "map",
+            cardId: "card_blank_slate_rpg",
+            chatId: "chat-duplicate-map",
+            prompt: "stale map prompt",
+            negativePrompt: "",
+            provider: "comfyui",
+            model: "Stale Model",
+            status: "generated",
+            imageUrl: "http://127.0.0.1:8188/view?filename=stale.png&type=output&subfolder=",
+            createdAt: "2026-06-30T00:00:00.000Z",
+          },
+          {
+            id: "fresh-map",
+            imageKind: "map",
+            cardId: "card_blank_slate_rpg",
+            chatId: "chat-duplicate-map",
+            prompt: "fresh map prompt",
+            negativePrompt: "",
+            provider: "comfyui",
+            model: "Fresh Model",
+            status: "generated",
+            imageUrl: "http://127.0.0.1:8188/view?filename=fresh.png&type=output&subfolder=",
+            createdAt: "2026-06-30T00:10:00.000Z",
+          },
+        ],
+        savedAt: "2026-06-30T00:10:00.000Z",
+      }),
+    );
+
+    await renderApp();
+    openBlankRpgCard();
+
+    const generatedMap = await screen.findByRole("region", { name: /Generated map/i });
+    expect(generatedMap).toHaveTextContent("Fresh Model");
+    expect(generatedMap).not.toHaveTextContent("Stale Model");
+    expect(screen.getByAltText(/Generated map/i)).toHaveAttribute("src", expect.stringContaining("lc_run=fresh-map"));
+  });
+
+  it("surfaces a new map prompt draft separately from the existing generated map", async () => {
+    window.localStorage.setItem(
+      RUNTIME_STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        theme: "dark",
+        activeCardId: "card_blank_slate_rpg",
+        cards: [
+          {
+            id: "card_blank_slate_rpg",
+            name: "Blank Slate RPG",
+            kind: "rpg",
+            summary: "test",
+            systemPrompt: "test",
+            preHistoryInstructions: "",
+            postHistoryInstructions: "",
+            playerRules: [],
+            lorebooks: [],
+            memory: [],
+            mapEnabled: true,
+            rpg: {
+              location: "new ridge",
+              health: "not configured",
+              inventory: [],
+              quests: [],
+              flags: {},
+              knownPlaces: ["river gate"],
+              mapStyle: "clean tabletop map",
+            },
+          },
+        ],
+        messages: [],
+        chatSessions: [
+          {
+            id: "chat-map-draft",
+            cardId: "card_blank_slate_rpg",
+            title: "Map draft chat",
+            createdAt: "2026-06-30T00:00:00.000Z",
+            updatedAt: "2026-06-30T00:00:00.000Z",
+            messages: [],
+          },
+        ],
+        activeChatIds: {
+          card_blank_slate_rpg: "chat-map-draft",
+        },
+        promptRuns: [],
+        providerKeyStatus: "No plaintext keys stored.",
+        generatedMaps: [
+          {
+            id: "old-visible-map",
+            imageKind: "map",
+            cardId: "card_blank_slate_rpg",
+            chatId: "chat-map-draft",
+            prompt: "old map prompt",
+            negativePrompt: "",
+            provider: "comfyui",
+            model: "Old Model",
+            status: "generated",
+            imageUrl: "http://127.0.0.1:8188/view?filename=old-visible.png&type=output&subfolder=",
+            createdAt: "2026-06-30T00:00:00.000Z",
+          },
+        ],
+        savedAt: "2026-06-30T00:00:00.000Z",
+      }),
+    );
+
+    await renderApp();
+    openBlankRpgCard();
+
+    const mapGenerator = screen.getByRole("region", { name: /Map generator/i });
+    expect(within(mapGenerator).getByRole("region", { name: /Generated map/i })).toHaveTextContent("Old Model");
+    fireEvent.click(within(mapGenerator).getByRole("button", { name: /Draft map prompt/i }));
+
+    const promptDraft = await within(mapGenerator).findByRole("region", { name: /Map prompt draft/i });
+    expect(promptDraft).toHaveTextContent(/Generate map image/i);
+    expect((within(mapGenerator).getByLabelText(/Image prompt/i) as HTMLTextAreaElement).value).toMatch(/new ridge/i);
+    expect(within(mapGenerator).getByRole("button", { name: /Regenerate map image/i })).not.toBeDisabled();
+  });
+
+  it("lets users reset, generate, and delete the current map", async () => {
+    window.localStorage.setItem(
+      RUNTIME_STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        theme: "dark",
+        activeCardId: "card_blank_slate_rpg",
+        cards: [
+          {
+            id: "card_blank_slate_rpg",
+            name: "Blank Slate RPG",
+            kind: "rpg",
+            summary: "test",
+            systemPrompt: "test",
+            preHistoryInstructions: "",
+            postHistoryInstructions: "",
+            playerRules: [],
+            lorebooks: [],
+            memory: [],
+            mapEnabled: true,
+            rpg: {
+              location: "start",
+              health: "not configured",
+              inventory: [],
+              quests: [],
+              flags: {},
+              knownPlaces: [],
+              mapStyle: "map",
+            },
+          },
+        ],
+        messages: [],
+        chatSessions: [
+          {
+            id: "chat-map-controls",
+            cardId: "card_blank_slate_rpg",
+            title: "Map controls",
+            createdAt: "2026-06-29T00:00:00.000Z",
+            updatedAt: "2026-06-29T00:00:00.000Z",
+            messages: [],
+          },
+        ],
+        activeChatIds: {
+          card_blank_slate_rpg: "chat-map-controls",
+        },
+        promptRuns: [],
+        providerKeyStatus: "No plaintext keys stored.",
+        imageProviderSettings: {
+          mode: "prompt-only",
+          model: "test-image-model",
+        },
+        generatedMaps: [
+          {
+            id: "map-current",
+            imageKind: "map",
+            cardId: "card_blank_slate_rpg",
+            chatId: "chat-map-controls",
+            prompt: "old map prompt",
+            negativePrompt: "",
+            provider: "prompt-only",
+            model: "test-image-model",
+            status: "generated",
+            imageUrl: "http://127.0.0.1:8188/view?filename=old-map.png&type=output&subfolder=",
+            createdAt: "2026-06-29T00:00:00.000Z",
+          },
+        ],
+        savedAt: "2026-06-29T00:00:00.000Z",
+      }),
+    );
+
+    await renderApp();
+    openBlankRpgCard();
+
+    const mapGenerator = screen.getByRole("region", { name: /Map generator/i });
+    expect(within(mapGenerator).getByRole("region", { name: /Generated map/i })).toHaveTextContent("test-image-model");
+
+    fireEvent.click(within(mapGenerator).getByRole("button", { name: /Delete map/i }));
+    await waitFor(() =>
+      expect(within(mapGenerator).queryByRole("region", { name: /Generated map/i })).not.toBeInTheDocument(),
+    );
+
+    const mapPrompt = within(mapGenerator).getByLabelText(/Image prompt/i) as HTMLTextAreaElement;
+    const mapNegativePrompt = within(mapGenerator).getByLabelText(/Negative prompt/i) as HTMLTextAreaElement;
+    fireEvent.change(mapPrompt, { target: { value: "top-down map prompt" } });
+    fireEvent.change(mapNegativePrompt, { target: { value: "people" } });
+    fireEvent.click(within(mapGenerator).getByRole("button", { name: /Reset map prompt/i }));
+    expect(mapPrompt).toHaveValue("");
+    expect(mapNegativePrompt).toHaveValue("");
+
+    fireEvent.change(mapPrompt, { target: { value: "top-down map prompt" } });
+    fireEvent.click(within(mapGenerator).getByRole("button", { name: /Generate map image/i }));
+    await waitFor(() =>
+      expect(within(mapGenerator).getByRole("region", { name: /Generated map/i })).toHaveTextContent("prompt-only"),
+    );
+  });
+
+  it("restores a saved map prompt and refreshes the map image when regenerating", async () => {
+    let promptQueueCount = 0;
+    const queuedWorkflows: Array<Record<string, { inputs?: Record<string, unknown> }>> = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/object_info/CheckpointLoaderSimple")) {
+        return new Response(
+          JSON.stringify({
+            CheckpointLoaderSimple: {
+              input: {
+                required: {
+                  ckpt_name: [["test-checkpoint.safetensors"], {}],
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/prompt")) {
+        promptQueueCount += 1;
+        const body = JSON.parse(String(init?.body)) as {
+          prompt: Record<string, { inputs?: Record<string, unknown> }>;
+        };
+        queuedWorkflows.push(body.prompt);
+        return new Response(JSON.stringify({ prompt_id: `map-prompt-${promptQueueCount}` }), { status: 200 });
+      }
+      if (url.includes("/history/")) {
+        const promptId = url.split("/").pop() ?? "map-prompt-1";
+        return new Response(
+          JSON.stringify({
+            [promptId]: {
+              outputs: {
+                "9": {
+                  images: [{ filename: "same-map-file.png", subfolder: "", type: "output" }],
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchImpl);
+    window.localStorage.setItem(
+      RUNTIME_STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        theme: "dark",
+        activeCardId: "card_blank_slate_rpg",
+        cards: [
+          {
+            id: "card_blank_slate_rpg",
+            name: "Blank Slate RPG",
+            kind: "rpg",
+            summary: "test",
+            systemPrompt: "test",
+            preHistoryInstructions: "",
+            postHistoryInstructions: "",
+            playerRules: [],
+            lorebooks: [],
+            memory: [],
+            mapEnabled: true,
+            rpg: {
+              location: "start",
+              health: "not configured",
+              inventory: [],
+              quests: [],
+              flags: {},
+              knownPlaces: [],
+              mapStyle: "map",
+            },
+          },
+        ],
+        messages: [],
+        chatSessions: [
+          {
+            id: "chat-map-refresh",
+            cardId: "card_blank_slate_rpg",
+            title: "Map refresh",
+            createdAt: "2026-06-30T00:00:00.000Z",
+            updatedAt: "2026-06-30T00:00:00.000Z",
+            messages: [],
+          },
+        ],
+        activeChatIds: {
+          card_blank_slate_rpg: "chat-map-refresh",
+        },
+        promptRuns: [],
+        providerKeyStatus: "No plaintext keys stored.",
+        imageProviderSettings: {
+          mode: "comfyui",
+          endpoint: "http://127.0.0.1:8188",
+          model: "test-checkpoint.safetensors",
+          workflowJson: JSON.stringify({
+            "3": {
+              class_type: "KSampler",
+              inputs: {
+                seed: 1,
+                steps: 4,
+                cfg: 1,
+                sampler_name: "euler",
+                scheduler: "normal",
+              },
+            },
+            "4": {
+              class_type: "CheckpointLoaderSimple",
+              inputs: {
+                ckpt_name: "{{model}}",
+              },
+            },
+            "5": {
+              class_type: "EmptyLatentImage",
+              inputs: {
+                width: 256,
+                height: 256,
+                batch_size: 1,
+              },
+            },
+            "9": {
+              class_type: "SaveImage",
+              inputs: {
+                images: ["8", 0],
+              },
+            },
+          }),
+          width: 1024,
+          height: 1024,
+          seed: 12345,
+          steps: 28,
+          cfg: 6.5,
+          samplerName: "dpmpp_2m",
+          scheduler: "karras",
+          pollTimeoutMs: 15000,
+        },
+        generatedMaps: [
+          {
+            id: "saved-map",
+            imageKind: "map",
+            cardId: "card_blank_slate_rpg",
+            chatId: "chat-map-refresh",
+            prompt: "saved top-down map prompt",
+            negativePrompt: "people",
+            provider: "comfyui",
+            model: "test-checkpoint.safetensors",
+            status: "generated",
+            imageUrl: "http://127.0.0.1:8188/view?filename=same-map-file.png&type=output&subfolder=",
+            createdAt: "2026-06-30T00:00:00.000Z",
+          },
+        ],
+        savedAt: "2026-06-30T00:00:00.000Z",
+      }),
+    );
+
+    try {
+      await renderApp();
+      openBlankRpgCard();
+
+      const mapGenerator = screen.getByRole("region", { name: /Map generator/i });
+      expect(within(mapGenerator).getByRole("button", { name: /Draft map prompt/i })).toBeInTheDocument();
+      const prompt = within(mapGenerator).getByLabelText(/Image prompt/i) as HTMLTextAreaElement;
+      expect(prompt).toHaveValue("saved top-down map prompt");
+      const oldMapImage = within(mapGenerator).getByAltText(/Generated map/i);
+      const oldMapSrc = oldMapImage.getAttribute("src");
+
+      fireEvent.click(within(mapGenerator).getByRole("button", { name: /Regenerate map image/i }));
+      await waitFor(() => expect(promptQueueCount).toBe(1));
+      const refreshedMapImage = within(mapGenerator).getByAltText(/Generated map/i);
+      expect(refreshedMapImage.getAttribute("src")).not.toBe(oldMapSrc);
+      expect(queuedWorkflows[0]?.["5"].inputs?.width).toBe(1024);
+      expect(queuedWorkflows[0]?.["5"].inputs?.height).toBe(1024);
+      expect(queuedWorkflows[0]?.["3"].inputs?.steps).toBe(28);
+      expect(queuedWorkflows[0]?.["3"].inputs?.sampler_name).toBe("dpmpp_2m");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("builds a preset-backed custom image prompt from vague user input", async () => {
+    window.localStorage.setItem(
+      RUNTIME_STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        theme: "dark",
+        activeCardId: "card_blank_slate_rpg",
+        cards: [
+          {
+            id: "card_blank_slate_rpg",
+            name: "Blank Slate RPG",
+            kind: "rpg",
+            summary: "test",
+            systemPrompt: "test",
+            preHistoryInstructions: "",
+            postHistoryInstructions: "",
+            playerRules: [],
+            lorebooks: [],
+            memory: [],
+            mapEnabled: true,
+            rpg: {
+              location: "start",
+              health: "not configured",
+              inventory: [],
+              quests: [],
+              flags: {},
+              knownPlaces: [],
+              mapStyle: "map",
+            },
+          },
+        ],
+        messages: [],
+        chatSessions: [
+          {
+            id: "chat-image-controls",
+            cardId: "card_blank_slate_rpg",
+            title: "Image controls",
+            createdAt: "2026-06-29T00:00:00.000Z",
+            updatedAt: "2026-06-29T00:00:00.000Z",
+            messages: [],
+          },
+        ],
+        activeChatIds: {
+          card_blank_slate_rpg: "chat-image-controls",
+        },
+        promptRuns: [],
+        providerKeyStatus: "No plaintext keys stored.",
+        imageProviderSettings: {
+          mode: "prompt-only",
+          model: "test-image-model",
+        },
+        savedAt: "2026-06-29T00:00:00.000Z",
+      }),
+    );
+
+    await renderApp();
+    openBlankRpgCard();
+
+    const imageGenerator = screen.getByRole("region", { name: /Image generator/i });
+    expect(imageGenerator).toHaveTextContent(/realistic, 4k/i);
+    fireEvent.change(within(imageGenerator).getByLabelText(/Image request/i), {
+      target: { value: "a silver tavern sign at sunset" },
+    });
+    fireEvent.click(within(imageGenerator).getByRole("button", { name: /Generate custom image/i }));
+
+    await waitFor(() =>
+      expect(within(imageGenerator).getByRole("region", { name: /Generated custom image/i })).toHaveTextContent(
+        "prompt-only",
+      ),
+    );
+    await waitFor(() => {
+      const snapshot = JSON.parse(window.localStorage.getItem(RUNTIME_STORAGE_KEY) ?? "{}") as {
+        generatedMaps?: Array<{ imageKind?: string; prompt?: string; negativePrompt?: string }>;
+      };
+      const customImage = snapshot.generatedMaps?.find((artifact) => artifact.imageKind === "photo");
+      expect(customImage?.prompt).toContain("realistic, 4k");
+      expect(customImage?.prompt).toContain("plus user inputs: a silver tavern sign at sunset");
+      expect(customImage?.negativePrompt).toContain("watermark");
+    });
+
+    fireEvent.click(within(imageGenerator).getByRole("button", { name: /Delete image/i }));
+    await waitFor(() =>
+      expect(within(imageGenerator).queryByRole("region", { name: /Generated custom image/i })).not.toBeInTheDocument(),
+    );
+  });
+
+  it("refreshes the displayed custom image when a later generation returns the same provider view URL", async () => {
+    let promptQueueCount = 0;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/object_info/CheckpointLoaderSimple")) {
+        return new Response(
+          JSON.stringify({
+            CheckpointLoaderSimple: {
+              input: {
+                required: {
+                  ckpt_name: [["test-checkpoint.safetensors"], {}],
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/prompt")) {
+        promptQueueCount += 1;
+        return new Response(JSON.stringify({ prompt_id: `prompt-${promptQueueCount}` }), { status: 200 });
+      }
+      if (url.includes("/history/")) {
+        const promptId = url.split("/").pop() ?? "prompt-1";
+        return new Response(
+          JSON.stringify({
+            [promptId]: {
+              outputs: {
+                "9": {
+                  images: [{ filename: "same-provider-file.png", subfolder: "", type: "output" }],
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchImpl);
+    window.localStorage.setItem(
+      RUNTIME_STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        theme: "dark",
+        activeCardId: "card_blank_slate_rpg",
+        cards: [
+          {
+            id: "card_blank_slate_rpg",
+            name: "Blank Slate RPG",
+            kind: "rpg",
+            summary: "test",
+            systemPrompt: "test",
+            preHistoryInstructions: "",
+            postHistoryInstructions: "",
+            playerRules: [],
+            lorebooks: [],
+            memory: [],
+            mapEnabled: true,
+            rpg: {
+              location: "start",
+              health: "not configured",
+              inventory: [],
+              quests: [],
+              flags: {},
+              knownPlaces: [],
+              mapStyle: "map",
+            },
+          },
+        ],
+        messages: [],
+        chatSessions: [
+          {
+            id: "chat-image-refresh",
+            cardId: "card_blank_slate_rpg",
+            title: "Image refresh",
+            createdAt: "2026-06-30T00:00:00.000Z",
+            updatedAt: "2026-06-30T00:00:00.000Z",
+            messages: [],
+          },
+        ],
+        activeChatIds: {
+          card_blank_slate_rpg: "chat-image-refresh",
+        },
+        promptRuns: [],
+        providerKeyStatus: "No plaintext keys stored.",
+        imageProviderSettings: {
+          mode: "comfyui",
+          endpoint: "http://127.0.0.1:8188",
+          model: "test-checkpoint.safetensors",
+          workflowJson: JSON.stringify({
+            "4": {
+              class_type: "CheckpointLoaderSimple",
+              inputs: {
+                ckpt_name: "{{model}}",
+              },
+            },
+            "9": {
+              class_type: "SaveImage",
+              inputs: {
+                images: ["8", 0],
+              },
+            },
+          }),
+          width: 1024,
+          height: 1024,
+          seed: -1,
+          steps: 28,
+          cfg: 6.5,
+          samplerName: "dpmpp_2m",
+          scheduler: "karras",
+          pollTimeoutMs: 15000,
+        },
+        savedAt: "2026-06-30T00:00:00.000Z",
+      }),
+    );
+
+    try {
+      await renderApp();
+      openBlankRpgCard();
+
+      const imageGenerator = screen.getByRole("region", { name: /Image generator/i });
+      const imageRequest = within(imageGenerator).getByLabelText(/Image request/i);
+      fireEvent.change(imageRequest, { target: { value: "first image" } });
+      fireEvent.click(within(imageGenerator).getByRole("button", { name: /Generate custom image/i }));
+      const firstImage = await within(imageGenerator).findByAltText(/Generated custom scene/i);
+      const firstSrc = firstImage.getAttribute("src");
+
+      fireEvent.change(imageRequest, { target: { value: "second image" } });
+      fireEvent.click(within(imageGenerator).getByRole("button", { name: /Generate custom image/i }));
+      await waitFor(() => expect(promptQueueCount).toBe(2));
+      const secondImage = await within(imageGenerator).findByAltText(/Generated custom scene/i);
+      const secondSrc = secondImage.getAttribute("src");
+
+      expect(secondSrc).toContain("same-provider-file.png");
+      expect(secondSrc).not.toBe(firstSrc);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("queues local-image-safe settings when the custom image generator starts from stale one-step settings", async () => {
+    let promptQueueCount = 0;
+    const queuedWorkflows: Array<Record<string, { inputs?: Record<string, unknown> }>> = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/object_info/UNETLoader")) {
+        return new Response(
+          JSON.stringify({
+            UNETLoader: {
+              input: {
+                required: {
+                  unet_name: [["test-checkpoint.safetensors"], {}],
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("/object_info/CheckpointLoaderSimple")) {
+        return new Response(
+          JSON.stringify({
+            CheckpointLoaderSimple: {
+              input: {
+                required: {
+                  ckpt_name: [["test-checkpoint.safetensors"], {}],
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/prompt")) {
+        promptQueueCount += 1;
+        const body = JSON.parse(String(init?.body)) as {
+          prompt: Record<string, { inputs?: Record<string, unknown> }>;
+        };
+        queuedWorkflows.push(body.prompt);
+        return new Response(JSON.stringify({ prompt_id: `custom-image-${promptQueueCount}` }), { status: 200 });
+      }
+      if (url.includes("/history/")) {
+        const promptId = url.split("/").pop() ?? "custom-image-1";
+        return new Response(
+          JSON.stringify({
+            [promptId]: {
+              outputs: {
+                "9": {
+                  images: [{ filename: "safe-custom-image.png", subfolder: "", type: "output" }],
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchImpl);
+    window.localStorage.setItem(
+      RUNTIME_STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        theme: "dark",
+        activeCardId: "card_blank_slate_rpg",
+        cards: [
+          {
+            id: "card_blank_slate_rpg",
+            name: "Blank Slate RPG",
+            kind: "rpg",
+            summary: "test",
+            systemPrompt: "test",
+            preHistoryInstructions: "",
+            postHistoryInstructions: "",
+            playerRules: [],
+            lorebooks: [],
+            memory: [],
+            mapEnabled: true,
+            rpg: {
+              location: "start",
+              health: "not configured",
+              inventory: [],
+              quests: [],
+              flags: {},
+              knownPlaces: [],
+              mapStyle: "map",
+            },
+          },
+        ],
+        messages: [],
+        chatSessions: [
+          {
+            id: "chat-custom-safe-settings",
+            cardId: "card_blank_slate_rpg",
+            title: "Custom safe settings",
+            createdAt: "2026-06-30T00:00:00.000Z",
+            updatedAt: "2026-06-30T00:00:00.000Z",
+            messages: [],
+          },
+        ],
+        activeChatIds: {
+          card_blank_slate_rpg: "chat-custom-safe-settings",
+        },
+        promptRuns: [],
+        providerKeyStatus: "No plaintext keys stored.",
+        imageProviderSettings: {
+          mode: "comfyui",
+          endpoint: "http://127.0.0.1:8188",
+          model: "test-checkpoint.safetensors",
+          workflowJson: JSON.stringify({
+            "3": {
+              class_type: "KSampler",
+              inputs: {
+                seed: "{{seed}}",
+                steps: "{{steps}}",
+                cfg: "{{cfg}}",
+                sampler_name: "{{sampler}}",
+                scheduler: "{{scheduler}}",
+              },
+            },
+            "5": {
+              class_type: "EmptyLatentImage",
+              inputs: {
+                width: "{{width}}",
+                height: "{{height}}",
+                batch_size: 1,
+              },
+            },
+            "9": {
+              class_type: "SaveImage",
+              inputs: {
+                images: ["8", 0],
+              },
+            },
+          }),
+          width: 1024,
+          height: 1024,
+          seed: 0,
+          steps: 1,
+          cfg: 1,
+          samplerName: "euler",
+          scheduler: "normal",
+          pollTimeoutMs: 15000,
+        },
+        savedAt: "2026-06-30T00:00:00.000Z",
+      }),
+    );
+
+    try {
+      await renderApp();
+      openBlankRpgCard();
+
+      const imageGenerator = screen.getByRole("region", { name: /Image generator/i });
+      fireEvent.change(within(imageGenerator).getByLabelText(/Image request/i), {
+        target: { value: "a clear portrait of an old stone doorway" },
+      });
+      fireEvent.click(within(imageGenerator).getByRole("button", { name: /Generate custom image/i }));
+      await waitFor(() => expect(promptQueueCount).toBe(1));
+      expect(queuedWorkflows[0]?.["5"].inputs?.width).toBe(1024);
+      expect(queuedWorkflows[0]?.["5"].inputs?.height).toBe(1024);
+      expect(queuedWorkflows[0]?.["3"].inputs?.steps).toBe(28);
+      expect(queuedWorkflows[0]?.["3"].inputs?.cfg).toBe(3.5);
+      expect(queuedWorkflows[0]?.["3"].inputs?.sampler_name).toBe("euler");
+      expect(queuedWorkflows[0]?.["3"].inputs?.scheduler).toBe("simple");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("lets users maximize generated maps and custom images", async () => {
+    window.localStorage.setItem(
+      RUNTIME_STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        theme: "dark",
+        activeCardId: "card_blank_slate_rpg",
+        cards: [
+          {
+            id: "card_blank_slate_rpg",
+            name: "Blank Slate RPG",
+            kind: "rpg",
+            summary: "test",
+            systemPrompt: "test",
+            preHistoryInstructions: "",
+            postHistoryInstructions: "",
+            playerRules: [],
+            lorebooks: [],
+            memory: [],
+            mapEnabled: true,
+            rpg: {
+              location: "start",
+              health: "not configured",
+              inventory: [],
+              quests: [],
+              flags: {},
+              knownPlaces: [],
+              mapStyle: "map",
+            },
+          },
+        ],
+        messages: [],
+        chatSessions: [
+          {
+            id: "chat-maximize-media",
+            cardId: "card_blank_slate_rpg",
+            title: "Maximize media",
+            createdAt: "2026-06-30T00:00:00.000Z",
+            updatedAt: "2026-06-30T00:00:00.000Z",
+            messages: [],
+          },
+        ],
+        activeChatIds: {
+          card_blank_slate_rpg: "chat-maximize-media",
+        },
+        promptRuns: [],
+        providerKeyStatus: "No plaintext keys stored.",
+        imageProviderSettings: {
+          mode: "prompt-only",
+          model: "test-image-model",
+        },
+        generatedMaps: [
+          {
+            id: "max-map",
+            imageKind: "map",
+            cardId: "card_blank_slate_rpg",
+            chatId: "chat-maximize-media",
+            prompt: "map prompt",
+            negativePrompt: "",
+            provider: "prompt-only",
+            model: "test-image-model",
+            status: "generated",
+            imageUrl: "http://127.0.0.1:8188/view?filename=max-map.png&type=output&subfolder=",
+            createdAt: "2026-06-30T00:00:00.000Z",
+          },
+          {
+            id: "max-photo",
+            imageKind: "photo",
+            cardId: "card_blank_slate_rpg",
+            chatId: "chat-maximize-media",
+            prompt: "custom image prompt",
+            negativePrompt: "",
+            provider: "prompt-only",
+            model: "test-image-model",
+            status: "generated",
+            imageUrl: "http://127.0.0.1:8188/view?filename=max-photo.png&type=output&subfolder=",
+            createdAt: "2026-06-30T00:01:00.000Z",
+          },
+        ],
+        savedAt: "2026-06-30T00:00:00.000Z",
+      }),
+    );
+
+    await renderApp();
+    openBlankRpgCard();
+
+    const mapGenerator = screen.getByRole("region", { name: /Map generator/i });
+    fireEvent.click(within(mapGenerator).getByRole("button", { name: /Maximize map/i }));
+    const mapPreview = screen.getByRole("dialog", { name: /Generated map preview/i });
+    expect(within(mapPreview).getByAltText(/Generated map preview/i)).toHaveAttribute(
+      "src",
+      expect.stringContaining("lc_run=max-map"),
+    );
+    fireEvent.click(within(mapPreview).getByRole("button", { name: /Close media preview/i }));
+    expect(screen.queryByRole("dialog", { name: /Generated map preview/i })).not.toBeInTheDocument();
+
+    const imageGenerator = screen.getByRole("region", { name: /Image generator/i });
+    fireEvent.click(within(imageGenerator).getByRole("button", { name: /Maximize image/i }));
+    const imagePreview = screen.getByRole("dialog", { name: /Generated custom image preview/i });
+    expect(within(imagePreview).getByAltText(/Generated custom image preview/i)).toHaveAttribute(
+      "src",
+      expect.stringContaining("lc_run=max-photo"),
+    );
   });
 });
 

@@ -84,6 +84,7 @@ describe("turn pipeline", () => {
     expect(adapter.requests[0].prompt).toContain("[Gatehouse | priority 10]");
     expect(adapter.requests[0].prompt).toContain("Location: Unmapped road");
     expect(adapter.requests[0].prompt).toContain("## User latest message\nI approach the glowing lantern gate.");
+    expect(adapter.requests[0].prompt).toContain("Presentation rules: use *single asterisks*");
     expect(adapter.requests[0].metadata?.includedLayerIds).toContain(TURN_PIPELINE_LAYER_IDS.rpgState);
 
     expect(result.assistantMessageText).toBe(
@@ -197,7 +198,7 @@ describe("turn pipeline", () => {
       ],
       loreEntries: [{ id: "lore-keep", content: "small lore", priority: 10 }],
       tokenBudget: {
-        maxInputTokens: 1_300,
+        maxInputTokens: 1_500,
         reservedOutputTokens: 200,
       },
       estimator: (text) => text.length,
@@ -227,7 +228,7 @@ describe("turn pipeline", () => {
         { id: "lore-trimmed", content: "oversized lore ".repeat(140), priority: 1 },
       ],
       tokenBudget: {
-        maxInputTokens: 1_400,
+        maxInputTokens: 1_600,
         reservedOutputTokens: 200,
       },
       estimator: (text) => text.length,

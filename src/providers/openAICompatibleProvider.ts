@@ -56,7 +56,7 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
     }
     this.defaultHeaders = config.defaultHeaders ?? {};
     this.models = config.models ?? [];
-    this.fetchImpl = config.fetchImpl ?? fetch;
+    this.fetchImpl = bindFetch(config.fetchImpl);
   }
 
   async listModels(): Promise<ModelInfo[]> {
@@ -191,6 +191,10 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
 
     yield { text: "", index, done: true };
   }
+}
+
+function bindFetch(fetchImpl: typeof fetch = globalThis.fetch): typeof fetch {
+  return fetchImpl.bind(globalThis) as typeof fetch;
 }
 
 function normalizeBaseUrl(value: string): string {

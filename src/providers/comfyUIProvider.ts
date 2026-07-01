@@ -9,10 +9,17 @@ export interface ComfyUIImageProviderConfig {
   endpoint: string;
   workflowJson: string;
   model?: string;
+  apiKey?: string;
   clientId?: string;
   fetchImpl?: typeof fetch;
   pollIntervalMs?: number;
   pollTimeoutMs?: number;
+}
+
+export interface ComfyUICheckpointListConfig {
+  endpoint: string;
+  apiKey?: string;
+  fetchImpl?: typeof fetch;
 }
 
 interface PromptQueueResponse {
@@ -29,9 +36,27 @@ interface ComfyImageOutput {
 
 interface ComfyHistoryEntry {
   outputs?: Record<string, { images?: ComfyImageOutput[] }>;
+  status?: {
+    completed?: boolean;
+    status_str?: string;
+  };
+}
+
+interface ComfyObjectInfo {
+  input?: {
+    required?: Record<string, unknown>;
+  };
 }
 
 type WorkflowValue = string | number | boolean | null | WorkflowValue[] | { [key: string]: WorkflowValue };
+
+const localImageRecommendedImageSize = 1024;
+const localImageRecommendedSteps = 28;
+const localImageMinimumUsableSteps = 8;
+const localImageRecommendedCfg = 3.5;
+const localImageMinimumUsableCfg = 1.5;
+const localImageRecommendedSampler = "euler";
+const localImageRecommendedScheduler = "simple";
 
 export class ComfyUIImageProvider implements ImageModelAdapter {
   readonly id = "comfyui";
@@ -40,6 +65,7 @@ export class ComfyUIImageProvider implements ImageModelAdapter {
   private readonly endpoint: string;
   private readonly workflowJson: string;
   private readonly model?: string;
+  private readonly apiKey?: string;
   private readonly clientId: string;
   private readonly fetchImpl: typeof fetch;
   private readonly pollIntervalMs: number;
@@ -54,8 +80,9 @@ export class ComfyUIImageProvider implements ImageModelAdapter {
     this.endpoint = endpoint;
     this.workflowJson = config.workflowJson.trim();
     this.model = config.model?.trim() || undefined;
+    this.apiKey = config.apiKey?.trim() || undefined;
     this.clientId = config.clientId ?? createClientId();
-    this.fetchImpl = config.fetchImpl ?? fetch;
+    this.fetchImpl = bindFetch(config.fetchImpl);
     this.pollIntervalMs = config.pollIntervalMs ?? 1_000;
     this.pollTimeoutMs = config.pollTimeoutMs ?? 120_000;
   }
@@ -75,7 +102,13 @@ export class ComfyUIImageProvider implements ImageModelAdapter {
       throw new Error("Paste a ComfyUI workflow exported in API format before generating images.");
     }
 
-    const workflow = hydrateWorkflow(parseWorkflow(this.workflowJson), request, this.model);
+    const resolvedRequest = normalizeImageGenerationRequest(request);
+    const workflow = applyWorkflowPromptOverrides(
+      hydrateWorkflow(parseWorkflow(this.workflowJson), resolvedRequest, this.model),
+      resolvedRequest,
+    );
+    await this.validateCheckpointModel(workflow);
+
     const queued = await this.queueWorkflow(workflow);
     const promptId = queued.prompt_id;
     if (!promptId) {
@@ -90,21 +123,20 @@ export class ComfyUIImageProvider implements ImageModelAdapter {
 
     return {
       providerId: this.id,
-      model: request.model,
+      model: resolvedRequest.model,
       images: imageUrls.map((url) => ({ url })),
       raw: {
         promptId,
         outputCount: imageUrls.length,
+        seed: resolvedRequest.seed,
       },
     };
   }
 
   private async queueWorkflow(workflow: WorkflowValue): Promise<PromptQueueResponse> {
-    const response = await this.fetchImpl(`${this.endpoint}/prompt`, {
+    const response = await this.fetchComfy(`${this.endpoint}/prompt`, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
+      headers: this.createHeaders({ "content-type": "application/json" }),
       body: JSON.stringify({
         prompt: workflow,
         client_id: this.clientId,
@@ -112,24 +144,67 @@ export class ComfyUIImageProvider implements ImageModelAdapter {
     });
 
     if (!response.ok) {
-      throw new Error(`ComfyUI queue failed (${response.status}): ${await safeResponseText(response)}`);
+      throw new Error(formatQueueFailure(response.status, await safeResponseText(response)));
     }
 
-    return (await response.json()) as PromptQueueResponse;
+    const queued = (await response.json()) as PromptQueueResponse;
+    if (hasComfyNodeErrors(queued.node_errors)) {
+      throw new Error(formatQueueFailure(response.status, JSON.stringify({ node_errors: queued.node_errors })));
+    }
+
+    return queued;
+  }
+
+  private async validateCheckpointModel(workflow: WorkflowValue): Promise<void> {
+    const checkpointName = findCheckpointModelName(workflow);
+    if (!checkpointName) {
+      return;
+    }
+
+    const installedModels = await fetchComfyUICheckpointModels({
+      endpoint: this.endpoint,
+      apiKey: this.apiKey,
+      fetchImpl: this.fetchImpl,
+    });
+    if (installedModels.length === 0) {
+      throw new Error(
+        [
+          "ComfyUI has no checkpoint models installed or visible to the API.",
+          `The workflow is trying to use "${checkpointName}".`,
+          "Install a checkpoint in ComfyUI's models/checkpoints folder, restart or refresh ComfyUI, then select the exact installed filename in Image Provider settings.",
+        ].join(" "),
+      );
+    }
+
+    if (!installedModels.includes(checkpointName)) {
+      throw new Error(
+        [
+          `ComfyUI checkpoint "${checkpointName}" is not installed or visible to the API.`,
+          `Available checkpoints: ${installedModels.slice(0, 8).join(", ")}${installedModels.length > 8 ? ", ..." : ""}.`,
+          "Select one of those exact filenames in Image Provider settings or install the missing checkpoint.",
+        ].join(" "),
+      );
+    }
   }
 
   private async waitForHistory(promptId: string): Promise<ComfyHistoryEntry> {
     const deadline = Date.now() + this.pollTimeoutMs;
     while (Date.now() <= deadline) {
-      const response = await this.fetchImpl(`${this.endpoint}/history/${encodeURIComponent(promptId)}`);
+      const response = await this.fetchComfy(`${this.endpoint}/history/${encodeURIComponent(promptId)}`, {
+        headers: this.createHeaders(),
+      });
       if (!response.ok) {
         throw new Error(`ComfyUI history failed (${response.status}): ${await safeResponseText(response)}`);
       }
 
       const history = (await response.json()) as Record<string, ComfyHistoryEntry>;
       const entry = history[promptId];
-      if (entry?.outputs && extractImageOutputs(entry).length > 0) {
+      const images = entry ? extractImageOutputs(entry) : [];
+      if (images.length > 0) {
         return entry;
+      }
+      if (entry?.status?.completed || entry?.status?.status_str === "error") {
+        throw new Error(formatHistoryWithoutImageFailure(entry));
       }
 
       await delay(this.pollIntervalMs);
@@ -146,6 +221,64 @@ export class ComfyUIImageProvider implements ImageModelAdapter {
     });
     return `${this.endpoint}/view?${params.toString()}`;
   }
+
+  private createHeaders(headers: Record<string, string> = {}): Record<string, string> {
+    return createComfyHeaders(this.apiKey, headers);
+  }
+
+  private async fetchComfy(url: string, init?: RequestInit): Promise<Response> {
+    return fetchComfyEndpoint(this.endpoint, url, init, this.fetchImpl, this.apiKey);
+  }
+}
+
+export async function fetchComfyUICheckpointModels(config: ComfyUICheckpointListConfig): Promise<string[]> {
+  const endpoint = normalizeLoopbackEndpoint(config.endpoint);
+  if (!endpoint) {
+    throw new Error("ComfyUI endpoint must be a loopback URL such as http://127.0.0.1:8188.");
+  }
+
+  const response = await fetchComfyEndpoint(
+    endpoint,
+    `${endpoint}/object_info/CheckpointLoaderSimple`,
+    {
+      headers: createComfyHeaders(config.apiKey),
+    },
+    config.fetchImpl,
+    config.apiKey,
+  );
+  if (!response.ok) {
+    throw new Error(`ComfyUI checkpoint check failed (${response.status}): ${await safeResponseText(response)}`);
+  }
+
+  const objectInfo = (await response.json()) as Record<string, ComfyObjectInfo>;
+  return extractCheckpointChoices(objectInfo.CheckpointLoaderSimple);
+}
+
+export async function fetchComfyUIImageModels(config: ComfyUICheckpointListConfig): Promise<string[]> {
+  const endpoint = normalizeLoopbackEndpoint(config.endpoint);
+  if (!endpoint) {
+    throw new Error("ComfyUI endpoint must be a loopback URL such as http://127.0.0.1:8188.");
+  }
+
+  const response = await fetchComfyEndpoint(
+    endpoint,
+    `${endpoint}/object_info/UNETLoader`,
+    {
+      headers: createComfyHeaders(config.apiKey),
+    },
+    config.fetchImpl,
+    config.apiKey,
+  );
+  if (!response.ok) {
+    throw new Error(`ComfyUI image model check failed (${response.status}): ${await safeResponseText(response)}`);
+  }
+
+  const objectInfo = (await response.json()) as Record<string, ComfyObjectInfo>;
+  return extractRequiredChoices(objectInfo.UNETLoader, "unet_name");
+}
+
+function bindFetch(fetchImpl: typeof fetch = globalThis.fetch): typeof fetch {
+  return fetchImpl.bind(globalThis) as typeof fetch;
 }
 
 function parseWorkflow(workflowJson: string): WorkflowValue {
@@ -195,12 +328,172 @@ function hydrateWorkflow(value: WorkflowValue, request: ImageGenerationRequest, 
   }
 
   if (value && typeof value === "object") {
-    return Object.fromEntries(
+    const hydrated = Object.fromEntries(
       Object.entries(value).map(([key, nested]) => [key, hydrateWorkflow(nested, request, configuredModel)]),
     );
+    return applyGenerationSettingsOverrides(hydrated, request, configuredModel);
   }
 
   return value;
+}
+
+function applyGenerationSettingsOverrides(
+  value: Record<string, WorkflowValue>,
+  request: ImageGenerationRequest,
+  configuredModel?: string,
+): WorkflowValue {
+  const classType = value.class_type;
+  const inputs = value.inputs;
+  if (typeof classType !== "string" || !inputs || typeof inputs !== "object" || Array.isArray(inputs)) {
+    return value;
+  }
+
+  const nextInputs: Record<string, WorkflowValue> = { ...inputs };
+  let changed = false;
+  const setInput = (key: string, replacement: WorkflowValue | undefined) => {
+    if (replacement === undefined || !(key in nextInputs)) {
+      return;
+    }
+    nextInputs[key] = replacement;
+    changed = true;
+  };
+
+  if (classType === "CheckpointLoaderSimple") {
+    setInput("ckpt_name", configuredModel ?? request.model);
+  }
+
+  if (classType === "UNETLoader") {
+    setInput("unet_name", configuredModel ?? request.model);
+  }
+
+  if (
+    classType.includes("EmptyLatentImage") ||
+    classType === "EmptySD3LatentImage" ||
+    classType === "EmptyFlux2LatentImage"
+  ) {
+    setInput("width", request.width ?? 1024);
+    setInput("height", request.height ?? 1024);
+  }
+
+  if (classType === "ModelSamplingFlux") {
+    setInput("width", request.width ?? 1024);
+    setInput("height", request.height ?? 1024);
+  }
+
+  if (classType === "KSampler" || classType === "KSamplerAdvanced") {
+    setInput("seed", normalizeSeed(request.seed));
+    setInput("steps", request.steps ?? 20);
+    setInput("cfg", request.cfg ?? 7);
+    setInput("sampler_name", request.samplerName ?? "euler");
+    setInput("scheduler", request.scheduler ?? "normal");
+  }
+
+  if (classType === "BasicScheduler") {
+    setInput("steps", request.steps ?? 20);
+    setInput("scheduler", request.scheduler ?? "normal");
+  }
+
+  if (classType === "Flux2Scheduler") {
+    setInput("steps", request.steps ?? 20);
+    setInput("width", request.width ?? 1024);
+    setInput("height", request.height ?? 1024);
+  }
+
+  if (classType === "KSamplerSelect") {
+    setInput("sampler_name", request.samplerName ?? "euler");
+  }
+
+  if (classType === "RandomNoise") {
+    setInput("noise_seed", normalizeSeed(request.seed));
+  }
+
+  if (classType === "CLIPTextEncodeFlux") {
+    setInput("guidance", request.cfg ?? 3.5);
+  }
+
+  if (classType === "FluxGuidance") {
+    setInput("guidance", request.cfg ?? 3.5);
+  }
+
+  return changed ? { ...value, inputs: nextInputs } : value;
+}
+
+function applyWorkflowPromptOverrides(value: WorkflowValue, request: ImageGenerationRequest): WorkflowValue {
+  if (!isWorkflowRecord(value)) {
+    return value;
+  }
+
+  const positiveNodeIds = collectLinkedInputNodeIds(value, "positive");
+  const negativeNodeIds = collectLinkedInputNodeIds(value, "negative");
+  if (positiveNodeIds.size === 0 && negativeNodeIds.size === 0) {
+    return value;
+  }
+
+  const next: Record<string, WorkflowValue> = { ...value };
+  let changed = false;
+  for (const [nodeId, node] of Object.entries(value)) {
+    if (!isWorkflowRecord(node) || !isWorkflowRecord(node.inputs)) {
+      continue;
+    }
+
+    const replacement = positiveNodeIds.has(nodeId)
+      ? request.prompt
+      : negativeNodeIds.has(nodeId)
+        ? request.negativePrompt ?? ""
+        : undefined;
+    if (replacement === undefined) {
+      continue;
+    }
+
+    const nextInputs = replacePromptTextInputs(node.inputs, replacement);
+    if (nextInputs !== node.inputs) {
+      next[nodeId] = { ...node, inputs: nextInputs };
+      changed = true;
+    }
+  }
+
+  return changed ? next : value;
+}
+
+function collectLinkedInputNodeIds(workflow: Record<string, WorkflowValue>, inputName: string): Set<string> {
+  const nodeIds = new Set<string>();
+  for (const node of Object.values(workflow)) {
+    if (!isWorkflowRecord(node) || !isWorkflowRecord(node.inputs)) {
+      continue;
+    }
+
+    const linkedNodeId = readLinkedNodeId(node.inputs[inputName]);
+    if (linkedNodeId) {
+      nodeIds.add(linkedNodeId);
+    }
+  }
+
+  return nodeIds;
+}
+
+function readLinkedNodeId(value: WorkflowValue): string | null {
+  if (!Array.isArray(value) || value.length === 0) {
+    return null;
+  }
+
+  const nodeId = value[0];
+  return typeof nodeId === "string" || typeof nodeId === "number" ? String(nodeId) : null;
+}
+
+function replacePromptTextInputs(
+  inputs: Record<string, WorkflowValue>,
+  replacement: string,
+): Record<string, WorkflowValue> {
+  const nextInputs: Record<string, WorkflowValue> = { ...inputs };
+  let changed = false;
+  for (const key of ["text", "text_g", "text_l", "caption", "prompt"]) {
+    if (typeof nextInputs[key] === "string" && nextInputs[key] !== replacement) {
+      nextInputs[key] = replacement;
+      changed = true;
+    }
+  }
+
+  return changed ? nextInputs : inputs;
 }
 
 function placeholderValue(
@@ -235,11 +528,42 @@ function placeholderValue(
 }
 
 function extractImageOutputs(historyEntry: ComfyHistoryEntry): Required<ComfyImageOutput>[] {
-  return Object.values(historyEntry.outputs ?? {})
-    .flatMap((output) => output.images ?? [])
-    .filter((image): image is Required<ComfyImageOutput> =>
-      Boolean(image.filename && image.subfolder !== undefined && image.type),
-    );
+  return Object.entries(historyEntry.outputs ?? {})
+    .flatMap(([nodeId, output]) => (output.images ?? []).map((image) => ({ image, nodeId })))
+    .filter(
+      (entry): entry is { image: Required<ComfyImageOutput>; nodeId: string } =>
+        Boolean(entry.image.filename && entry.image.subfolder !== undefined && entry.image.type),
+    )
+    .sort(compareComfyImageOutputs)
+    .map((entry) => entry.image);
+}
+
+function compareComfyImageOutputs(
+  a: { image: Required<ComfyImageOutput>; nodeId: string },
+  b: { image: Required<ComfyImageOutput>; nodeId: string },
+): number {
+  const typeDelta = imageOutputTypeRank(a.image.type) - imageOutputTypeRank(b.image.type);
+  if (typeDelta !== 0) {
+    return typeDelta;
+  }
+
+  const aNodeId = Number(a.nodeId);
+  const bNodeId = Number(b.nodeId);
+  if (Number.isFinite(aNodeId) && Number.isFinite(bNodeId) && aNodeId !== bNodeId) {
+    return bNodeId - aNodeId;
+  }
+
+  return a.nodeId.localeCompare(b.nodeId);
+}
+
+function imageOutputTypeRank(type: string): number {
+  if (type === "output") {
+    return 0;
+  }
+  if (type === "temp") {
+    return 1;
+  }
+  return 2;
 }
 
 function replacePlaceholder(value: string, placeholder: string, replacement: string): string {
@@ -264,13 +588,180 @@ function normalizeLoopbackEndpoint(value: string): string | null {
   }
 }
 
+function isWorkflowRecord(value: WorkflowValue): value is Record<string, WorkflowValue> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function hasComfyNodeErrors(nodeErrors: unknown): boolean {
+  if (!nodeErrors) {
+    return false;
+  }
+  if (Array.isArray(nodeErrors)) {
+    return nodeErrors.length > 0;
+  }
+  if (typeof nodeErrors === "object") {
+    return Object.keys(nodeErrors).length > 0;
+  }
+  return true;
+}
+
+function formatHistoryWithoutImageFailure(entry: ComfyHistoryEntry): string {
+  const status = entry.status?.status_str ? ` Status: ${entry.status.status_str}.` : "";
+  return `ComfyUI finished without an image output.${status} Check the workflow has a SaveImage node connected to the sampler output.`;
+}
+
 async function safeResponseText(response: Response): Promise<string> {
   const text = await response.text().catch(() => "");
   return text.trim().slice(0, 300) || response.statusText || "no details";
 }
 
+function formatQueueFailure(status: number, responseText: string): string {
+  const checkpointName = extractInvalidCheckpointName(responseText);
+  if (checkpointName) {
+    return [
+      `ComfyUI checkpoint "${checkpointName}" is not installed or visible to the API.`,
+      "Install it in ComfyUI's models/checkpoints folder, restart or refresh ComfyUI, then select that exact filename in Image Provider settings.",
+      `ComfyUI queue failed (${status}).`,
+    ].join(" ");
+  }
+
+  return `ComfyUI queue failed (${status}): ${responseText}`;
+}
+
+function findCheckpointModelName(value: WorkflowValue): string | null {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const nested = findCheckpointModelName(item);
+      if (nested) {
+        return nested;
+      }
+    }
+
+    return null;
+  }
+
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, WorkflowValue>;
+  if (record.class_type === "CheckpointLoaderSimple") {
+    const inputs = record.inputs;
+    if (inputs && typeof inputs === "object" && !Array.isArray(inputs)) {
+      const checkpointName = (inputs as Record<string, WorkflowValue>).ckpt_name;
+      if (typeof checkpointName === "string" && checkpointName.trim()) {
+        return checkpointName.trim();
+      }
+    }
+  }
+
+  for (const nested of Object.values(record)) {
+    const checkpointName = findCheckpointModelName(nested);
+    if (checkpointName) {
+      return checkpointName;
+    }
+  }
+
+  return null;
+}
+
+function extractCheckpointChoices(objectInfo: ComfyObjectInfo | undefined): string[] {
+  return extractRequiredChoices(objectInfo, "ckpt_name");
+}
+
+function extractRequiredChoices(objectInfo: ComfyObjectInfo | undefined, inputName: string): string[] {
+  const choices = objectInfo?.input?.required?.ckpt_name;
+  const requestedChoices = objectInfo?.input?.required?.[inputName] ?? choices;
+  if (!Array.isArray(requestedChoices)) {
+    return [];
+  }
+
+  const first = requestedChoices[0];
+  if (!Array.isArray(first)) {
+    return [];
+  }
+
+  return first.filter((choice): choice is string => typeof choice === "string" && choice.trim().length > 0);
+}
+
+function extractInvalidCheckpointName(responseText: string): string | null {
+  const fromDetails = /ckpt_name:\s*'([^']+)'/.exec(responseText);
+  if (fromDetails?.[1]) {
+    return fromDetails[1].trim();
+  }
+
+  return null;
+}
+
+function createComfyHeaders(apiKey: string | undefined, headers: Record<string, string> = {}): Record<string, string> {
+  const trimmedApiKey = apiKey?.trim();
+  return trimmedApiKey ? { ...headers, authorization: `Bearer ${trimmedApiKey}` } : headers;
+}
+
+async function fetchComfyEndpoint(
+  endpoint: string,
+  url: string,
+  init: RequestInit | undefined,
+  fetchImpl: typeof fetch = globalThis.fetch,
+  apiKey?: string,
+): Promise<Response> {
+  try {
+    return await bindFetch(fetchImpl)(url, init);
+  } catch (error) {
+    const wrapped = new Error(
+      [
+        `Could not reach ComfyUI at ${endpoint}.`,
+        "Make sure ComfyUI is running and the endpoint matches the Image Provider settings.",
+        "If this is the browser/dev app, start ComfyUI with CORS enabled, for example: --enable-cors-header http://localhost:5173",
+        apiKey ? "If you added a ComfyUI API key, verify the auth proxy allows browser CORS preflight requests." : "",
+        `Original error: ${getFetchErrorMessage(error)}`,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
+    (wrapped as Error & { cause?: unknown }).cause = error;
+    throw wrapped;
+  }
+}
+
+function getFetchErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+}
+
+function normalizeImageGenerationRequest(request: ImageGenerationRequest): ImageGenerationRequest {
+  const width = normalizeImageDimension(request.width);
+  const height = normalizeImageDimension(request.height);
+  const requestedSteps = request.steps ?? localImageRecommendedSteps;
+  const requestedCfg = request.cfg ?? localImageRecommendedCfg;
+  const hasPreviewQualitySettings =
+    requestedSteps < localImageMinimumUsableSteps || requestedCfg < localImageMinimumUsableCfg;
+  const samplerName = request.samplerName?.trim() || localImageRecommendedSampler;
+  const scheduler = request.scheduler?.trim() || localImageRecommendedScheduler;
+
+  return {
+    ...request,
+    width,
+    height,
+    seed: normalizeSeed(request.seed),
+    steps: hasPreviewQualitySettings ? Math.max(requestedSteps, localImageRecommendedSteps) : requestedSteps,
+    cfg: hasPreviewQualitySettings ? localImageRecommendedCfg : requestedCfg,
+    samplerName:
+      hasPreviewQualitySettings && samplerName.toLowerCase() === "euler" ? localImageRecommendedSampler : samplerName,
+    scheduler:
+      hasPreviewQualitySettings && scheduler.toLowerCase() === "normal" ? localImageRecommendedScheduler : scheduler,
+  };
+}
+
+function normalizeImageDimension(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return localImageRecommendedImageSize;
+  }
+
+  return Math.round(value);
 }
 
 function randomSeed(): number {
@@ -278,7 +769,7 @@ function randomSeed(): number {
 }
 
 function normalizeSeed(seed: number | undefined): number {
-  return seed === undefined || seed < 0 ? randomSeed() : seed;
+  return seed === undefined || seed <= 0 ? randomSeed() : seed;
 }
 
 function createClientId(): string {

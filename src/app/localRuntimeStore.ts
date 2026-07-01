@@ -199,6 +199,7 @@ export function sanitizeGeneratedMaps(value: unknown): unknown[] {
       const sanitized: Record<string, unknown> = {};
       for (const key of [
         "id",
+        "imageKind",
         "cardId",
         "chatId",
         "prompt",
@@ -208,6 +209,7 @@ export function sanitizeGeneratedMaps(value: unknown): unknown[] {
         "status",
         "imageUrl",
         "error",
+        "userInput",
         "createdAt",
       ]) {
         const field = artifact[key];

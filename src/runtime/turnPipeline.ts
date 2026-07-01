@@ -939,6 +939,8 @@ function stringifyValue(value: unknown): string {
 
 const defaultResponseContract = [
   "Write the assistant reply for the active card.",
+  "Presentation rules: use *single asterisks* only for quiet narration/asides, **double asterisks** only for strong emphasis, and normal quotation marks for spoken dialogue.",
+  "Do not show raw Markdown fences in the main prose. If useful, put Date, Time, Location, Weather, Health, Inventory, Quest, or Status as a short `status` fenced block at the very end.",
   "Treat permanent changes as proposals. The app validates extraction before saving memory, lore, characters, relationships, events, inventory, location, health, quests, or world flags.",
   "When state should change, include a JSON object with an `extraction` field or a fenced JSON block matching the runtime extraction schema keys.",
 ].join("\n");

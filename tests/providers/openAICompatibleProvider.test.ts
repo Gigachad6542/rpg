@@ -79,6 +79,34 @@ describe("OpenAI-compatible text provider", () => {
     expect(fetchCalls[0][1].headers).not.toHaveProperty("authorization");
   });
 
+  it("binds the default browser fetch before generating text", async () => {
+    const fetchImpl = vi.fn(function (this: unknown) {
+      if (this !== globalThis) {
+        throw new TypeError("Illegal invocation");
+      }
+
+      return Promise.resolve(
+        new Response(JSON.stringify({ choices: [{ message: { content: "Bound response" } }] }), {
+          status: 200,
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchImpl);
+
+    try {
+      const provider = new OpenAICompatibleTextProvider({
+        baseUrl: "http://127.0.0.1:1234/v1",
+        allowUnauthenticated: true,
+      });
+
+      await expect(provider.generateText({ model: "local-model", prompt: "Hello" })).resolves.toMatchObject({
+        text: "Bound response",
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("refuses unauthenticated non-loopback endpoints", async () => {
     expect(
       () =>

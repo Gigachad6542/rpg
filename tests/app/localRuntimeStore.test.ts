@@ -34,6 +34,9 @@ describe("local runtime store", () => {
 
     expect(compact.messages).toHaveLength(100);
     expect(compact.promptRuns).toHaveLength(100);
+    expect(compact.promptRuns).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "run-139", compiledPrompt: "" })]),
+    );
     expect(compact.chatSessions?.[0]).toMatchObject({
       id: "chat-card",
       messages: expect.arrayContaining([
@@ -42,6 +45,49 @@ describe("local runtime store", () => {
     });
     expect(compact.chatSessions?.[0].messages).toHaveLength(50);
     expect(compact.generatedMaps).toHaveLength(5);
+  });
+
+  it("persists full compiled prompts only when prompt debug logs are enabled", () => {
+    const writes: string[] = [];
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation((_key: string, value: string) => {
+      writes.push(value);
+    });
+
+    saveLocalRuntimeSnapshot({
+      ...createLargeSnapshot(),
+      promptRuns: [
+        {
+          id: "run-private",
+          cardId: "card_blank_slate_rpg",
+          chatId: "chat-card",
+          compiledPrompt: "full private compiled prompt",
+        },
+      ],
+      runtimeSettings: {
+        textStreaming: true,
+        promptDebugLogs: false,
+      },
+    });
+    saveLocalRuntimeSnapshot({
+      ...createLargeSnapshot(),
+      promptRuns: [
+        {
+          id: "run-debug",
+          cardId: "card_blank_slate_rpg",
+          chatId: "chat-card",
+          compiledPrompt: "debug compiled prompt",
+        },
+      ],
+      runtimeSettings: {
+        promptDebugLogs: true,
+      },
+    });
+
+    const withoutDebug = JSON.parse(writes[0]) as LocalRuntimeSnapshot<unknown, unknown, Record<string, unknown>>;
+    const withDebug = JSON.parse(writes[1]) as LocalRuntimeSnapshot<unknown, unknown, Record<string, unknown>>;
+
+    expect(withoutDebug.promptRuns[0].compiledPrompt).toBe("");
+    expect(withDebug.promptRuns[0].compiledPrompt).toBe("debug compiled prompt");
   });
 });
 

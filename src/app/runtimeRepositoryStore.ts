@@ -12,7 +12,9 @@ import { runInTransaction } from "../db/transaction";
 import type { SqlDriver } from "../db/types";
 import type { JsonObject } from "../db/repositories/shared";
 import {
+  sanitizePersistedRuntimeSettings,
   sanitizePersistedProviderSettings,
+  sanitizePromptRunsForPersistence,
   type LocalRuntimeSnapshot,
 } from "./localRuntimeStore";
 import { TauriRuntimeRepositoryStore, type TauriInvoke } from "./tauriRuntimeRepositoryClient";
@@ -157,6 +159,10 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
       ? (snapshotMeta.promptRuns as RuntimePromptRunRecord[])
       : undefined;
     const runtimeRowsAreAuthoritative = Boolean(chat);
+    const runtimeSettings = sanitizePersistedRuntimeSettings(snapshotMeta.runtimeSettings);
+    const loadedPromptRuns = runtimeRowsAreAuthoritative
+      ? promptRunRows.map(mapPromptRunRecord)
+      : (snapshotPromptRuns ?? promptRunRows.map(mapPromptRunRecord));
 
     const normalizedCards = await this.overlayNormalizedCardData(snapshotMeta.cards as RuntimeCardRecord[], {
       authoritative: runtimeRowsAreAuthoritative,
@@ -181,16 +187,14 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
         runtimeRowsAreAuthoritative,
       }),
       activeChatIds,
-      promptRuns: runtimeRowsAreAuthoritative
-        ? promptRunRows.map(mapPromptRunRecord)
-        : (snapshotPromptRuns ?? promptRunRows.map(mapPromptRunRecord)),
+      promptRuns: sanitizePromptRunsForPersistence(loadedPromptRuns, runtimeSettings),
       providerKeyStatus:
         typeof snapshotMeta.providerKeyStatus === "string"
           ? snapshotMeta.providerKeyStatus
           : "No plaintext keys stored.",
       providerSettings: sanitizePersistedProviderSettings(snapshotMeta.providerSettings),
       imageProviderSettings: getRecord(snapshotMeta.imageProviderSettings),
-      runtimeSettings: getRecord(snapshotMeta.runtimeSettings),
+      runtimeSettings,
       generatedMaps: runtimeRowsAreAuthoritative
         ? mapImagePromptRunsToGeneratedMaps(generatedMapRows, snapshotMeta)
         : getArray(snapshotMeta.generatedMaps),
@@ -210,6 +214,8 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
     const previousSnapshot = isRecord(previousRuntime?.profile.snapshot)
       ? (previousRuntime.profile.snapshot as Partial<RepositoryRuntimeSnapshot>)
       : null;
+    const runtimeSettings = sanitizePersistedRuntimeSettings(snapshot.runtimeSettings);
+    const promptRuns = sanitizePromptRunsForPersistence(snapshot.promptRuns, runtimeSettings);
     await this.characters.upsert({
       id: RUNTIME_SNAPSHOT_CHARACTER_ID,
       name: "Local Cards runtime snapshot",
@@ -224,11 +230,11 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
           messages: snapshot.messages,
           chatSessions: snapshot.chatSessions,
           activeChatIds: snapshot.activeChatIds,
-          promptRuns: snapshot.promptRuns,
+          promptRuns,
           providerKeyStatus: snapshot.providerKeyStatus,
           providerSettings: sanitizePersistedProviderSettings(snapshot.providerSettings),
           imageProviderSettings: getRecord(snapshot.imageProviderSettings),
-          runtimeSettings: getRecord(snapshot.runtimeSettings),
+          runtimeSettings,
           generatedMaps: getArray(snapshot.generatedMaps),
           savedAt: snapshot.savedAt,
         },
@@ -258,7 +264,7 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
     }
 
     const existingPromptRuns = new Set((await this.promptRuns.listByChat(RUNTIME_CHAT_ID)).map((run) => run.id));
-    for (const run of snapshot.promptRuns) {
+    for (const run of promptRuns) {
       if (existingPromptRuns.has(run.id)) {
         continue;
       }

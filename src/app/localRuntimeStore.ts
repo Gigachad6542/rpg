@@ -98,13 +98,15 @@ export function saveLocalRuntimeSnapshot<Card, Message, PromptRun, ChatSession =
 function toPersistedLocalRuntimeSnapshot<Card, Message, PromptRun, ChatSession>(
   snapshot: LocalRuntimeSnapshot<Card, Message, PromptRun, ChatSession>,
 ): LocalRuntimeSnapshot<Card, Message, PromptRun, ChatSession> {
+  const runtimeSettings = sanitizePersistedRuntimeSettings(snapshot.runtimeSettings);
   return {
     ...snapshot,
     chatSessions: Array.isArray(snapshot.chatSessions) ? snapshot.chatSessions : undefined,
     activeChatIds: sanitizeStringRecord(snapshot.activeChatIds),
+    promptRuns: sanitizePromptRunsForPersistence(snapshot.promptRuns, runtimeSettings),
     providerSettings: sanitizePersistedProviderSettings(snapshot.providerSettings),
     imageProviderSettings: sanitizePersistedImageProviderSettings(snapshot.imageProviderSettings),
-    runtimeSettings: sanitizePersistedRuntimeSettings(snapshot.runtimeSettings),
+    runtimeSettings,
     generatedMaps: sanitizeGeneratedMaps(snapshot.generatedMaps),
   };
 }
@@ -116,9 +118,34 @@ function compactLocalRuntimeSnapshot<Card, Message, PromptRun, ChatSession>(
     ...snapshot,
     messages: snapshot.messages.slice(-100),
     chatSessions: compactChatSessions(snapshot.chatSessions),
-    promptRuns: snapshot.promptRuns.slice(-100),
+    promptRuns: sanitizePromptRunsForPersistence(snapshot.promptRuns, snapshot.runtimeSettings).slice(-100),
     generatedMaps: sanitizeGeneratedMaps(snapshot.generatedMaps).slice(-5),
   };
+}
+
+export function sanitizePromptRunsForPersistence<PromptRun>(promptRuns: PromptRun[], runtimeSettings: unknown): PromptRun[] {
+  if (shouldPersistPromptDebugLogs(runtimeSettings)) {
+    return promptRuns;
+  }
+
+  let changed = false;
+  const sanitized = promptRuns.map((run) => {
+    if (!isRecord(run) || typeof run.compiledPrompt !== "string" || !run.compiledPrompt) {
+      return run;
+    }
+
+    changed = true;
+    return {
+      ...run,
+      compiledPrompt: "",
+    } as PromptRun;
+  });
+
+  return changed ? sanitized : promptRuns;
+}
+
+function shouldPersistPromptDebugLogs(runtimeSettings: unknown): boolean {
+  return isRecord(runtimeSettings) && runtimeSettings.promptDebugLogs === true;
 }
 
 function compactChatSessions<ChatSession>(chatSessions: ChatSession[] | undefined): ChatSession[] | undefined {

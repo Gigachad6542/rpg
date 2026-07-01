@@ -43,8 +43,25 @@ describe("runtime repository store", () => {
     const restoreTauri = setTauriRuntimeForTest();
     try {
       const store = await RuntimeRepositoryStore.create({ invokeImpl } as never);
+      const snapshot = createMinimalSnapshot();
+      snapshot.promptRuns = [
+        {
+          id: "run_tauri",
+          cardId: "card_blank_slate_rpg",
+          chatId: "chat_local_cards_runtime",
+          compiledPrompt: "tauri private compiled prompt",
+          response: "The action is validated.",
+          provider: "mock",
+          model: "mock-narrator",
+          tokenEstimate: 7,
+          includedLayerIds: [],
+          includedLoreEntryIds: [],
+          warnings: [],
+          stateChanges: [],
+        },
+      ];
       await expect(store.loadSnapshot()).resolves.toBeNull();
-      await expect(store.saveSnapshot(createMinimalSnapshot())).resolves.toBeUndefined();
+      await expect(store.saveSnapshot(snapshot)).resolves.toBeUndefined();
 
       expect(store.getStatus()).toEqual({ backend: "tauri-sqlite" });
       expect(calls.map((call) => call.command)).toEqual([
@@ -52,6 +69,7 @@ describe("runtime repository store", () => {
         "load_runtime_snapshot",
         "save_runtime_snapshot",
       ]);
+      expect((calls[2].args?.snapshot as RepositoryRuntimeSnapshot).promptRuns[0].compiledPrompt).toBe("");
       expect(JSON.stringify(calls)).not.toContain("SELECT");
       expect(JSON.stringify(calls)).not.toContain("DELETE FROM");
     } finally {
@@ -217,11 +235,15 @@ describe("runtime repository store", () => {
     expect(loaded?.messages).toHaveLength(2);
     expect(loaded?.promptRuns[0]).toMatchObject({
       id: "run_001",
+      compiledPrompt: "",
       includedLoreEntryIds: ["lore-gate"],
       stateChanges: ["Location -> Cellar"],
       usage: {
         totalTokens: 28,
       },
+    });
+    await expect(new PromptRunRepository(driver).getById("run_001")).resolves.toMatchObject({
+      compiledPrompt: "",
     });
 
     await expect(new ChatRepository(driver).getActiveBranch(RUNTIME_CHAT_ID)).resolves.toMatchObject({

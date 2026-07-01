@@ -3,6 +3,10 @@ import type {
   RuntimeRepository,
   RuntimeRepositoryStoreStatus,
 } from "./runtimeRepositoryStore";
+import {
+  sanitizePersistedRuntimeSettings,
+  sanitizePromptRunsForPersistence,
+} from "./localRuntimeStore";
 
 export type TauriInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
@@ -59,9 +63,14 @@ export class TauriRuntimeRepositoryStore implements RuntimeRepository {
   }
 
   async saveSnapshot(snapshot: RepositoryRuntimeSnapshot): Promise<void> {
+    const runtimeSettings = sanitizePersistedRuntimeSettings(snapshot.runtimeSettings);
     await this.invokeImpl<SaveRuntimeSnapshotResponse>("save_runtime_snapshot", {
       databasePath: this.databasePath,
-      snapshot,
+      snapshot: {
+        ...snapshot,
+        promptRuns: sanitizePromptRunsForPersistence(snapshot.promptRuns, runtimeSettings),
+        runtimeSettings,
+      },
     });
   }
 }

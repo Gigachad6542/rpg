@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { App } from "../../src/app/App";
 import { RUNTIME_STORAGE_KEY } from "../../src/app/localRuntimeStore";
+import { buildVersionedRuntimeExport } from "../../src/app/runtimeDataBundle";
 
 function openCards() {
   fireEvent.click(screen.getByRole("button", { name: /^Cards$/i }));
@@ -2318,6 +2319,104 @@ describe("local-first card runtime UI", () => {
       "src",
       expect.stringContaining("lc_run=max-photo"),
     );
+  });
+
+  it("imports versioned runtime exports from Settings", async () => {
+    await renderApp();
+    const bundle = buildVersionedRuntimeExport({
+      version: 2,
+      theme: "dark",
+      activeCardId: "card_imported",
+      cards: [
+        {
+          id: "card_imported",
+          name: "Imported Runtime Card",
+          kind: "rpg",
+          summary: "Imported from a versioned bundle.",
+          systemPrompt: "Run this imported RPG.",
+          preHistoryInstructions: "",
+          postHistoryInstructions: "",
+          playerRules: [],
+          lorebooks: [],
+          memory: [],
+          rpg: {
+            location: "Imported hall",
+            health: "10/10",
+            inventory: [],
+            quests: [],
+            flags: {},
+            knownPlaces: ["Imported hall"],
+            mapStyle: "map",
+          },
+        },
+      ],
+      messages: [],
+      chatSessions: [
+        {
+          id: "chat_imported",
+          cardId: "card_imported",
+          title: "Imported chat",
+          createdAt: "2026-07-01T18:00:00.000Z",
+          updatedAt: "2026-07-01T18:00:00.000Z",
+          messages: [],
+        },
+      ],
+      activeChatIds: {
+        card_imported: "chat_imported",
+      },
+      promptRuns: [],
+      providerKeyStatus: "No plaintext keys stored.",
+      savedAt: "2026-07-01T18:00:00.000Z",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
+    fireEvent.change(screen.getByLabelText(/Runtime export JSON/i), {
+      target: { value: JSON.stringify(bundle) },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Import runtime data/i }));
+
+    expect(screen.getByRole("status", { name: /Data management status/i })).toHaveTextContent(
+      /Imported runtime export/i,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Runtime$/i }));
+    expect(screen.getByRole("heading", { name: /Imported Runtime Card/i })).toBeInTheDocument();
+  });
+
+  it("exposes runtime export and redacted diagnostics downloads from Settings", async () => {
+    Object.defineProperty(URL, "createObjectURL", {
+      value: vi.fn(),
+      configurable: true,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      value: vi.fn(),
+      configurable: true,
+    });
+    const createObjectUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:rpg-test");
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const clickedDownloads: string[] = [];
+    const originalCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tagName: string, options?: ElementCreationOptions) => {
+      const element = originalCreateElement(tagName, options);
+      if (tagName.toLowerCase() === "a") {
+        vi.spyOn(element as HTMLAnchorElement, "click").mockImplementation(function click(this: HTMLAnchorElement) {
+          clickedDownloads.push(this.download);
+        });
+      }
+      return element;
+    });
+
+    await renderApp();
+    fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
+
+    fireEvent.click(screen.getByRole("button", { name: /Export runtime data/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Download diagnostics/i }));
+
+    expect(clickedDownloads).toEqual([
+      expect.stringMatching(/^rpg-runtime-.+\.json$/),
+      expect.stringMatching(/^rpg-diagnostics-.+\.json$/),
+    ]);
+    expect(createObjectUrl).toHaveBeenCalledTimes(2);
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(2);
   });
 });
 

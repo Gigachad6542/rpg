@@ -9,8 +9,10 @@ export default tseslint.config(
       "coverage/**",
       "dist/**",
       "node_modules/**",
+      "playwright-report/**",
       "src-tauri/gen/**",
       "src-tauri/target/**",
+      "test-results/**",
     ],
   },
   js.configs.recommended,
@@ -26,7 +28,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/**/*.{ts,tsx}", "tests/**/*.ts", "vite.config.ts"],
+    files: ["src/**/*.{ts,tsx}", "tests/**/*.ts", "playwright.config.ts", "vite.config.ts"],
     languageOptions: {
       ecmaVersion: 2020,
       sourceType: "module",

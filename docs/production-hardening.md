@@ -70,6 +70,10 @@ Run the release-candidate gate before packaging or sharing a build:
 pnpm verify:release
 ```
 
+This gate includes the Playwright browser smoke test. The smoke opens the seeded RPG card, sends a
+mock turn, confirms prompt-debug privacy in the persisted snapshot, reloads, reopens the card, and
+confirms the saved transcript is still visible.
+
 For coverage reporting, run:
 
 ```bash

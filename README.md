@@ -1,4 +1,4 @@
-# Local-First AI RPG Runtime
+# rpg
 
 A desktop-first Tauri + React + TypeScript foundation for a local-first AI character and RPG runtime.
 
@@ -25,8 +25,11 @@ Useful commands:
 | `pnpm typecheck` | Type-check TypeScript without emitting files. |
 | `pnpm test` | Run the Vitest suite. |
 | `pnpm test:coverage` | Run Vitest with V8 coverage. |
+| `pnpm e2e` | Run the Playwright browser smoke test. |
+| `pnpm e2e:install` | Install the Playwright Chromium browser used by the smoke test. |
 | `pnpm build` | Build the frontend bundle. |
 | `pnpm verify` | Run the local CI gate: typecheck, tests, build, npm audit, Rust tests, and clippy. |
+| `pnpm verify:release` | Run the release gate: local checks, coverage, browser smoke, audits, Rust checks, and desktop packaging. |
 | `pnpm verify:desktop` | Run `pnpm verify`, then build the desktop bundle. |
 | `pnpm clean` | Remove generated output: `dist`, `coverage`, `src-tauri/target`, and local run logs. |
 
@@ -81,4 +84,4 @@ In browser/dev mode the compatibility snapshot is saved to `localStorage`. In th
 
 ## Project Docs
 
-Start with `docs/README.md` for the hardening notes.
+Start with `docs/README.md` for hardening, release packaging, and runtime contract notes.

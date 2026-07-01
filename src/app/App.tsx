@@ -223,6 +223,7 @@ type ImageProviderSettings = {
 type RuntimeSettings = {
   textStreaming: boolean;
   banEmojis: boolean;
+  promptDebugLogs: boolean;
   impersonationPrompt: string;
 };
 
@@ -505,6 +506,7 @@ const comfyUiModelChoices: ModelChoice[] = [
 const defaultRuntimeSettings: RuntimeSettings = {
   textStreaming: false,
   banEmojis: false,
+  promptDebugLogs: false,
   impersonationPrompt: "",
 };
 
@@ -591,6 +593,7 @@ function createDefaultCharacterPlayerRules(): PlayerRule[] {
 
 export function App() {
   const [initialSnapshot] = useState(() => loadLocalRuntimeSnapshot<RuntimeCard, Message, PromptRun, ChatSession>());
+  const initialRuntimeSettings = parseRuntimeSettings(initialSnapshot?.runtimeSettings);
   const normalizedInitialCards = normalizeRuntimeCards(initialSnapshot?.cards ?? initialCards);
   const initialActiveCardId = getStartupActiveCardId(initialSnapshot, normalizedInitialCards);
   const initialChatSessions = parseChatSessions(
@@ -612,7 +615,9 @@ export function App() {
   const [cardTab, setCardTab] = useState<CardTab>("chat");
   const [draft, setDraft] = useState("");
   const [runtimeRunning, setRuntimeRunning] = useState(true);
-  const [promptRuns, setPromptRuns] = useState<PromptRun[]>(() => initialSnapshot?.promptRuns ?? []);
+  const [promptRuns, setPromptRuns] = useState<PromptRun[]>(() =>
+    applyPromptDebugRetention(initialSnapshot?.promptRuns ?? [], initialRuntimeSettings),
+  );
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [ruleWarning, setRuleWarning] = useState<string | null>(null);
   const [mapPrompt, setMapPrompt] = useState<string | null>(null);
@@ -651,9 +656,7 @@ export function App() {
   );
   const [comfyUiCheckpointModels, setComfyUiCheckpointModels] = useState<string[]>([]);
   const [imageProviderStatus, setImageProviderStatus] = useState("ComfyUI image model check has not run yet.");
-  const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettings>(() =>
-    parseRuntimeSettings(initialSnapshot?.runtimeSettings),
-  );
+  const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettings>(() => initialRuntimeSettings);
   const [sessionApiKey, setSessionApiKey] = useState("");
   const [imageSessionApiKey, setImageSessionApiKey] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -898,6 +901,12 @@ export function App() {
   }, [activeCard, activeChat?.id, generatedMaps]);
 
   useEffect(() => {
+    if (!runtimeSettings.promptDebugLogs) {
+      setPromptRuns((current) => applyPromptDebugRetention(current, runtimeSettings));
+    }
+  }, [runtimeSettings]);
+
+  useEffect(() => {
     if (!mapArtifact) {
       return;
     }
@@ -960,11 +969,12 @@ export function App() {
     setActiveCardId(hydratedActiveCardId);
     setChatSessions(hydratedChatSessions);
     setActiveChatIds(parseActiveChatIds(snapshot.activeChatIds, normalizedCards, hydratedChatSessions, hydratedActiveCardId));
-    setPromptRuns(snapshot.promptRuns as PromptRun[]);
+    const hydratedRuntimeSettings = parseRuntimeSettings(snapshot.runtimeSettings);
+    setPromptRuns(applyPromptDebugRetention(snapshot.promptRuns as PromptRun[], hydratedRuntimeSettings));
     setProviderKeyStatus(snapshot.providerKeyStatus);
     setProviderSettings(parseProviderSettings(snapshot.providerSettings));
     setImageProviderSettings(parseImageProviderSettings(snapshot.imageProviderSettings));
-    setRuntimeSettings(parseRuntimeSettings(snapshot.runtimeSettings));
+    setRuntimeSettings(hydratedRuntimeSettings);
     const hydratedMaps = parseGeneratedMaps(snapshot.generatedMaps);
     setGeneratedMaps(hydratedMaps);
     setMapArtifact(hydratedActiveCardId ? findGeneratedMapForChat(hydratedMaps, hydratedActiveCardId, undefined, "map") : null);
@@ -1418,7 +1428,7 @@ export function App() {
           id: runId,
           cardId: activeCard.id,
           chatId: chat.id,
-          compiledPrompt: pipelineResult.promptRun.compiledPrompt,
+          compiledPrompt: runtimeSettings.promptDebugLogs ? pipelineResult.promptRun.compiledPrompt : "",
           response: assistantMessage.content,
           provider: pipelineResult.promptRun.providerId,
           model: pipelineResult.promptRun.model,
@@ -4152,6 +4162,19 @@ function SettingsSection(props: {
           />
           <span>Ban emojis in model replies</span>
         </label>
+        <label className="toggle-row">
+          <input
+            type="checkbox"
+            checked={props.runtimeSettings.promptDebugLogs}
+            onChange={(event) =>
+              props.setRuntimeSettings({
+                ...props.runtimeSettings,
+                promptDebugLogs: event.target.checked,
+              })
+            }
+          />
+          <span>Prompt debug logs</span>
+        </label>
         <label className="field">
           <span>Impersonation prompt</span>
           <textarea
@@ -4850,11 +4873,30 @@ function parseRuntimeSettings(value?: Record<string, unknown>): RuntimeSettings 
   return {
     textStreaming: typeof value?.textStreaming === "boolean" ? value.textStreaming : defaultRuntimeSettings.textStreaming,
     banEmojis: typeof value?.banEmojis === "boolean" ? value.banEmojis : defaultRuntimeSettings.banEmojis,
+    promptDebugLogs:
+      typeof value?.promptDebugLogs === "boolean" ? value.promptDebugLogs : defaultRuntimeSettings.promptDebugLogs,
     impersonationPrompt:
       typeof value?.impersonationPrompt === "string"
         ? value.impersonationPrompt
         : defaultRuntimeSettings.impersonationPrompt,
   };
+}
+
+function applyPromptDebugRetention(promptRuns: PromptRun[], settings: RuntimeSettings): PromptRun[] {
+  if (settings.promptDebugLogs) {
+    return promptRuns;
+  }
+
+  let changed = false;
+  const retained = promptRuns.map((run) => {
+    if (!run.compiledPrompt) {
+      return run;
+    }
+    changed = true;
+    return { ...run, compiledPrompt: "" };
+  });
+
+  return changed ? retained : promptRuns;
 }
 
 function parseGeneratedMaps(value: unknown): GeneratedMapArtifact[] {

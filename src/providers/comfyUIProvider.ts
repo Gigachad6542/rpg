@@ -612,7 +612,7 @@ function formatHistoryWithoutImageFailure(entry: ComfyHistoryEntry): string {
 
 async function safeResponseText(response: Response): Promise<string> {
   const text = await response.text().catch(() => "");
-  return text.trim().slice(0, 300) || response.statusText || "no details";
+  return sanitizeComfyError(text || response.statusText);
 }
 
 function formatQueueFailure(status: number, responseText: string): string {
@@ -626,6 +626,20 @@ function formatQueueFailure(status: number, responseText: string): string {
   }
 
   return `ComfyUI queue failed (${status}): ${responseText}`;
+}
+
+function sanitizeComfyError(message: string): string {
+  const trimmed = message.trim();
+  if (!trimmed) {
+    return "no details";
+  }
+  if (
+    /authorization|bearer|api[-_ ]?key|token|secret|password/i.test(trimmed) ||
+    /(?:sk-[A-Za-z0-9_-]{6,}|[A-Za-z0-9_-]{40,})/.test(trimmed)
+  ) {
+    return "[redacted]";
+  }
+  return trimmed.slice(0, 300);
 }
 
 function findCheckpointModelName(value: WorkflowValue): string | null {
@@ -714,7 +728,7 @@ async function fetchComfyEndpoint(
         "Make sure ComfyUI is running and the endpoint matches the Image Provider settings.",
         "If this is the browser/dev app, start ComfyUI with CORS enabled, for example: --enable-cors-header http://localhost:5173",
         apiKey ? "If you added a ComfyUI API key, verify the auth proxy allows browser CORS preflight requests." : "",
-        `Original error: ${getFetchErrorMessage(error)}`,
+        `Original error: ${sanitizeComfyError(getFetchErrorMessage(error))}`,
       ]
         .filter(Boolean)
         .join(" "),

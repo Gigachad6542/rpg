@@ -58,6 +58,12 @@ import {
   saveLocalRuntimeSnapshot,
   type LocalRuntimeSnapshot,
 } from "./localRuntimeStore";
+import {
+  buildRuntimeDiagnostics,
+  buildVersionedRuntimeExport,
+  parseVersionedRuntimeExport,
+  type RuntimeExportSnapshot,
+} from "./runtimeDataBundle";
 import { RuntimeRepositoryStore, type RuntimeRepository, type RepositoryRuntimeSnapshot } from "./runtimeRepositoryStore";
 import {
   shouldPersistFullLocalSnapshot,
@@ -662,6 +668,7 @@ export function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [saveStatus, setSaveStatus] = useState(initialSnapshot ? "Loaded local runtime snapshot." : "Ready for local save.");
   const [repositoryStatus, setRepositoryStatus] = useState("Repository store initializing.");
+  const [dataManagementStatus, setDataManagementStatus] = useState("Runtime export, import, and diagnostics are ready.");
   const [repositoryHydrated, setRepositoryHydrated] = useState(false);
   const [pendingDeleteChatId, setPendingDeleteChatId] = useState<string | null>(null);
   const [pendingDeleteCardId, setPendingDeleteCardId] = useState<string | null>(null);
@@ -955,7 +962,7 @@ export function App() {
     };
   }, [currentSnapshot, repositoryHydrated]);
 
-  function hydrateFromSnapshot(snapshot: RepositoryRuntimeSnapshot) {
+  function hydrateFromSnapshot(snapshot: RepositoryRuntimeSnapshot, status = "Loaded repository runtime snapshot.") {
     const normalizedCards = normalizeRuntimeCards(snapshot.cards as RuntimeCard[]);
     const hydratedActiveCardId = getStartupActiveCardId(snapshot as AppRuntimeSnapshot, normalizedCards);
     const hydratedChatSessions = parseChatSessions(
@@ -979,7 +986,36 @@ export function App() {
     setGeneratedMaps(hydratedMaps);
     setMapArtifact(hydratedActiveCardId ? findGeneratedMapForChat(hydratedMaps, hydratedActiveCardId, undefined, "map") : null);
     setPhotoArtifact(hydratedActiveCardId ? findGeneratedMapForChat(hydratedMaps, hydratedActiveCardId, undefined, "photo") : null);
-    setSaveStatus("Loaded repository runtime snapshot.");
+    setSaveStatus(status);
+  }
+
+  function exportRuntimeData() {
+    const bundle = buildVersionedRuntimeExport(toRuntimeExportSnapshot(currentSnapshot));
+    downloadJson(`rpg-runtime-${formatDownloadTimestamp(bundle.exportedAt)}.json`, bundle);
+    setDataManagementStatus(`Runtime export downloaded: schema v${bundle.version}.`);
+  }
+
+  function importRuntimeData(rawJson: string) {
+    try {
+      const snapshot = parseVersionedRuntimeExport(rawJson);
+      hydrateFromSnapshot(snapshot as RepositoryRuntimeSnapshot, "Imported runtime export.");
+      setDataManagementStatus(`Imported runtime export saved at ${snapshot.savedAt}.`);
+    } catch (error) {
+      setDataManagementStatus(getErrorMessage(error));
+    }
+  }
+
+  function downloadDiagnostics() {
+    const diagnostics = buildRuntimeDiagnostics({
+      snapshot: toRuntimeExportSnapshot(currentSnapshot),
+      repositoryStatus,
+      saveStatus,
+      providerKeyStatus,
+      imageProviderStatus,
+      runtimeBackend: repositoryStoreRef.current?.getStatus().backend ?? "unknown",
+    });
+    downloadJson(`rpg-diagnostics-${formatDownloadTimestamp(diagnostics.exportedAt)}.json`, diagnostics);
+    setDataManagementStatus(`Diagnostics downloaded: schema v${diagnostics.version}.`);
   }
 
   function selectCard(card: RuntimeCard) {
@@ -2085,7 +2121,14 @@ export function App() {
         ) : null}
 
         {section === "settings" ? (
-          <SettingsSection runtimeSettings={runtimeSettings} setRuntimeSettings={setRuntimeSettings} />
+          <SettingsSection
+            runtimeSettings={runtimeSettings}
+            setRuntimeSettings={setRuntimeSettings}
+            dataManagementStatus={dataManagementStatus}
+            exportRuntimeData={exportRuntimeData}
+            importRuntimeData={importRuntimeData}
+            downloadDiagnostics={downloadDiagnostics}
+          />
         ) : null}
       </section>
 
@@ -4128,7 +4171,13 @@ function ProvidersSection(props: {
 function SettingsSection(props: {
   runtimeSettings: RuntimeSettings;
   setRuntimeSettings: (settings: RuntimeSettings) => void;
+  dataManagementStatus: string;
+  exportRuntimeData: () => void;
+  importRuntimeData: (rawJson: string) => void;
+  downloadDiagnostics: () => void;
 }) {
+  const [runtimeImportDraft, setRuntimeImportDraft] = useState("");
+
   return (
     <div className="workspace-grid settings-grid">
       <section className="panel" aria-label="Runtime settings">
@@ -4196,6 +4245,46 @@ function SettingsSection(props: {
           <h3>Prompt Preview</h3>
         </div>
         <pre>{formatRuntimeSettingsForPrompt(props.runtimeSettings) || "(no runtime settings enabled)"}</pre>
+      </section>
+      <section className="panel" aria-label="Runtime data management">
+        <div className="section-title">
+          <Download size={17} />
+          <h3>Runtime Data</h3>
+        </div>
+        <div className="button-row">
+          <button className="secondary-button compact-button" type="button" onClick={props.exportRuntimeData}>
+            <Download size={16} />
+            Export runtime data
+          </button>
+          <button className="secondary-button compact-button" type="button" onClick={props.downloadDiagnostics}>
+            <ShieldCheck size={16} />
+            Download diagnostics
+          </button>
+        </div>
+        <label className="field">
+          <span>Runtime export JSON</span>
+          <textarea
+            value={runtimeImportDraft}
+            onChange={(event) => setRuntimeImportDraft(event.target.value)}
+            rows={8}
+            placeholder='{"schema":"rpg.runtime.export","version":1,"snapshot":{...}}'
+          />
+        </label>
+        <button
+          className="primary-button compact-button"
+          type="button"
+          onClick={() => {
+            props.importRuntimeData(runtimeImportDraft);
+            setRuntimeImportDraft("");
+          }}
+          disabled={!runtimeImportDraft.trim()}
+        >
+          <Upload size={16} />
+          Import runtime data
+        </button>
+        <p className="status-line" role="status" aria-label="Data management status" aria-live="polite">
+          {props.dataManagementStatus}
+        </p>
       </section>
     </div>
   );
@@ -5119,6 +5208,14 @@ function createTextProvider(
 
 function toRepositorySnapshot(snapshot: AppRuntimeSnapshot): RepositoryRuntimeSnapshot {
   return snapshot as unknown as RepositoryRuntimeSnapshot;
+}
+
+function toRuntimeExportSnapshot(snapshot: AppRuntimeSnapshot): RuntimeExportSnapshot {
+  return snapshot as unknown as RuntimeExportSnapshot;
+}
+
+function formatDownloadTimestamp(value: string): string {
+  return value.replace(/[:.]/g, "-");
 }
 
 function getErrorMessage(error: unknown): string {

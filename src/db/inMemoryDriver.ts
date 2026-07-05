@@ -115,10 +115,7 @@ class MemoryDriver implements InMemorySqlDriver {
 
   async upsert(table: string, row: Row, key = "id"): Promise<void> {
     this.createTable(table);
-    const rows = this.tables.get(table);
-    if (!rows) {
-      return;
-    }
+    const rows = this.tables.get(table)!;
 
     const index = rows.findIndex((candidate) => candidate[key] === row[key]);
     if (index >= 0) {

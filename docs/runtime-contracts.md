@@ -25,7 +25,11 @@ Export sanitization must keep these guarantees:
 
 - Raw provider API keys are never included.
 - Provider settings contain secret references only after validation.
-- Prompt runs persist compiled prompts only when prompt debug logs are enabled.
+- Runtime exports never include compiled prompts. Local persistence may retain compiled prompts only
+  when prompt debug logs are enabled.
+- Image provider settings persist only allowlisted non-secret fields. `workflowJson` may be kept in
+  local persistence for ComfyUI recovery, but it is dropped if it contains secret-like keys or raw
+  token-looking values, and it is omitted from runtime exports.
 - Generated map artifacts keep user-visible metadata and result URIs, but do not add provider secrets.
 - Unknown future snapshot fields should not be required for import unless the export schema version changes.
 

@@ -53,6 +53,16 @@ describe("Tauri secure-storage capabilities", () => {
       sourceFiles.filter((file) => readFileSync(file, "utf8").includes("@tauri-apps/plugin-sql")),
     ).toEqual([]);
   });
+
+  it("keeps production CSP loopback access HTTP-only", () => {
+    const tauriConfig = JSON.parse(readFileSync(join(workspaceRoot, "src-tauri", "tauri.conf.json"), "utf8")) as {
+      app?: { security?: { csp?: string } };
+    };
+
+    const csp = tauriConfig.app?.security?.csp ?? "";
+    expect(csp).toContain("connect-src 'self' http://127.0.0.1:* http://localhost:*");
+    expect(csp).not.toContain("ws://");
+  });
 });
 
 function listSourceFiles(root: string): string[] {

@@ -11,6 +11,7 @@ export interface ComfyUIImageProviderConfig {
   model?: string;
   apiKey?: string;
   clientId?: string;
+  requestTimeoutMs?: number;
   fetchImpl?: typeof fetch;
   pollIntervalMs?: number;
   pollTimeoutMs?: number;
@@ -19,6 +20,8 @@ export interface ComfyUIImageProviderConfig {
 export interface ComfyUICheckpointListConfig {
   endpoint: string;
   apiKey?: string;
+  requestTimeoutMs?: number;
+  signal?: AbortSignal;
   fetchImpl?: typeof fetch;
 }
 
@@ -67,6 +70,7 @@ export class ComfyUIImageProvider implements ImageModelAdapter {
   private readonly model?: string;
   private readonly apiKey?: string;
   private readonly clientId: string;
+  private readonly requestTimeoutMs: number;
   private readonly fetchImpl: typeof fetch;
   private readonly pollIntervalMs: number;
   private readonly pollTimeoutMs: number;
@@ -82,6 +86,7 @@ export class ComfyUIImageProvider implements ImageModelAdapter {
     this.model = config.model?.trim() || undefined;
     this.apiKey = config.apiKey?.trim() || undefined;
     this.clientId = config.clientId ?? createClientId();
+    this.requestTimeoutMs = normalizeRequestTimeoutMs(config.requestTimeoutMs);
     this.fetchImpl = bindFetch(config.fetchImpl);
     this.pollIntervalMs = config.pollIntervalMs ?? 1_000;
     this.pollTimeoutMs = config.pollTimeoutMs ?? 120_000;
@@ -103,23 +108,21 @@ export class ComfyUIImageProvider implements ImageModelAdapter {
     }
 
     const resolvedRequest = normalizeImageGenerationRequest(request);
+    const requestTimeoutMs = normalizeRequestTimeoutMs(request.timeoutMs ?? this.requestTimeoutMs);
     const workflow = applyWorkflowPromptOverrides(
       hydrateWorkflow(parseWorkflow(this.workflowJson), resolvedRequest, this.model),
       resolvedRequest,
     );
-    await this.validateCheckpointModel(workflow);
+    await this.validateCheckpointModel(workflow, requestTimeoutMs, request.signal);
 
-    const queued = await this.queueWorkflow(workflow);
+    const queued = await this.queueWorkflow(workflow, requestTimeoutMs, request.signal);
     const promptId = queued.prompt_id;
     if (!promptId) {
       throw new Error("ComfyUI did not return a prompt id.");
     }
 
-    const historyEntry = await this.waitForHistory(promptId);
+    const historyEntry = await this.waitForHistory(promptId, requestTimeoutMs, request.signal);
     const imageUrls = extractImageOutputs(historyEntry).map((image) => this.toViewUrl(image));
-    if (imageUrls.length === 0) {
-      throw new Error("ComfyUI completed without an image output.");
-    }
 
     return {
       providerId: this.id,
@@ -133,7 +136,11 @@ export class ComfyUIImageProvider implements ImageModelAdapter {
     };
   }
 
-  private async queueWorkflow(workflow: WorkflowValue): Promise<PromptQueueResponse> {
+  private async queueWorkflow(
+    workflow: WorkflowValue,
+    requestTimeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<PromptQueueResponse> {
     const response = await this.fetchComfy(`${this.endpoint}/prompt`, {
       method: "POST",
       headers: this.createHeaders({ "content-type": "application/json" }),
@@ -141,21 +148,27 @@ export class ComfyUIImageProvider implements ImageModelAdapter {
         prompt: workflow,
         client_id: this.clientId,
       }),
-    });
+    }, requestTimeoutMs, signal);
 
     if (!response.ok) {
       throw new Error(formatQueueFailure(response.status, await safeResponseText(response)));
     }
 
-    const queued = (await response.json()) as PromptQueueResponse;
+    const queued = await readResponseJson<PromptQueueResponse>(response);
     if (hasComfyNodeErrors(queued.node_errors)) {
-      throw new Error(formatQueueFailure(response.status, JSON.stringify({ node_errors: queued.node_errors })));
+      throw new Error(
+        formatQueueFailure(response.status, sanitizeComfyError(JSON.stringify({ node_errors: queued.node_errors }))),
+      );
     }
 
     return queued;
   }
 
-  private async validateCheckpointModel(workflow: WorkflowValue): Promise<void> {
+  private async validateCheckpointModel(
+    workflow: WorkflowValue,
+    requestTimeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const checkpointName = findCheckpointModelName(workflow);
     if (!checkpointName) {
       return;
@@ -164,6 +177,8 @@ export class ComfyUIImageProvider implements ImageModelAdapter {
     const installedModels = await fetchComfyUICheckpointModels({
       endpoint: this.endpoint,
       apiKey: this.apiKey,
+      requestTimeoutMs,
+      signal,
       fetchImpl: this.fetchImpl,
     });
     if (installedModels.length === 0) {
@@ -187,17 +202,21 @@ export class ComfyUIImageProvider implements ImageModelAdapter {
     }
   }
 
-  private async waitForHistory(promptId: string): Promise<ComfyHistoryEntry> {
+  private async waitForHistory(
+    promptId: string,
+    requestTimeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<ComfyHistoryEntry> {
     const deadline = Date.now() + this.pollTimeoutMs;
     while (Date.now() <= deadline) {
       const response = await this.fetchComfy(`${this.endpoint}/history/${encodeURIComponent(promptId)}`, {
         headers: this.createHeaders(),
-      });
+      }, requestTimeoutMs, signal);
       if (!response.ok) {
         throw new Error(`ComfyUI history failed (${response.status}): ${await safeResponseText(response)}`);
       }
 
-      const history = (await response.json()) as Record<string, ComfyHistoryEntry>;
+      const history = await readResponseJson<Record<string, ComfyHistoryEntry>>(response);
       const entry = history[promptId];
       const images = entry ? extractImageOutputs(entry) : [];
       if (images.length > 0) {
@@ -226,8 +245,13 @@ export class ComfyUIImageProvider implements ImageModelAdapter {
     return createComfyHeaders(this.apiKey, headers);
   }
 
-  private async fetchComfy(url: string, init?: RequestInit): Promise<Response> {
-    return fetchComfyEndpoint(this.endpoint, url, init, this.fetchImpl, this.apiKey);
+  private async fetchComfy(
+    url: string,
+    init?: RequestInit,
+    requestTimeoutMs = this.requestTimeoutMs,
+    signal?: AbortSignal,
+  ): Promise<Response> {
+    return fetchComfyEndpoint(this.endpoint, url, init, this.fetchImpl, this.apiKey, requestTimeoutMs, signal);
   }
 }
 
@@ -245,12 +269,14 @@ export async function fetchComfyUICheckpointModels(config: ComfyUICheckpointList
     },
     config.fetchImpl,
     config.apiKey,
+    config.requestTimeoutMs,
+    config.signal,
   );
   if (!response.ok) {
     throw new Error(`ComfyUI checkpoint check failed (${response.status}): ${await safeResponseText(response)}`);
   }
 
-  const objectInfo = (await response.json()) as Record<string, ComfyObjectInfo>;
+  const objectInfo = await readResponseJson<Record<string, ComfyObjectInfo>>(response);
   return extractCheckpointChoices(objectInfo.CheckpointLoaderSimple);
 }
 
@@ -268,12 +294,14 @@ export async function fetchComfyUIImageModels(config: ComfyUICheckpointListConfi
     },
     config.fetchImpl,
     config.apiKey,
+    config.requestTimeoutMs,
+    config.signal,
   );
   if (!response.ok) {
     throw new Error(`ComfyUI image model check failed (${response.status}): ${await safeResponseText(response)}`);
   }
 
-  const objectInfo = (await response.json()) as Record<string, ComfyObjectInfo>;
+  const objectInfo = await readResponseJson<Record<string, ComfyObjectInfo>>(response);
   return extractRequiredChoices(objectInfo.UNETLoader, "unet_name");
 }
 
@@ -556,6 +584,8 @@ function compareComfyImageOutputs(
   return a.nodeId.localeCompare(b.nodeId);
 }
 
+const responseTimeouts = new WeakMap<Response, RequestTimeout>();
+
 function imageOutputTypeRank(type: string): number {
   if (type === "output") {
     return 0;
@@ -611,8 +641,33 @@ function formatHistoryWithoutImageFailure(entry: ComfyHistoryEntry): string {
 }
 
 async function safeResponseText(response: Response): Promise<string> {
-  const text = await response.text().catch(() => "");
+  const timeout = responseTimeouts.get(response);
+  let text = "";
+  try {
+    text = timeout ? await timeout.run(response.text()) : await response.text();
+  } catch (error) {
+    if (timeout?.timedOut()) {
+      throw error;
+    }
+  } finally {
+    cleanupResponseTimeout(response);
+  }
   return sanitizeComfyError(text || response.statusText);
+}
+
+async function readResponseJson<T>(response: Response): Promise<T> {
+  const timeout = responseTimeouts.get(response);
+  try {
+    return (await (timeout ? timeout.run(response.json()) : response.json())) as T;
+  } finally {
+    cleanupResponseTimeout(response);
+  }
+}
+
+function cleanupResponseTimeout(response: Response): void {
+  const timeout = responseTimeouts.get(response);
+  timeout?.cleanup();
+  responseTimeouts.delete(response);
 }
 
 function formatQueueFailure(status: number, responseText: string): string {
@@ -718,10 +773,20 @@ async function fetchComfyEndpoint(
   init: RequestInit | undefined,
   fetchImpl: typeof fetch = globalThis.fetch,
   apiKey?: string,
+  requestTimeoutMs = defaultRequestTimeoutMs,
+  signal?: AbortSignal,
 ): Promise<Response> {
+  const timeoutMs = normalizeRequestTimeoutMs(requestTimeoutMs);
+  const timeout = createRequestTimeout(init?.signal ?? signal, timeoutMs, "ComfyUI request");
   try {
-    return await bindFetch(fetchImpl)(url, init);
+    const response = await timeout.run(bindFetch(fetchImpl)(url, { ...init, signal: timeout.signal }));
+    responseTimeouts.set(response, timeout);
+    return response;
   } catch (error) {
+    timeout.cleanup();
+    if (timeout.timedOut()) {
+      throw error;
+    }
     const wrapped = new Error(
       [
         `Could not reach ComfyUI at ${endpoint}.`,
@@ -744,6 +809,93 @@ function getFetchErrorMessage(error: unknown): string {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+}
+
+const defaultRequestTimeoutMs = 60_000;
+const maxRequestTimeoutMs = 300_000;
+
+function normalizeRequestTimeoutMs(value: number | undefined): number {
+  if (value === undefined) {
+    return defaultRequestTimeoutMs;
+  }
+  if (!Number.isFinite(value) || value <= 0) {
+    return defaultRequestTimeoutMs;
+  }
+  return Math.min(Math.trunc(value), maxRequestTimeoutMs);
+}
+
+interface RequestTimeout {
+  signal?: AbortSignal;
+  run<T>(operation: Promise<T>): Promise<T>;
+  cleanup(): void;
+  timedOut(): boolean;
+}
+
+function createRequestTimeout(
+  existingSignal: AbortSignal | null | undefined,
+  timeoutMs: number,
+  label: string,
+): RequestTimeout {
+  if (typeof AbortController === "undefined") {
+    return {
+      signal: existingSignal ?? undefined,
+      run: async <T>(operation: Promise<T>) => operation,
+      cleanup: () => undefined,
+      timedOut: () => false,
+    };
+  }
+
+  const controller = new AbortController();
+  let didTimeOut = false;
+  const abortFromExistingSignal = () => controller.abort(existingSignal?.reason);
+  if (existingSignal?.aborted) {
+    abortFromExistingSignal();
+  } else {
+    existingSignal?.addEventListener("abort", abortFromExistingSignal, { once: true });
+  }
+  let rejectTimeout: ((error: Error) => void) | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    rejectTimeout = reject;
+  });
+  const timer = globalThis.setTimeout(() => {
+    didTimeOut = true;
+    controller.abort();
+    rejectTimeout?.(createTimeoutError(label, timeoutMs));
+  }, timeoutMs);
+
+  return {
+    signal: controller.signal,
+    run: async <T>(operation: Promise<T>): Promise<T> => {
+      try {
+        return await Promise.race([operation, timeoutPromise]);
+      } catch (error) {
+        if (didTimeOut) {
+          if (isTimeoutError(error, label, timeoutMs)) {
+            throw error;
+          }
+          throw createTimeoutError(label, timeoutMs, error);
+        }
+        throw error;
+      }
+    },
+    cleanup: () => {
+      globalThis.clearTimeout(timer);
+      existingSignal?.removeEventListener("abort", abortFromExistingSignal);
+    },
+    timedOut: () => didTimeOut,
+  };
+}
+
+function createTimeoutError(label: string, timeoutMs: number, cause?: unknown): Error {
+  const timedOut = new Error(`${label} timed out after ${String(timeoutMs)}ms.`);
+  if (cause !== undefined) {
+    (timedOut as Error & { cause?: unknown }).cause = cause;
+  }
+  return timedOut;
+}
+
+function isTimeoutError(error: unknown, label: string, timeoutMs: number): boolean {
+  return error instanceof Error && error.message === `${label} timed out after ${String(timeoutMs)}ms.`;
 }
 
 function normalizeImageGenerationRequest(request: ImageGenerationRequest): ImageGenerationRequest {

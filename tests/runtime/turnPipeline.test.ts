@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   TURN_PIPELINE_LAYER_IDS,
+  compileTurnPrompt,
   runTurnPipeline,
   type RunTurnPipelineRequest,
 } from "../../src/runtime/turnPipeline";
@@ -262,6 +263,217 @@ describe("turn pipeline", () => {
 
     expect(result.assistantMessageText).toBe("The gate opens.");
     expect(result.stateProposals.rpgStateUpdates.location).toBe("Gatehouse");
+  });
+
+  it("compiles optional layers, explicit latest messages, empty lists, and complex RPG state values", () => {
+    const { modelAdapter: _adapter, model: _model, ...request } = baseRequest(
+      new RecordingTextAdapter({
+        text: "",
+        finishReason: "stop",
+        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      }),
+    );
+    const circularPlayer: Record<string, unknown> = { name: "Nia" };
+    circularPlayer.self = circularPlayer;
+    const throwingValue = {
+      toJSON() {
+        throw new Error("cannot serialize");
+      },
+    };
+
+    const compiled = compileTurnPrompt({
+      ...request,
+      session: {
+        id: "session-full",
+        title: "Full Session",
+        mode: "rpg",
+        summary: "The table watches the north gate.",
+        systemPrompt: "Session system instruction.",
+      },
+      card: {
+        id: "card-full",
+        name: "Guide",
+        kind: "npc",
+        summary: "A careful local guide.",
+        systemPrompt: "Card system instruction.",
+        characterDefinition: "Guide remembers only witnessed facts.",
+        userPersona: "The player is a cautious scout.",
+        preHistoryInstructions: "Pre-history instruction.",
+        postHistoryInstructions: "Post-history instruction.",
+        knowledgeBoundaries: "Card boundary.",
+        assistantPrefill: "Card prefill.",
+      },
+      latestUserMessage: "Explicit latest action.",
+      rules: [
+        { id: "disabled", description: "Hidden rule.", enabled: false },
+        { id: "fallback-title", description: "Use the id as title." },
+      ],
+      memoryEntries: [
+        { id: "disabled-memory", text: "Hidden memory.", enabled: false },
+        { id: "detail-memory", detail: "Detail-only memory.", importance: 2 },
+      ],
+      loreEntries: [
+        { id: "low", title: "Low", content: "Low priority lore.", priority: 1 },
+        { id: "high", title: "High", content: "High priority lore.", priority: 5 },
+      ],
+      rpgState: {
+        id: "state-full",
+        location: "North Gate",
+        sceneSummary: "Snow is falling.",
+        health: null,
+        player: circularPlayer,
+        inventory: [],
+        activeQuestIds: [],
+        quests: [{ title: "Find shelter" }, undefined],
+        companionCharacterIds: [],
+        knownPlaces: [],
+        statusEffects: [true, 3n] as unknown as string[],
+        worldFlags: { gate_open: true },
+        flags: throwingValue as unknown as Record<string, string | number | boolean | null>,
+      },
+      knowledgeBoundaries: "Global boundary.",
+      responseContract: "Custom response contract.",
+      includeLayerLabels: false,
+    });
+
+    expect(compiled.prompt).toContain("Session system instruction.");
+    expect(compiled.prompt).toContain("Card system instruction.");
+    expect(compiled.prompt).toContain("Character definition:\nGuide remembers only witnessed facts.");
+    expect(compiled.prompt).toContain("The player is a cautious scout.");
+    expect(compiled.prompt).toContain("1. fallback-title: Use the id as title.");
+    expect(compiled.prompt).not.toContain("Hidden rule.");
+    expect(compiled.prompt).toContain("- Detail-only memory. [importance: 2]");
+    expect(compiled.prompt).not.toContain("Hidden memory.");
+    expect(compiled.prompt.indexOf("[High | priority 5]")).toBeLessThan(compiled.prompt.indexOf("[Low | priority 1]"));
+    expect(compiled.prompt).toContain("Inventory: none");
+    expect(compiled.prompt).toContain("Status effects: true, 3");
+    expect(compiled.prompt).toContain('"[Circular]"');
+    expect(compiled.prompt).toContain("Health: ");
+    expect(compiled.prompt).toContain("Flags: [object Object]");
+    expect(compiled.prompt).toContain("Card boundary.\n\nGlobal boundary.");
+    expect(compiled.prompt).toContain("Explicit latest action.");
+    expect(compiled.prompt).toContain("Custom response contract.");
+    expect(compiled.prompt).toContain("Card prefill.");
+  });
+
+  it("uses an empty latest-message layer when no user message is available", () => {
+    const { modelAdapter: _adapter, model: _model, ...request } = baseRequest(
+      new RecordingTextAdapter({
+        text: "",
+        finishReason: "stop",
+        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      }),
+    );
+
+    const compiled = compileTurnPrompt({
+      ...request,
+      messages: [{ id: "assistant-only", role: "assistant", content: "Waiting." }],
+    });
+
+    expect(compiled.omittedLayers.map((layer) => layer.id)).toContain(TURN_PIPELINE_LAYER_IDS.latestUserMessage);
+    expect(compiled.prompt).toContain("assistant: Waiting.");
+  });
+
+  it("parses raw extraction payloads and ignores malformed JSON candidates", async () => {
+    const rawPayloadAdapter = new RecordingTextAdapter({
+      text: "Fallback visible text",
+      finishReason: "stop",
+      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+      raw: {
+        assistantMessage: "Raw assistant message.",
+        rpg_state_updates: {
+          location: "Raw Room",
+        },
+      },
+    });
+
+    await expect(runTurnPipeline(baseRequest(rawPayloadAdapter))).resolves.toMatchObject({
+      assistantMessageText: "Raw assistant message.",
+      stateProposals: {
+        rpgStateUpdates: {
+          location: "Raw Room",
+        },
+      },
+    });
+
+    for (const text of ["{not valid}", "Text before ```json\nnot-json\n``` after", "Text before {not valid} after"]) {
+      const adapter = new RecordingTextAdapter({
+        text,
+        finishReason: "stop",
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+      });
+
+      const result = await runTurnPipeline(baseRequest(adapter));
+
+      expect(result.assistantMessageText).toBe(text);
+      expect(result.stateProposals.rpgStateUpdates).toEqual({
+        health_delta: 0,
+        inventory_add: [],
+        inventory_remove: [],
+        quest_updates: [],
+        location: null,
+        world_flags: {},
+      });
+    }
+
+    const fencedAssistant = await runTurnPipeline(
+      baseRequest(
+        new RecordingTextAdapter({
+          text: [
+            "```json",
+            JSON.stringify({
+              assistant_message: "Fenced assistant message.",
+              extraction: {
+                rpg_state_updates: {
+                  location: "Fenced Room",
+                },
+              },
+            }),
+            "```",
+          ].join("\n"),
+          finishReason: "stop",
+          usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        }),
+      ),
+    );
+    expect(fencedAssistant.assistantMessageText).toBe("Fenced assistant message.");
+    expect(fencedAssistant.stateProposals.rpgStateUpdates.location).toBe("Fenced Room");
+
+    const embeddedAssistant = await runTurnPipeline(
+      baseRequest(
+        new RecordingTextAdapter({
+          text: `prefix ${JSON.stringify({
+            assistantMessage: "Embedded assistant message.",
+            extractionJson: {
+              rpg_state_updates: {
+                location: "Embedded Room",
+              },
+            },
+          })} suffix`,
+          finishReason: "stop",
+          usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        }),
+      ),
+    );
+    expect(embeddedAssistant.assistantMessageText).toBe("Embedded assistant message.");
+    expect(embeddedAssistant.stateProposals.rpgStateUpdates.location).toBe("Embedded Room");
+
+    await expect(
+      runTurnPipeline(
+        baseRequest(
+          new RecordingTextAdapter({
+            text: "{}",
+            finishReason: "stop",
+            usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+          }),
+        ),
+      ),
+    ).resolves.toMatchObject({
+      assistantMessageText: "{}",
+      promptRun: {
+        extractionValidated: true,
+      },
+    });
   });
 });
 

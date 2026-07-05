@@ -549,6 +549,88 @@ describe("ComfyUI image provider", () => {
     );
   });
 
+  it("redacts secret-like details from successful ComfyUI node error bodies", async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          prompt_id: "prompt-with-errors",
+          node_errors: {
+            "4": {
+              errors: [
+                {
+                  message: "bad Authorization Bearer sk-node-error-secret",
+                },
+              ],
+            },
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    const provider = new ComfyUIImageProvider({
+      endpoint: "http://127.0.0.1:8188",
+      workflowJson: JSON.stringify({ "1": { class_type: "SaveImage", inputs: { text: "{{prompt}}" } } }),
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    const error = await provider.generateImage({ model: "local-image", prompt: "map" }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/ComfyUI queue failed \(200\): \[redacted\]/);
+    expect((error as Error).message).not.toContain("sk-node-error-secret");
+  });
+
+  it("times out stalled ComfyUI requests", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn((_url: string, init?: RequestInit) => {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+        });
+      });
+      const provider = new ComfyUIImageProvider({
+        endpoint: "http://127.0.0.1:8188",
+        workflowJson: JSON.stringify({ "1": { class_type: "SaveImage", inputs: { text: "{{prompt}}" } } }),
+        requestTimeoutMs: 25,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+
+      const pending = expect(provider.generateImage({ model: "local-image", prompt: "map" })).rejects.toThrow(/timed out/i);
+      await vi.advanceTimersByTimeAsync(30);
+
+      await pending;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("times out stalled ComfyUI response bodies", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn(async () =>
+        ({
+          ok: true,
+          status: 200,
+          json: () => new Promise<unknown>(() => undefined),
+          text: () => Promise.resolve(""),
+        }) as Response,
+      );
+      const provider = new ComfyUIImageProvider({
+        endpoint: "http://127.0.0.1:8188",
+        workflowJson: JSON.stringify({ "1": { class_type: "SaveImage", inputs: { text: "{{prompt}}" } } }),
+        requestTimeoutMs: 25,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+
+      const pending = expect(provider.generateImage({ model: "local-image", prompt: "map" })).rejects.toThrow(/timed out/i);
+      await vi.advanceTimersByTimeAsync(30);
+
+      await pending;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("binds the default browser fetch before queueing workflows", async () => {
     const fetchImpl = vi
       .fn()

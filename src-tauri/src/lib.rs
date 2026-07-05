@@ -1,5 +1,9 @@
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if let Err(error) = runtime_repository::initialize_smoke_repository_from_env() {
+        panic!("{}", runtime_repository::redact_storage_error(error));
+    }
+
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             initialize_runtime_repository,
@@ -22,6 +26,8 @@ const MAX_PROMPT_CHARS: usize = 200_000;
 const DEFAULT_OUTPUT_TOKENS: u32 = 900;
 const MAX_OUTPUT_TOKENS: u32 = 4_096;
 const MAX_MODEL_ID_CHARS: usize = 160;
+const DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS: u64 = 60_000;
+const MAX_PROVIDER_REQUEST_TIMEOUT_MS: u64 = 300_000;
 const MAX_GENERATION_REQUESTS_PER_WINDOW: usize = 20;
 const GENERATION_RATE_LIMIT_WINDOW: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -95,6 +101,7 @@ struct StoredTextGenerationRequest {
     system_prompt: Option<String>,
     temperature: Option<f32>,
     max_output_tokens: Option<u32>,
+    timeout_ms: Option<u64>,
 }
 
 #[derive(serde::Serialize)]
@@ -208,6 +215,7 @@ async fn generate_text_with_stored_secret(
     validate_generation_prompt(&request.prompt)?;
     validate_generation_model(&request.model)?;
     let max_output_tokens = validate_max_output_tokens(request.max_output_tokens)?;
+    let request_timeout = validate_request_timeout(request.timeout_ms)?;
     check_generation_rate_limit()?;
 
     let entry = keyring_entry(&request.secret_reference.storage_key)?;
@@ -235,7 +243,10 @@ async fn generate_text_with_stored_secret(
         "messages": messages,
     });
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(request_timeout)
+        .build()
+        .map_err(|_| "Could not initialize provider HTTP client.".to_string())?;
     let response = client
         .post(format!("{base_url}/chat/completions"))
         .bearer_auth(&secret)
@@ -363,6 +374,16 @@ fn validate_max_output_tokens(value: Option<u32>) -> Result<u32, String> {
         return Err("Requested output token count exceeds the local safety limit.".to_string());
     }
     Ok(tokens)
+}
+
+fn validate_request_timeout(value: Option<u64>) -> Result<std::time::Duration, String> {
+    let timeout_ms = value.unwrap_or(DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS);
+    if timeout_ms == 0 || timeout_ms > MAX_PROVIDER_REQUEST_TIMEOUT_MS {
+        return Err(format!(
+            "Provider request timeout must be between 1 and {MAX_PROVIDER_REQUEST_TIMEOUT_MS}ms."
+        ));
+    }
+    Ok(std::time::Duration::from_millis(timeout_ms))
 }
 
 fn check_generation_rate_limit() -> Result<(), String> {
@@ -534,6 +555,11 @@ mod tests {
             validate_max_output_tokens(None).unwrap(),
             DEFAULT_OUTPUT_TOKENS
         );
+        assert_eq!(
+            validate_request_timeout(None).unwrap(),
+            std::time::Duration::from_millis(DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS)
+        );
+        assert!(validate_request_timeout(Some(MAX_PROVIDER_REQUEST_TIMEOUT_MS + 1)).is_err());
     }
 
     #[test]

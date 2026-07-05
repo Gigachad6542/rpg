@@ -9,6 +9,8 @@ export interface ImageGenerationRequest {
   cfg?: number;
   samplerName?: string;
   scheduler?: string;
+  timeoutMs?: number;
+  signal?: AbortSignal;
   metadata?: Record<string, unknown>;
 }
 

@@ -29,9 +29,20 @@ secret names, endpoint matching, prompt and output caps, and a process-local rat
 Development-only `databasePath` overrides are confined to a temp runtime workspace and reject
 absolute paths or parent traversal. Production builds do not accept the override.
 
-The Tauri CSP intentionally allows loopback HTTP/WebSocket connections for local Vite development
-and local image/model providers such as ComfyUI. Hosted provider calls still go through Rust command
-validation and provider endpoint allowlists rather than broad renderer fetch privileges.
+The installed desktop smoke uses `LOCAL_FIRST_AI_RPG_RUNTIME_APP_DATA_DIR` to force a temporary app
+data directory because Windows/Tauri app-data resolution does not honor `APPDATA` alone. The Rust
+boundary accepts this override only for absolute paths under the system temp directory.
+
+The Tauri CSP intentionally allows loopback HTTP connections for local Vite development and local
+image/model providers such as ComfyUI. Loopback WebSocket access is not enabled by default; add it
+only behind a focused review if a future provider path needs it. Hosted provider calls still go
+through Rust command validation and provider endpoint allowlists rather than broad renderer fetch
+privileges.
+
+Renderer and Rust persistence boundaries both sanitize image provider settings. Only known
+non-secret ComfyUI fields are saved, and `workflowJson` is preserved only when it does not contain
+secret-like keys or raw-token-looking values. Runtime exports remain stricter and omit
+`workflowJson` entirely.
 
 ## Prompt Assembly
 
@@ -70,9 +81,13 @@ Run the release-candidate gate before packaging or sharing a build:
 pnpm verify:release
 ```
 
-This gate includes the Playwright browser smoke test. The smoke opens the seeded RPG card, sends a
-mock turn, confirms prompt-debug privacy in the persisted snapshot, reloads, reopens the card, and
-confirms the saved transcript is still visible.
+This gate includes the Playwright browser smoke test, the Tauri desktop package build, the packaged
+executable smoke, and the installed clean-profile smoke. The browser smoke opens the seeded RPG card,
+sends a mock turn, confirms prompt-debug privacy in the persisted snapshot, reloads, reopens the
+card, and confirms the saved transcript is still visible. The executable smoke starts the release
+executable and fails if it exits during startup. The installed smoke stages the generated MSI into a
+temporary install root, launches with isolated app-data paths, restarts once, and confirms the runtime
+SQLite database is created under that clean profile.
 
 For coverage reporting, run:
 
@@ -80,10 +95,14 @@ For coverage reporting, run:
 pnpm test:coverage
 ```
 
-The current scoped V8 report is 73.65% statements overall. The largest remaining coverage drag is
-type-heavy domain/adapter contract files, not the runtime pipeline. Add thresholds only after
-deciding which contract-only modules should count toward executable coverage.
+The current scoped V8 report is 99.2% statements overall, 93.01% branches, and 100% functions.
+Remaining uncovered lines are mostly defensive UI guards and transitive edge branches rather than
+core runtime paths.
 
 CI installs and runs `cargo-audit` against `src-tauri` so Rust dependency advisories are checked
-before merge. Local release verification uses the same tool; current audit output contains allowed
-warnings from transitive desktop/GTK-era crates, but no blocking vulnerability failure.
+before merge. Local release verification uses the same tool. Current audit output contains allowed
+warnings from transitive Tauri/WebKitGTK dependency paths (`tauri`, `tauri-runtime-wry`, `wry`,
+`tao`, `muda`, `webkit2gtk`, `gtk`, `glib`, and related GTK3 crates), plus a narrow
+`src-tauri/.cargo/audit.toml` exception for `quick-xml` advisories that are pinned by
+`plist -> tauri-utils`. The accepted warning class is controlled-beta release debt; remove or narrow
+the exceptions as soon as upstream Tauri dependencies publish compatible fixed paths.

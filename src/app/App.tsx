@@ -33,6 +33,18 @@ import {
 } from "lucide-react";
 import profileImageUrl from "../assets/local-cards-profile.png";
 import { compileImagePrompt, type CompiledImagePrompt } from "../runtime/imagePromptCompiler";
+import {
+  applyHiddenContinuityToCard,
+  buildVisibleUserMessageWithHiddenContinuity,
+  createEmptyHiddenContinuityResult,
+  formatStoryEntitiesForKnowledgeBoundary,
+  runHiddenContinuityPassSafely,
+  toHiddenContinuityKnowledgeUpdates,
+  type HiddenContinuityCard,
+  type HiddenContinuityResult,
+  type StoryEntity,
+  type StoryEntityKind,
+} from "../runtime/hiddenContinuity";
 import { selectActiveLorebookEntries } from "../runtime/loreTriggerEngine";
 import { type CompiledPrompt } from "../runtime/promptCompiler";
 import { compileTurnPrompt, runTurnPipeline, type RunTurnPipelineRequest } from "../runtime/turnPipeline";
@@ -73,6 +85,7 @@ import {
 import {
   applyValidatedTurnEffectsToCard,
   describeValidatedTurnEffects,
+  filterValidatedTurnEffectsForPolicy,
 } from "./turnEffects";
 
 type Theme = "light" | "dark";
@@ -98,6 +111,7 @@ type RuntimeCard = {
   playerRules: PlayerRule[];
   lorebooks: Lorebook[];
   memory: MemoryEntry[];
+  storyEntities: StoryEntity[];
   mapEnabled: boolean;
   rpg?: RpgCardState;
 };
@@ -239,13 +253,15 @@ type ModelChoice = {
   label: string;
 };
 
-type GeneratedImageKind = "map" | "photo";
+type GeneratedImageKind = "map" | "photo" | "character";
 
 type GeneratedMapArtifact = {
   id: string;
   imageKind: GeneratedImageKind;
   cardId: string;
   chatId: string;
+  subjectId?: string;
+  subjectName?: string;
   prompt: string;
   negativePrompt: string;
   provider: string;
@@ -292,6 +308,7 @@ const initialCards: RuntimeCard[] = [
     mapEnabled: true,
     lorebooks: [],
     memory: [],
+    storyEntities: createInitialStoryEntities("card_blank_slate_rpg"),
     rpg: {
       location: "Unmapped starting area",
       health: "not configured",
@@ -305,6 +322,7 @@ const initialCards: RuntimeCard[] = [
 ];
 
 const starterMessages: Message[] = [];
+const randomOpeningAction = "Surprise me with a random opening scene.";
 
 const defaultNewCard = {
   name: "",
@@ -479,6 +497,7 @@ const localImageRecommendedCfg = 3.5;
 const localImageMinimumUsableCfg = 1.5;
 const localImageRecommendedSampler = "euler";
 const localImageRecommendedScheduler = "simple";
+const localImageMinimumPollTimeoutMs = 120_000;
 
 const defaultImageProviderSettings: ImageProviderSettings = {
   mode: "comfyui",
@@ -502,6 +521,14 @@ const customImagePresetPrompt =
 
 const customImageNegativePrompt =
   "low resolution, blurry, watermark, logo, text artifacts, distorted anatomy, malformed objects, noisy artifacts";
+
+const characterPortraitPresetPrompt =
+  "RPG character portrait, shoulders-up, clear face, consistent storybook realism, high-detail, natural lighting, neutral background, no text";
+
+const characterPortraitNegativePrompt =
+  "low resolution, blurry, watermark, logo, text artifacts, extra limbs, distorted face, malformed hands, duplicate character";
+
+const maxGeneratedMediaArtifacts = 80;
 
 const comfyUiModelChoices: ModelChoice[] = [
   { id: recommendedLocalImageProvider.model, label: "FLUX.2 dev FP8 mixed" },
@@ -684,7 +711,7 @@ export function App() {
 
   const activeCard = cards.find((card) => card.id === activeCardId) ?? null;
   const activeChat = activeCard ? getActiveChatForCard(activeCard.id, chatSessions, activeChatIds) : undefined;
-  const messages = useMemo(() => activeChat?.messages ?? [], [activeChat?.messages]);
+  const messages = useMemo(() => filterPersistedOpeningMessages(activeChat?.messages ?? []), [activeChat?.messages]);
   const visibleMessages = messages.filter((message) => message.role !== "system");
   const activeLorebookEntries = useMemo(
     () => {
@@ -779,13 +806,6 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const normalizedSettings = normalizeImageProviderQualitySettings(imageProviderSettings);
-    if (normalizedSettings !== imageProviderSettings) {
-      setImageProviderSettings(normalizedSettings);
-    }
-  }, [imageProviderSettings]);
-
-  useEffect(() => {
     let cancelled = false;
 
     if (imageProviderSettings.mode !== "comfyui") {
@@ -821,9 +841,6 @@ export function App() {
         }
 
         const installedModel = models[0];
-        if (!installedModel) {
-          return;
-        }
         setImageProviderSettings((current) =>
           current.mode === "comfyui" && !models.includes(current.model)
             ? {
@@ -1079,6 +1096,10 @@ export function App() {
       mapEnabled: newCard.mapEnabled,
       lorebooks: createInitialLorebooks(cardId, newCard.lorebookName),
       memory: [],
+      storyEntities: createInitialStoryEntities(cardId, {
+        cardKind: newCard.kind,
+        cardCharacterName: newCard.characterName.trim() || newCard.name.trim(),
+      }),
       rpg:
         newCard.kind === "rpg"
           ? {
@@ -1111,6 +1132,28 @@ export function App() {
     }
     setCards((current) =>
       current.map((card) => (card.id === activeCard.id ? { ...card, ...patch } : card)),
+    );
+  }
+
+  function clearStoryCharacters() {
+    if (!activeCard) {
+      return;
+    }
+    setCards((current) =>
+      current.map((card) =>
+        card.id === activeCard.id
+          ? {
+              ...card,
+              storyEntities: createInitialStoryEntities(card.id, {
+                cardKind: card.kind,
+                cardCharacterName: card.characterName,
+              }),
+            }
+          : card,
+      ),
+    );
+    setGeneratedMaps((current) =>
+      current.filter((artifact) => artifact.cardId !== activeCard.id || artifact.imageKind !== "character"),
     );
   }
 
@@ -1391,14 +1434,13 @@ export function App() {
       setRuleWarning("Runtime is shut down. Start the runtime before generating another turn.");
       return;
     }
-    if (!draft.trim()) {
-      return;
-    }
+    const visibleUserAction = draft.trim();
+    const generationAction = visibleUserAction || randomOpeningAction;
 
     const validation = validatePlayerActionWithRules({
       cardKind: activeCard.kind,
       rules: activeCard.playerRules,
-      action: draft,
+      action: generationAction,
       rpgState: activeCard.rpg,
     });
     setRuleWarning(validation.warning);
@@ -1409,6 +1451,7 @@ export function App() {
     setIsGenerating(true);
     const runId = createRuntimeEntityId("run");
     const chat = activeChat ?? createChatSession(activeCard.id, `${activeCard.name} chat`);
+    const chatMessages = filterPersistedOpeningMessages(chat.messages);
     if (!activeChat) {
       setChatSessions((current) => [...current, chat]);
       setActiveChatIds((current) => ({ ...current, [activeCard.id]: chat.id }));
@@ -1416,13 +1459,31 @@ export function App() {
     const userMessage: Message = {
       id: `user-${runId}`,
       role: "user",
-      content: draft.trim(),
+      content: generationAction,
     };
     try {
-      const provider = createTextProvider(providerSettings, sessionApiKey, activeCard, draft, activeLorebookEntries.length);
+      const provider = createTextProvider(providerSettings, sessionApiKey, activeCard, generationAction, activeLorebookEntries.length);
+      const model = providerSettings.mode === "mock" ? "mock-narrator" : providerSettings.model;
+      const hiddenContinuity = await runHiddenContinuityPassSafely({
+        modelAdapter: provider,
+        model,
+        card: toHiddenContinuityCard(activeCard),
+        messages: chatMessages,
+        latestUserMessage: generationAction,
+        activeLoreCount: activeLorebookEntries.length,
+      });
+      const continuityCard = applyHiddenContinuityToCard(activeCard, hiddenContinuity);
+      const hiddenLatestUserMessage: Message = {
+        ...userMessage,
+        content: buildVisibleUserMessageWithHiddenContinuity(
+          generationAction,
+          hiddenContinuity,
+          toHiddenContinuityCard(continuityCard),
+        ),
+      };
       const pipelineResult = await runTurnPipeline({
-        ...buildTurnPromptRequest(activeCard, activeLorebookEntries, [...chat.messages, userMessage], draft, runtimeSettings, {
-          latestUserMessage: userMessage,
+        ...buildTurnPromptRequest(continuityCard, activeLorebookEntries, chatMessages, generationAction, runtimeSettings, {
+          latestUserMessage: hiddenLatestUserMessage,
           promptRunId: runId,
           metadata: {
             cardKind: activeCard.kind,
@@ -1430,35 +1491,62 @@ export function App() {
             providerMode: providerSettings.mode,
             textStreaming: runtimeSettings.textStreaming,
             chatId: chat.id,
+            hiddenContinuityPass: true,
           },
         }),
         modelAdapter: provider,
-        model: providerSettings.mode === "mock" ? "mock-narrator" : providerSettings.model,
+        model,
         temperature: 0.6,
       });
-      const warnings = pipelineResult.warnings.map((warning) => warning.message);
-      const stateChanges = describeValidatedTurnEffects(pipelineResult.stateProposals.extraction);
+      const policyResult = filterValidatedTurnEffectsForPolicy(continuityCard, pipelineResult.stateProposals.extraction, {
+        latestUserAction: userMessage.content,
+        assistantMessageText: pipelineResult.assistantMessageText,
+      });
+      const visibleKnowledgeContinuity: HiddenContinuityResult = {
+        ...createEmptyHiddenContinuityResult(),
+        knowledgeUpdates: toHiddenContinuityKnowledgeUpdates(policyResult.extraction.character_knowledge_updates),
+      };
+      const warnings = [
+        ...hiddenContinuity.warnings.map((warning) => `Hidden continuity: ${warning}`),
+        ...pipelineResult.warnings.map((warning) => warning.message),
+        ...policyResult.warnings,
+      ];
+      const stateChanges = [
+        ...describeHiddenContinuityChanges(hiddenContinuity),
+        ...describeValidatedTurnEffects(policyResult.extraction),
+      ];
       const assistantMessage: Message = {
         id: `assistant-${runId}`,
         role: "assistant",
         content: pipelineResult.assistantMessageText,
       };
+      const nextActiveCard = applyValidatedTurnEffectsToCard(
+        applyHiddenContinuityToCard(continuityCard, visibleKnowledgeContinuity),
+        policyResult.extraction,
+      );
 
       setChatSessions((current) =>
         upsertChatSession(current, {
           ...chat,
-          messages: [...chat.messages, userMessage, assistantMessage],
-          title: chat.title || deriveChatTitle(userMessage.content),
+          messages: visibleUserAction ? [...chatMessages, userMessage, assistantMessage] : [...chatMessages, assistantMessage],
+          title: chat.title || deriveChatTitle(generationAction),
           updatedAt: new Date().toISOString(),
         }),
       );
       setCards((current) =>
         current.map((card) =>
           card.id === activeCard.id
-            ? applyValidatedTurnEffectsToCard(card, pipelineResult.stateProposals.extraction)
+            ? applyValidatedTurnEffectsToCard(
+                applyHiddenContinuityToCard(
+                  applyHiddenContinuityToCard(card, hiddenContinuity),
+                  visibleKnowledgeContinuity,
+                ),
+                policyResult.extraction,
+              )
             : card,
         ),
       );
+      void generateMissingCharacterPortraits(nextActiveCard, chat.id);
       setPromptRuns((current) => [
         ...current,
         {
@@ -1514,7 +1602,7 @@ export function App() {
       setMapPrompt(fallback.prompt);
       setImagePromptDraft(fallback.prompt);
       setImageNegativePromptDraft(sanitizeMapNegativePrompt(fallback.negativePrompt));
-      setRuleWarning(`Map prompt planner fell back to local summary: ${getErrorMessage(error)}`);
+      setRuleWarning(`Aerial image prompt planner fell back to local summary: ${getErrorMessage(error)}`);
     } finally {
       setIsDraftingMapPrompt(false);
     }
@@ -1665,6 +1753,68 @@ export function App() {
     setPhotoPrompt("");
   }
 
+  async function generateMissingCharacterPortraits(card: RuntimeCard, chatId: string) {
+    const missingPortraits = card.storyEntities
+      .filter(shouldAutoGenerateCharacterPortrait)
+      .filter((entity) => !hasGeneratedCharacterPortraitForEntity(generatedMaps, card.id, entity));
+    if (missingPortraits.length === 0) {
+      return;
+    }
+
+    const baseArtifacts = missingPortraits.map((entity): GeneratedMapArtifact => ({
+      id: createRuntimeEntityId("portrait"),
+      imageKind: "character",
+      cardId: card.id,
+      chatId,
+      subjectId: entity.id,
+      subjectName: entity.name,
+      prompt: buildCharacterPortraitPrompt(card, entity),
+      negativePrompt: characterPortraitNegativePrompt,
+      provider: imageProviderSettings.mode === "comfyui" ? "comfyui" : "prompt-only",
+      model: imageProviderSettings.model,
+      status: "prompt-only",
+      error: isComfyUiImageProviderReady(imageProviderSettings, imageProviderStatus, comfyUiCheckpointModels)
+        ? undefined
+        : imageProviderSettings.mode === "comfyui"
+          ? "ComfyUI is not ready yet; portrait prompt saved."
+          : undefined,
+      userInput: entity.name,
+      createdAt: new Date().toISOString(),
+    }));
+    setGeneratedMaps((current) => upsertGeneratedMaps(current, baseArtifacts));
+
+    if (!isComfyUiImageProviderReady(imageProviderSettings, imageProviderStatus, comfyUiCheckpointModels)) {
+      return;
+    }
+
+    for (const baseArtifact of baseArtifacts) {
+      try {
+        const artifact = await runConfiguredImageGeneration({
+          baseArtifact,
+          prompt: baseArtifact.prompt,
+          negativePrompt: baseArtifact.negativePrompt,
+          metadata: {
+            cardId: card.id,
+            chatId,
+            cardName: card.name,
+            imageKind: "character",
+            subjectId: baseArtifact.subjectId,
+            subjectName: baseArtifact.subjectName,
+          },
+        });
+        setGeneratedMaps((current) => upsertGeneratedMap(current, artifact));
+      } catch (error) {
+        setGeneratedMaps((current) =>
+          upsertGeneratedMap(current, {
+            ...baseArtifact,
+            status: "error",
+            error: getErrorMessage(error),
+          }),
+        );
+      }
+    }
+  }
+
   async function runConfiguredImageGeneration(input: {
     baseArtifact: GeneratedMapArtifact;
     prompt: string;
@@ -1682,6 +1832,10 @@ export function App() {
     ) {
       return {
         ...input.baseArtifact,
+        status:
+          effectiveImageProviderSettings.mode === "comfyui"
+            ? "error"
+            : input.baseArtifact.status,
         error:
           effectiveImageProviderSettings.mode === "comfyui"
             ? "Paste a ComfyUI API workflow in Image Provider settings to generate an image."
@@ -1709,12 +1863,21 @@ export function App() {
       scheduler: effectiveImageProviderSettings.scheduler,
       metadata: input.metadata,
     });
+    const imageUrl = result.images[0]?.url;
+    if (!imageUrl) {
+      return {
+        ...input.baseArtifact,
+        provider: result.providerId,
+        status: "error",
+        error: "Image provider finished without an image output.",
+      };
+    }
 
     return {
       ...input.baseArtifact,
       provider: result.providerId,
       status: "generated",
-      imageUrl: result.images[0]?.url,
+      imageUrl,
     };
   }
 
@@ -1752,13 +1915,13 @@ export function App() {
       setImageProviderStatus(
         `${sourceLabel} ready: ${models.length} image model${models.length === 1 ? "" : "s"} visible. Selected ${imageProviderSettings.model}.`,
       );
+      if (activeCard && activeChat) {
+        void generateMissingCharacterPortraits(activeCard, activeChat.id);
+      }
       return;
     }
 
     const installedModel = models[0];
-    if (!installedModel) {
-      return;
-    }
     setImageProviderSettings((current) =>
       current.mode === "comfyui" && !models.includes(current.model)
         ? {
@@ -1770,6 +1933,9 @@ export function App() {
     setImageProviderStatus(
       `${sourceLabel} ready: selected installed image model ${installedModel} because the saved model was not visible to ComfyUI.`,
     );
+    if (activeCard && activeChat) {
+      void generateMissingCharacterPortraits(activeCard, activeChat.id);
+    }
   }
 
   async function saveProviderKey() {
@@ -2046,6 +2212,7 @@ export function App() {
               setPhotoSpecDraft={setPhotoSpecDraft}
               photoPrompt={photoPrompt}
               photoArtifact={photoArtifact}
+              characterPortraits={findCharacterPortraitsForCard(generatedMaps, activeCard.id)}
               isDraftingMapPrompt={isDraftingMapPrompt}
               isGeneratingMapImage={isGeneratingMapImage}
               isGeneratingPhoto={isGeneratingPhoto}
@@ -2056,6 +2223,7 @@ export function App() {
               generateCustomImageFromRequest={generateCustomImageFromRequest}
               resetCustomImageRequest={resetCustomImageRequest}
               deleteCurrentPhoto={deleteCurrentPhoto}
+              clearStoryCharacters={clearStoryCharacters}
               openMediaPreview={setMediaPreview}
             />
           ) : (
@@ -2169,6 +2337,7 @@ function RuntimeSection(props: {
   setPhotoSpecDraft: (value: string) => void;
   photoPrompt: string;
   photoArtifact: GeneratedMapArtifact | null;
+  characterPortraits: GeneratedMapArtifact[];
   isDraftingMapPrompt: boolean;
   isGeneratingMapImage: boolean;
   isGeneratingPhoto: boolean;
@@ -2179,13 +2348,22 @@ function RuntimeSection(props: {
   generateCustomImageFromRequest: () => Promise<void>;
   resetCustomImageRequest: () => void;
   deleteCurrentPhoto: () => void;
+  clearStoryCharacters: () => void;
   openMediaPreview: (preview: MediaPreviewArtifact) => void;
 }) {
   const showMapPanel = props.activeCard.mapEnabled;
   const showMediaPanel = true;
   const isMapBusy = props.isDraftingMapPrompt || props.isGeneratingMapImage;
-  const promptButtonLabel = props.activeCard.kind === "rpg" ? "Draft map prompt" : "Draft image prompt";
-  const generateMapButtonLabel = props.mapArtifact ? "Regenerate map image" : "Generate map image";
+  const isRpgAerialImage = props.activeCard.kind === "rpg";
+  const mediaPrimaryLabel = isRpgAerialImage ? "Aerial image" : "Image";
+  const promptButtonLabel = isRpgAerialImage ? "Draft aerial image prompt" : "Draft image prompt";
+  const generateMapButtonLabel = props.mapArtifact
+    ? isRpgAerialImage
+      ? "Regenerate aerial image"
+      : "Regenerate image"
+    : isRpgAerialImage
+      ? "Generate aerial image"
+      : "Generate image";
   const mapPromptDraft = props.imagePromptDraft.trim();
   const negativePromptDraft = props.imageNegativePromptDraft.trim();
   const mapArtifactMatchesDraft =
@@ -2195,6 +2373,16 @@ function RuntimeSection(props: {
   const hasPendingMapPromptDraft = Boolean(
     mapPromptDraft && (!props.mapArtifact || !mapArtifactMatchesDraft),
   );
+  const openingText = getCardOpeningText(props.activeCard);
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const transcript = transcriptRef.current;
+    if (!transcript) {
+      return;
+    }
+    transcript.scrollTop = transcript.scrollHeight;
+  }, [props.messages.length, props.isGenerating, props.activeChat?.id, props.runtimeRunning]);
 
   return (
     <div className={`runtime-chat-layout ${showMediaPanel ? "" : "no-map"}`}>
@@ -2235,7 +2423,7 @@ function RuntimeSection(props: {
           </div>
         </div>
 
-        <div className="message-stream chat-transcript" role="log" aria-label="Chat transcript">
+        <div className="message-stream chat-transcript" role="log" aria-label="Chat transcript" ref={transcriptRef}>
           {!props.runtimeRunning ? (
             <section className="runtime-stopped" aria-label="Runtime stopped">
               <Power size={26} />
@@ -2247,12 +2435,22 @@ function RuntimeSection(props: {
               </button>
             </section>
           ) : null}
-          {props.messages.length === 0 && props.runtimeRunning ? (
-            <section className="empty-chat" aria-label="Empty chat">
-              <MessageSquare size={28} />
-              <h3>{props.activeCard.greeting || "Start the chat when you are ready."}</h3>
-              <p>{props.activeCard.scenario || props.activeCard.summary}</p>
-            </section>
+          {openingText && props.runtimeRunning ? (
+            <article className="message response preset-opening" aria-label="Card opening">
+              <header>
+                <span className="message-role">
+                  <Sparkles size={14} />
+                  {props.activeCard.name}
+                </span>
+              </header>
+              <MessageContent
+                message={{
+                  id: `opening-${props.activeCard.id}`,
+                  role: "assistant",
+                  content: openingText,
+                }}
+              />
+            </article>
           ) : null}
           {props.messages.map((message) => (
             <article
@@ -2291,7 +2489,7 @@ function RuntimeSection(props: {
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
-                  if (props.draft.trim() && props.runtimeRunning && !props.isGenerating) {
+                  if (props.runtimeRunning && !props.isGenerating) {
                     void props.sendMessage();
                   }
                 }
@@ -2314,7 +2512,7 @@ function RuntimeSection(props: {
             <button
               className="primary-button compact-button"
               type="submit"
-              disabled={!props.draft.trim() || !props.runtimeRunning || props.isGenerating}
+              disabled={!props.runtimeRunning || props.isGenerating}
             >
               <Send size={16} />
               {props.isGenerating ? "Sending..." : "Send"}
@@ -2324,52 +2522,87 @@ function RuntimeSection(props: {
       </section>
 
       {showMediaPanel ? (
-        <aside className="media-side-panel" aria-label="Image tools">
+        <aside className="media-side-panel" aria-label="Image and story tools">
+          <div className="media-panel-tabs" role="toolbar" aria-label="Aerial image, characters, and image panel shortcuts">
+            <button
+              className="active"
+              type="button"
+              aria-controls="media-panel-map"
+              onClick={() => scrollMediaPanelIntoView("media-panel-map")}
+              disabled={!showMapPanel}
+            >
+              <Image size={16} />
+              {mediaPrimaryLabel}
+            </button>
+            <button
+              className="active"
+              type="button"
+              aria-controls="media-panel-characters"
+              onClick={() => scrollMediaPanelIntoView("media-panel-characters")}
+            >
+              <UserRound size={16} />
+              Characters
+            </button>
+            <button
+              className="active"
+              type="button"
+              aria-controls="media-panel-image"
+              onClick={() => scrollMediaPanelIntoView("media-panel-image")}
+            >
+              <Image size={16} />
+              Image
+            </button>
+          </div>
           {showMapPanel ? (
-            <section className="media-section map-generator-section" aria-label="Map generator">
+            <section
+              className="media-section map-generator-section"
+              id="media-panel-map"
+              role="region"
+              aria-label="Aerial image generator"
+            >
               <div className="section-title">
-                <Map size={17} />
-                <h3>Map</h3>
+                <Image size={17} />
+                <h3>{mediaPrimaryLabel}</h3>
               </div>
               {hasPendingMapPromptDraft ? (
-                <div className="map-output compact-map-output map-draft-output" role="region" aria-label="Map prompt draft">
+                <div className="map-output compact-map-output map-draft-output" role="region" aria-label="Aerial image prompt draft">
                   <div className="map-placeholder compact-placeholder">
-                    <Map size={34} />
+                    <Image size={34} />
                     <span>
                       {props.mapArtifact
-                        ? "Map prompt draft ready. Select Generate map image to replace the current map."
-                        : "Map prompt draft ready. Select Generate map image to create the map."}
+                        ? "Aerial image prompt draft ready. Select Generate aerial image to replace the current image."
+                        : "Aerial image prompt draft ready. Select Generate aerial image to create the image."}
                     </span>
                   </div>
                 </div>
               ) : null}
               {props.mapArtifact ? (
-                <div className="map-output compact-map-output" role="region" aria-label="Generated map">
+                <div className="map-output compact-map-output" role="region" aria-label="Generated aerial image">
                   {props.mapArtifact.imageUrl ? (
                     <div className="generated-image-frame">
-                      <img className="generated-map-image" src={toGeneratedImageSrc(props.mapArtifact)} alt="Generated map" />
+                      <img className="generated-map-image" src={toGeneratedImageSrc(props.mapArtifact)} alt="Generated aerial scene" />
                       <button
                         className="icon-button image-maximize-button"
                         type="button"
                         onClick={() =>
                           props.openMediaPreview({
                             artifact: props.mapArtifact as GeneratedMapArtifact,
-                            label: "Generated map",
+                            label: "Generated aerial image",
                           })
                         }
-                        aria-label="Maximize map"
-                        title="Maximize map"
+                        aria-label="Maximize aerial image"
+                        title="Maximize aerial image"
                       >
                         <Maximize2 size={17} />
                       </button>
                     </div>
                   ) : (
                     <div className="map-placeholder compact-placeholder">
-                      <Map size={34} />
+                      <Image size={34} />
                       <span>
                         {props.mapArtifact.status === "error"
-                          ? "Map generation needs attention"
-                          : "Map prompt ready for image provider"}
+                          ? "Aerial image generation needs attention"
+                          : "Aerial image prompt ready for image provider"}
                       </span>
                     </div>
                   )}
@@ -2380,10 +2613,10 @@ function RuntimeSection(props: {
                   {props.mapArtifact.error ? <p className="rule-warning">{props.mapArtifact.error}</p> : null}
                 </div>
               ) : props.mapPrompt && !hasPendingMapPromptDraft ? (
-                <div className="map-output compact-map-output" role="region" aria-label="Map prompt draft">
+                <div className="map-output compact-map-output" role="region" aria-label="Aerial image prompt draft">
                   <div className="map-placeholder compact-placeholder">
-                    <Map size={34} />
-                    <span>Map prompt ready to edit</span>
+                    <Image size={34} />
+                    <span>Aerial image prompt ready to edit</span>
                   </div>
                 </div>
               ) : null}
@@ -2413,7 +2646,7 @@ function RuntimeSection(props: {
                   disabled={!props.imagePromptDraft.trim() && !props.imageNegativePromptDraft.trim() && !props.mapPrompt}
                 >
                   <RotateCcw size={16} />
-                  Reset map prompt
+                  Reset aerial prompt
                 </button>
                 <button
                   className="secondary-button danger-button compact-button"
@@ -2422,7 +2655,7 @@ function RuntimeSection(props: {
                   disabled={!props.mapArtifact}
                 >
                   <Trash2 size={16} />
-                  Delete map
+                  Delete aerial image
                 </button>
               </div>
               <label className="field">
@@ -2431,7 +2664,7 @@ function RuntimeSection(props: {
                   value={props.imagePromptDraft}
                   onChange={(event) => props.setImagePromptDraft(event.target.value)}
                   rows={5}
-                  placeholder="Generate a prompt from the latest chat, then edit it before sending."
+                  placeholder="Generate an overhead scene prompt from visible terrain, then edit it before sending."
                 />
               </label>
               <label className="field">
@@ -2440,13 +2673,25 @@ function RuntimeSection(props: {
                   value={props.imageNegativePromptDraft}
                   onChange={(event) => props.setImageNegativePromptDraft(event.target.value)}
                   rows={3}
-                  placeholder="Things to avoid in the map"
+                  placeholder="Things to avoid in the image"
                 />
               </label>
             </section>
           ) : null}
 
-          <section className="media-section photo-generator-section" aria-label="Image generator">
+          <StoryCharactersPanel
+            entities={props.activeCard.storyEntities}
+            portraits={props.characterPortraits}
+            clearStoryCharacters={props.clearStoryCharacters}
+            openMediaPreview={props.openMediaPreview}
+          />
+
+          <section
+            className="media-section photo-generator-section"
+            id="media-panel-image"
+            role="region"
+            aria-label="Image generator"
+          >
             <div className="section-title">
               <Image size={17} />
               <h3>Image</h3>
@@ -2545,6 +2790,169 @@ function RuntimeSection(props: {
   );
 }
 
+function StoryCharactersPanel(props: {
+  entities: StoryEntity[];
+  portraits: GeneratedMapArtifact[];
+  clearStoryCharacters: () => void;
+  openMediaPreview: (preview: MediaPreviewArtifact) => void;
+}) {
+  const entities = orderStoryEntitiesForDisplay(props.entities);
+  const [expandedEntityId, setExpandedEntityId] = useState<string | null>(null);
+  const hasTrackedCharacters = entities.some((entity) => !isDefaultPlayerStoryEntity(entity) || hasStoryEntityDetails(entity));
+
+  return (
+    <section
+      className="media-section story-characters-section"
+      id="media-panel-characters"
+      role="region"
+      aria-label="Story characters"
+    >
+      <div className="section-title">
+        <UserRound size={17} />
+        <h3>Characters</h3>
+        <button
+          className="secondary-button danger-button compact-button story-clear-button"
+          type="button"
+          onClick={() => {
+            setExpandedEntityId(null);
+            props.clearStoryCharacters();
+          }}
+          disabled={!hasTrackedCharacters}
+          aria-label="Clear tracked characters"
+        >
+          <Trash2 size={15} />
+          Clear roster
+        </button>
+      </div>
+      <div className="story-entity-list">
+        {entities.map((entity) => {
+          const portrait = findCharacterPortraitForEntity(props.portraits, "", entity);
+          return (
+            <article className={`story-entity-card ${entity.kind}`} key={entity.id}>
+              <div className="story-entity-main">
+                <CharacterPortrait
+                  entity={entity}
+                  portrait={portrait}
+                  openMediaPreview={props.openMediaPreview}
+                />
+                <div className="story-entity-copy">
+                  <header>
+                    <span className="story-entity-kind">{formatStoryEntityKind(entity.kind)}</span>
+                    <strong className="story-entity-name">{entity.name}</strong>
+                  </header>
+                  {hasStoryEntityDetails(entity) ? (
+                    <button
+                      className="secondary-button compact-button story-details-button"
+                      type="button"
+                      onClick={() => setExpandedEntityId((current) => (current === entity.id ? null : entity.id))}
+                      aria-expanded={expandedEntityId === entity.id}
+                      aria-label={`${expandedEntityId === entity.id ? "Hide" : "Show"} details for ${entity.name}`}
+                    >
+                      <Eye size={15} />
+                      {expandedEntityId === entity.id ? "Hide details" : "Show details"}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              {expandedEntityId === entity.id ? (
+                <div className="story-entity-details">
+                  {entity.summary ? <p>{entity.summary}</p> : null}
+                  {entity.knownFacts.length > 0 ? (
+                    <div className="story-knowledge-block">
+                      <strong>Knows</strong>
+                      <ul>
+                        {entity.knownFacts.map((fact) => (
+                          <li key={fact}>{fact}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {entity.doesNotKnow.length > 0 ? (
+                    <div className="story-knowledge-block">
+                      <strong>Does not know</strong>
+                      <ul>
+                        {entity.doesNotKnow.map((fact) => (
+                          <li key={fact}>{fact}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function CharacterPortrait(props: {
+  entity: StoryEntity;
+  portrait: GeneratedMapArtifact | null;
+  openMediaPreview: (preview: MediaPreviewArtifact) => void;
+}) {
+  const label = `Character portrait for ${props.entity.name}`;
+  const statusLabel = props.portrait
+    ? props.portrait.status === "generated"
+      ? "Portrait generated"
+      : props.portrait.status === "error"
+        ? "Portrait needs attention"
+        : "Portrait prompt ready"
+    : "Portrait pending";
+
+  return (
+    <div className="story-portrait" aria-label={label}>
+      {props.portrait?.imageUrl ? (
+        <div className="story-portrait-image-frame">
+          <img
+            className="story-portrait-image"
+            src={toGeneratedImageSrc(props.portrait)}
+            alt={`${props.entity.name} portrait`}
+          />
+          <button
+            className="icon-button image-maximize-button story-portrait-maximize"
+            type="button"
+            onClick={() =>
+              props.openMediaPreview({
+                artifact: props.portrait as GeneratedMapArtifact,
+                label: `${props.entity.name} portrait`,
+              })
+            }
+            aria-label={`Maximize portrait for ${props.entity.name}`}
+            title={`Maximize portrait for ${props.entity.name}`}
+          >
+            <Maximize2 size={15} />
+          </button>
+        </div>
+      ) : (
+        <div className="story-portrait-placeholder">
+          <UserRound size={24} />
+        </div>
+      )}
+      <span className={`story-portrait-status ${props.portrait?.status ?? "pending"}`}>
+        {statusLabel}
+      </span>
+      {props.portrait?.error ? <span className="story-portrait-error">{props.portrait.error}</span> : null}
+    </div>
+  );
+}
+
+function hasStoryEntityDetails(entity: StoryEntity): boolean {
+  if (isDefaultPlayerStoryEntity(entity)) {
+    return false;
+  }
+  return Boolean(entity.summary || entity.knownFacts.length > 0 || entity.doesNotKnow.length > 0);
+}
+
+function isDefaultPlayerStoryEntity(entity: StoryEntity): boolean {
+  return entity.kind === "player" &&
+    entity.name === "Player Character" &&
+    entity.summary === "Not described yet." &&
+    entity.knownFacts.length === 0 &&
+    entity.doesNotKnow.length === 0;
+}
+
 function MediaPreviewDialog(props: { preview: MediaPreviewArtifact; close: () => void }) {
   useEffect(() => {
     function closeOnEscape(event: KeyboardEvent) {
@@ -2621,6 +3029,24 @@ function MessageContent(props: { message: Message }) {
       ) : null}
     </div>
   );
+}
+
+function getCardOpeningText(card: RuntimeCard): string {
+  const greeting = card.greeting.trim();
+  if (greeting) {
+    return greeting;
+  }
+
+  const scenario = card.scenario.trim();
+  if (scenario) {
+    return scenario;
+  }
+
+  if (card.kind === "rpg") {
+    return "Describe your character, their surroundings, and what they are doing. Or leave the message blank and press Send for a random opening.";
+  }
+
+  return card.summary.trim() || `${card.name} is ready.`;
 }
 
 function NoActiveCardRuntimePanel(props: { openCards: () => void }) {
@@ -4054,14 +4480,19 @@ function ProvidersSection(props: {
             <span>Timeout ms</span>
             <input
               type="number"
-              min={15_000}
+              min={localImageMinimumPollTimeoutMs}
               max={600_000}
               step={5_000}
               value={props.imageProviderSettings.pollTimeoutMs}
               onChange={(event) =>
                 props.setImageProviderSettings({
                   ...props.imageProviderSettings,
-                  pollTimeoutMs: toBoundedNumber(event.target.value, 120_000, 15_000, 600_000),
+                  pollTimeoutMs: toBoundedNumber(
+                    event.target.value,
+                    defaultImageProviderSettings.pollTimeoutMs,
+                    localImageMinimumPollTimeoutMs,
+                    600_000,
+                  ),
                 })
               }
             />
@@ -4318,9 +4749,10 @@ function createChatSession(
   options: Partial<Pick<ChatSession, "id" | "branchOfId" | "branchedFromMessageId" | "messages">> = {},
 ): ChatSession {
   const now = new Date().toISOString();
+  const id = options.id ?? createRuntimeEntityId("chat");
   const messages = sanitizeMessages(options.messages ?? []);
   return {
-    id: options.id ?? createRuntimeEntityId("chat"),
+    id,
     cardId,
     title: title.trim() || deriveChatTitle(messages[0]?.content),
     branchOfId: options.branchOfId,
@@ -4336,6 +4768,14 @@ function cloneMessagesForBranch(messages: Message[], branchId: string): Message[
     ...message,
     id: `${message.id}__branch_${branchId}_${index}`,
   }));
+}
+
+function filterPersistedOpeningMessages(messages: Message[]): Message[] {
+  return messages.filter((message) => !isPersistedOpeningMessage(message));
+}
+
+function isPersistedOpeningMessage(message: Message): boolean {
+  return message.role === "assistant" && message.id.startsWith("assistant-greeting-");
 }
 
 function createRuntimeEntityId(prefix: string): string {
@@ -4405,7 +4845,7 @@ async function planImagePromptWithTextModel(input: {
     input.providerSettings,
     input.sessionApiKey,
     input.card,
-    "Map prompt planning",
+    "Aerial image prompt planning",
     input.activeLoreCount,
   );
   const response = await provider.generateText({
@@ -4420,9 +4860,10 @@ async function planImagePromptWithTextModel(input: {
     },
   });
   const planned = parsePlannedImagePrompt(response.text);
+  const plannedPrompt = planned.prompt || fallback.prompt;
 
   return {
-    prompt: planned.prompt || fallback.prompt,
+    prompt: input.card.kind === "rpg" ? normalizeRpgAerialImagePrompt(plannedPrompt) : plannedPrompt,
     negativePrompt: planned.negativePrompt || fallback.negativePrompt,
     includedLayers: [...fallback.includedLayers, "textModelPlanner"],
     providerFormatting: fallback.providerFormatting,
@@ -4449,9 +4890,9 @@ function buildMapPromptPlannerPrompt(
   return [
     "You are a map/image prompt planner, not the story narrator and not an in-character speaker.",
     "Read the recent chat and create a concise prompt for the image generator. Do not continue the roleplay. Do not quote the transcript wholesale.",
-    "Focus only on visual requirements: layout, landmarks, spatial relationships, labels, mood, lighting, camera, and continuity details needed to generate the map/image.",
+    "Focus only on visual requirements: large environment features, spatial relationships, mood, lighting, camera, and continuity details visible from the requested aerial height.",
     card.kind === "rpg"
-      ? "For RPG maps, always describe a very high-altitude birdseye view and include an approximate height such as 500 feet, 1000 feet, or 2000 feet above ground. Do not include people, characters, player figures, silhouettes, tokens, portraits, or a single figure in the map. Put those exclusions in negativePrompt. Do not put natural terrain or useful map features in negativePrompt; trees, forests, rivers, roads, paths, hills, rocks, grass, buildings, ruins, landmarks, water, and labels are allowed when the scene calls for them."
+      ? "For RPG aerial images, do not make a map, cartographic layout, diagram, tabletop reference, or labeled game board. Describe an overhead environment image from about 200 feet above ground. Include only large features that would be visible from 200 feet up, such as clearings, tree clusters, rivers, ponds, shorelines, roads, trails, bridges, ruins, buildings, fires, smoke, fields, hills, or coastlines. Do not include recent actions, inventory, fish, sticks, small tools, facial details, text labels, people, characters, player figures, silhouettes, tokens, portraits, or a single figure unless they are visibly large from that height. Put those exclusions in negativePrompt."
       : "",
     "Return only compact JSON with keys `prompt` and `negativePrompt`. No markdown, no commentary.",
     runtimeSettings.banEmojis ? "Do not use emojis." : "",
@@ -4467,7 +4908,7 @@ function buildMapPromptPlannerPrompt(
     "",
     "JSON response shape:",
     card.kind === "rpg"
-      ? `{"prompt":"very high-altitude birdseye map from about 1000 feet above ground, top-down cartographic layout here","negativePrompt":"people, characters, player figure, single figure, silhouettes, portraits, first-person view"}`
+      ? `{"prompt":"overhead aerial environment image from about 200 feet above ground, visible terrain and large landmarks only","negativePrompt":"map, cartographic layout, labels, text, people, characters, player figure, small handheld objects, fish, sticks, first-person view"}`
       : `{"prompt":"image prompt here","negativePrompt":"things to avoid here"}`,
   ]
     .filter((line) => line !== "")
@@ -4499,6 +4940,16 @@ function parsePlannedImagePrompt(text: string): Pick<CompiledImagePrompt, "promp
   };
 }
 
+function normalizeRpgAerialImagePrompt(prompt: string): string {
+  return prompt
+    .replace(/\bvery high-altitude\b/gi, "overhead")
+    .replace(/\b(?:500|1000|2000)\s+feet\b/gi, "200 feet")
+    .replace(/\b(?:map|cartographic layout|cartographic|tabletop reference|tabletop map|game board|diagram)\b/gi, "aerial environment image")
+    .replace(/\breadable labels?\b/gi, "visible large landmarks")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function sanitizeMapNegativePrompt(value: string): string {
   const allowedMapFeaturePattern =
     /\b(?:trees?|forests?|woods?|rivers?|streams?|creeks?|roads?|paths?|trails?|hills?|mountains?|rocks?|boulders?|grass|plains?|fields?|buildings?|ruins?|landmarks?|water|lakes?|ponds?|labels?|terrain|vegetation|foliage)\b/i;
@@ -4526,28 +4977,34 @@ function formatRecentChatForMapPlanner(card: RuntimeCard, messages: Message[]): 
 
 function buildImagePromptRequest(card: RuntimeCard, messages: Message[]): Parameters<typeof compileImagePrompt>[0] {
   const recentStory = summarizeRecentMessagesForMap(card, messages);
+  const recentMapVisuals = summarizeRecentVisualsForMap(messages);
 
   if (card.kind === "rpg" && card.rpg) {
     return {
-      scene: `Birdseye view map for ${card.name}`,
+      scene: `Overhead aerial RPG environment image for ${card.name}`,
       locationVisuals: [
-        "very high-altitude view from about 1000 feet above ground",
-        `current location: ${card.rpg.location || "unmapped area"}`,
-        `known places: ${card.rpg.knownPlaces.join(", ") || "none established"}`,
-        recentStory ? `story so far: ${recentStory}` : "",
+        "view from about 200 feet above ground",
+        `current location context: ${card.rpg.location || "unmapped area"}`,
+        card.rpg.knownPlaces.length > 0
+          ? `established large landmarks only if visible from 200 feet: ${card.rpg.knownPlaces.join(", ")}`
+          : "do not invent towns, roads, buildings, or cities unless established and visible",
+        recentMapVisuals ? `recent aerial-visible features only: ${recentMapVisuals}` : "",
       ]
         .filter(Boolean)
         .join("; "),
-      currentAction: recentStory ? `latest exchange perspective: ${recentStory}` : undefined,
-      mood: "clear tabletop reference, useful for navigation and play",
-      camera: "strict top-down birdseye view from very high up, about 1000 feet above ground",
-      stylePreset: card.rpg.mapStyle,
-      continuityLocks: [
-        `health/status: ${card.rpg.health || "not configured"}`,
-        `inventory: ${card.rpg.inventory.join(", ") || "none"}`,
-        ...Object.entries(card.rpg.flags).map(([flag, value]) => `${flag}=${value}`),
-      ],
+      mood: "natural overhead scene image, readable terrain and large landmarks, no story transcript text",
+      camera: "strict top-down overhead view from about 200 feet above ground",
+      stylePreset: "cinematic aerial terrain image, natural terrain detail, large visible landmarks",
+      continuityLocks: Object.entries(card.rpg.flags)
+        .filter(([flag]) => isAerialVisibleFeatureText(flag))
+        .map(([flag, value]) => `${flag}=${value}`),
       negativePrompt: [
+        "map",
+        "cartographic layout",
+        "diagram",
+        "tabletop game board",
+        "labels",
+        "text",
         "people",
         "characters",
         "player figure",
@@ -4555,11 +5012,14 @@ function buildImagePromptRequest(card: RuntimeCard, messages: Message[]): Parame
         "silhouettes",
         "portraits",
         "tokens",
+        "fish",
+        "sticks",
+        "small handheld objects",
+        "inventory items",
+        "recent action scene",
         "first-person view",
         "low-angle view",
-        "unreadable labels",
         "random extra buildings",
-        "cropped map",
         "blurry",
       ],
       providerFormatting: "generic",
@@ -4583,6 +5043,91 @@ function buildImagePromptRequest(card: RuntimeCard, messages: Message[]): Parame
     negativePrompt: ["off-model character", "random extra characters", "unrelated setting", "blurry", "watermark"],
     providerFormatting: "generic",
   };
+}
+
+function summarizeRecentVisualsForMap(messages: Message[]): string {
+  const features = messages
+    .filter((message) => message.role !== "system")
+    .slice(-8)
+    .flatMap((message) => {
+      const content =
+        message.role === "assistant"
+          ? parseAssistantMessageDisplay(message.content).paragraphs.join(" ")
+          : message.content;
+      return cleanMapVisualText(content)
+        .split(/(?:[.!?]\s+|\s+\|\s+|;\s+)/)
+        .map((clause) => clause.trim())
+        .filter(Boolean);
+    })
+    .map(cleanMapVisualText)
+    .filter((clause) => clause.length > 0 && !isNegatedAerialFeatureClause(clause))
+    .flatMap(extractAerialVisibleFeatures);
+
+  return dedupeTextClauses(features)
+    .slice(-8)
+    .join("; ")
+    .slice(0, 260)
+    .trim();
+}
+
+function extractAerialVisibleFeatures(value: string): string[] {
+  const features: string[] = [];
+  const add = (label: string, pattern: RegExp) => {
+    if (pattern.test(value)) {
+      features.push(label);
+    }
+  };
+
+  add("clearing", /\bclearings?\b/i);
+  add("tree cover", /\b(?:trees?|forest|woods?|grove|canopy)\b/i);
+  add("river or stream", /\b(?:river|stream|creek)\b/i);
+  add("pond or lake", /\b(?:pond|lake|water)\b/i);
+  add("shoreline", /\b(?:shore|bank|coast|beach)\b/i);
+  add("road or trail", /\b(?:roads?|paths?|trails?|track)\b/i);
+  add("field or plain", /\b(?:plains?|fields?|grassland|meadow)\b/i);
+  add("hills or mountains", /\b(?:hills?|mountains?|ridge)\b/i);
+  add("large stones or ruins", /\b(?:standing stones?|boulders?|rocks?|ruins?)\b/i);
+  add("large structure", /\b(?:buildings?|village|city|bridge|tower|gate|wall)\b/i);
+  add("campfire or smoke", /\b(?:campfire|bonfire|firelight|smoke|large fire)\b/i);
+  add("snow or sand terrain", /\b(?:snow|sand|desert|mud)\b/i);
+
+  return features;
+}
+
+function isAerialVisibleFeatureText(value: string): boolean {
+  return extractAerialVisibleFeatures(cleanMapVisualText(value)).length > 0;
+}
+
+function isNegatedAerialFeatureClause(value: string): boolean {
+  return /\b(?:no|not|none|without|isn['’]?t|aren['’]?t|cannot|can't|no nearby|no visible|out of sight)\b/i.test(value);
+}
+
+function cleanMapVisualText(value: string): string {
+  return value
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/\b(?:SUCCESS|FAILURE|PARTIAL SUCCESS|MIXED SUCCESS)\b[:\s-]*/gi, "")
+    .replace(/\b(?:Player|Assistant|Narrator|Blank Slate RPG)\s*:\s*/gi, "")
+    .replace(/\b(?:you|i)\s+decide\s+to\s+/gi, "")
+    .replace(/\b(?:you|i)\s+try\s+to\s+/gi, "")
+    .replace(/\b(?:you|i)\s+/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function dedupeTextClauses(clauses: string[]): string[] {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const clause of clauses) {
+    const normalized = clause.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    output.push(clause);
+  }
+  return output;
 }
 
 function summarizeRecentMessagesForMap(card: RuntimeCard, messages: Message[]): string {
@@ -4625,6 +5170,7 @@ function normalizeRuntimeCards(cards: RuntimeCard[]): RuntimeCard[] {
           : createDefaultCharacterPlayerRules(),
     lorebooks: normalizeCardLorebooks(card),
     memory: card.memory ?? [],
+    storyEntities: normalizeStoryEntities((card as Partial<RuntimeCard>).storyEntities, card),
     rpg:
       card.kind === "rpg"
         ? card.rpg ?? {
@@ -4638,6 +5184,202 @@ function normalizeRuntimeCards(cards: RuntimeCard[]): RuntimeCard[] {
           }
         : undefined,
   }));
+}
+
+function createInitialStoryEntities(
+  cardId: string,
+  options: { cardKind?: CardKind; cardCharacterName?: string } = {},
+): StoryEntity[] {
+  const entities = [createDefaultPlayerStoryEntity(cardId)];
+  const cardCharacterName = options.cardCharacterName?.trim();
+  if (options.cardKind === "character" && cardCharacterName) {
+    entities.push({
+      id: `story_entity_${slugRuntimeId(cardId)}_card_character`,
+      name: cardCharacterName,
+      kind: "character",
+      summary: "Primary character defined by this card.",
+      knownFacts: [],
+      doesNotKnow: [],
+      notes: [],
+    });
+  }
+  return entities;
+}
+
+function normalizeStoryEntities(value: unknown, card: RuntimeCard): StoryEntity[] {
+  const parsed = Array.isArray(value)
+    ? value
+        .filter(isRecord)
+        .map((entity): StoryEntity | null => {
+          const name = getCleanString(entity.name, 90);
+          const kind = parseStoryEntityKind(entity.kind);
+          if (!name || !kind) {
+            return null;
+          }
+          return {
+            id: getCleanString(entity.id, 140) || `story_entity_${slugRuntimeId(card.id)}_${kind}_${slugRuntimeId(name)}`,
+            name,
+            kind,
+            summary: getCleanString(entity.summary ?? entity.description, 500),
+            knownFacts: parseStringList(entity.knownFacts ?? entity.known_facts),
+            doesNotKnow: parseStringList(entity.doesNotKnow ?? entity.does_not_know),
+            notes: parseStringList(entity.notes),
+            updatedAt: getCleanString(entity.updatedAt, 80) || undefined,
+          };
+        })
+        .filter((entity): entity is StoryEntity => Boolean(entity))
+        .filter((entity) => !isStaleDemoStoryEntity(entity))
+    : [];
+
+  const hasPlayer = parsed.some((entity) => entity.kind === "player");
+  const withPlayer = hasPlayer ? parsed : [createDefaultPlayerStoryEntity(card.id), ...parsed];
+
+  if (card.kind === "character" && card.characterName.trim()) {
+    const characterName = card.characterName.trim();
+    const hasCardCharacter = withPlayer.some((entity) => normalizeRuntimeText(entity.name) === normalizeRuntimeText(characterName));
+    if (!hasCardCharacter) {
+      withPlayer.push({
+        id: `story_entity_${slugRuntimeId(card.id)}_card_character`,
+        name: characterName,
+        kind: "character",
+        summary: "Primary character defined by this card.",
+        knownFacts: [],
+        doesNotKnow: [],
+        notes: [],
+      });
+    }
+  }
+
+  return orderStoryEntitiesForDisplay(withPlayer);
+}
+
+function isStaleDemoStoryEntity(entity: StoryEntity): boolean {
+  const name = normalizeRuntimeText(entity.name);
+  if (name !== "mara" && name !== "elara") {
+    return false;
+  }
+
+  const haystack = normalizeRuntimeText([
+    entity.name,
+    entity.summary,
+    ...entity.knownFacts,
+    ...entity.doesNotKnow,
+    ...entity.notes,
+  ].join(" "));
+
+  return (
+    haystack.includes("careful cartographer") ||
+    haystack.includes("rainy alley") ||
+    haystack.includes("silver coin") ||
+    haystack.includes("hidden in my boot")
+  );
+}
+
+function createDefaultPlayerStoryEntity(cardId: string): StoryEntity {
+  return {
+    id: `story_entity_${slugRuntimeId(cardId)}_player`,
+    name: "Player Character",
+    kind: "player",
+    summary: "Not described yet.",
+    knownFacts: [],
+    doesNotKnow: [],
+    notes: [],
+  };
+}
+
+function orderStoryEntitiesForDisplay(entities: readonly StoryEntity[]): StoryEntity[] {
+  const rank: Record<StoryEntityKind, number> = {
+    player: 0,
+    character: 1,
+    faction: 2,
+    group: 3,
+  };
+
+  return [...entities].sort((left, right) => {
+    const rankDelta = rank[left.kind] - rank[right.kind];
+    if (rankDelta !== 0) {
+      return rankDelta;
+    }
+    return left.name.localeCompare(right.name);
+  });
+}
+
+function formatStoryEntityKind(kind: StoryEntityKind): string {
+  if (kind === "player") {
+    return "Player character";
+  }
+  if (kind === "faction") {
+    return "Faction";
+  }
+  if (kind === "group") {
+    return "Group";
+  }
+  return "Character";
+}
+
+function parseStoryEntityKind(value: unknown): StoryEntityKind | null {
+  if (value === "player" || value === "character" || value === "faction" || value === "group") {
+    return value;
+  }
+  return null;
+}
+
+function toHiddenContinuityCard(card: RuntimeCard): HiddenContinuityCard {
+  return {
+    id: card.id,
+    name: card.name,
+    kind: card.kind,
+    summary: card.summary,
+    memory: card.memory,
+    storyEntities: card.storyEntities,
+    rpgState: card.rpg
+      ? {
+          location: card.rpg.location,
+          health: card.rpg.health,
+          inventory: card.rpg.inventory,
+          quests: card.rpg.quests,
+          knownPlaces: card.rpg.knownPlaces,
+        }
+      : null,
+  };
+}
+
+function describeHiddenContinuityChanges(result: HiddenContinuityResult): string[] {
+  return [
+    result.memoryUpdates.length > 0 ? `Hidden continuity saved ${result.memoryUpdates.length} memory update(s).` : "",
+    result.entityUpdates.length > 0 ? `Hidden continuity updated ${result.entityUpdates.length} story entity record(s).` : "",
+    result.knowledgeUpdates.length > 0 ? `Hidden continuity updated ${result.knowledgeUpdates.length} knowledge boundary record(s).` : "",
+  ].filter(Boolean);
+}
+
+function getCleanString(value: unknown, maxLength: number): string {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, maxLength).trim() : "";
+}
+
+function parseStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const item of value) {
+    const cleaned = getCleanString(item, 500);
+    const key = normalizeRuntimeText(cleaned);
+    if (!cleaned || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    output.push(cleaned);
+  }
+  return output;
+}
+
+function normalizeRuntimeText(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function slugRuntimeId(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 72) || "id";
 }
 
 function normalizeCardLorebooks(card: RuntimeCard): Lorebook[] {
@@ -4767,8 +5509,8 @@ function parseImageProviderSettings(value?: Record<string, unknown>): ImageProvi
     scheduler: typeof value?.scheduler === "string" ? value.scheduler : defaultImageProviderSettings.scheduler,
     pollTimeoutMs: toBoundedNumber(
       typeof value?.pollTimeoutMs === "number" ? value.pollTimeoutMs : "",
-      120_000,
-      15_000,
+      defaultImageProviderSettings.pollTimeoutMs,
+      localImageMinimumPollTimeoutMs,
       600_000,
     ),
   });
@@ -4803,6 +5545,10 @@ function normalizeImageProviderQualitySettings(settings: ImageProviderSettings):
     hadPreviewQualitySettings && settings.scheduler.trim().toLowerCase() === "normal"
       ? localImageRecommendedScheduler
       : settings.scheduler;
+  const pollTimeoutMs =
+    settings.pollTimeoutMs < localImageMinimumPollTimeoutMs
+      ? defaultImageProviderSettings.pollTimeoutMs
+      : settings.pollTimeoutMs;
 
   if (
     width === settings.width &&
@@ -4810,7 +5556,8 @@ function normalizeImageProviderQualitySettings(settings: ImageProviderSettings):
     steps === settings.steps &&
     cfg === settings.cfg &&
     samplerName === settings.samplerName &&
-    scheduler === settings.scheduler
+    scheduler === settings.scheduler &&
+    pollTimeoutMs === settings.pollTimeoutMs
   ) {
     return settings;
   }
@@ -4823,6 +5570,7 @@ function normalizeImageProviderQualitySettings(settings: ImageProviderSettings):
     cfg,
     samplerName,
     scheduler,
+    pollTimeoutMs,
   };
 }
 
@@ -4877,7 +5625,7 @@ function parseGeneratedMaps(value: unknown): GeneratedMapArtifact[] {
     .filter(isRecord)
     .map((artifact) => ({
       ...artifact,
-      imageKind: artifact.imageKind === "photo" ? "photo" : "map",
+      imageKind: normalizeGeneratedImageKind(artifact.imageKind),
       chatId:
         typeof artifact.chatId === "string"
           ? artifact.chatId
@@ -4890,6 +5638,13 @@ function parseGeneratedMaps(value: unknown): GeneratedMapArtifact[] {
   return dedupeGeneratedMaps(parsed);
 }
 
+function normalizeGeneratedImageKind(value: unknown): GeneratedImageKind {
+  if (value === "photo" || value === "character") {
+    return value;
+  }
+  return "map";
+}
+
 function isGeneratedMapArtifact(value: unknown): value is GeneratedMapArtifact {
   if (!isRecord(value)) {
     return false;
@@ -4897,7 +5652,7 @@ function isGeneratedMapArtifact(value: unknown): value is GeneratedMapArtifact {
 
   return (
     typeof value.id === "string" &&
-    (value.imageKind === "map" || value.imageKind === "photo") &&
+    (value.imageKind === "map" || value.imageKind === "photo" || value.imageKind === "character") &&
     typeof value.cardId === "string" &&
     typeof value.chatId === "string" &&
     typeof value.prompt === "string" &&
@@ -4908,12 +5663,18 @@ function isGeneratedMapArtifact(value: unknown): value is GeneratedMapArtifact {
     typeof value.createdAt === "string" &&
     (value.imageUrl === undefined || typeof value.imageUrl === "string") &&
     (value.error === undefined || typeof value.error === "string") &&
-    (value.userInput === undefined || typeof value.userInput === "string")
+    (value.userInput === undefined || typeof value.userInput === "string") &&
+    (value.subjectId === undefined || typeof value.subjectId === "string") &&
+    (value.subjectName === undefined || typeof value.subjectName === "string")
   );
 }
 
 function upsertGeneratedMap(current: GeneratedMapArtifact[], artifact: GeneratedMapArtifact): GeneratedMapArtifact[] {
-  return dedupeGeneratedMaps([...current, artifact]).slice(-20);
+  return dedupeGeneratedMaps([...current, artifact]).slice(-maxGeneratedMediaArtifacts);
+}
+
+function upsertGeneratedMaps(current: GeneratedMapArtifact[], artifacts: GeneratedMapArtifact[]): GeneratedMapArtifact[] {
+  return dedupeGeneratedMaps([...current, ...artifacts]).slice(-maxGeneratedMediaArtifacts);
 }
 
 function findGeneratedMapForChat(
@@ -4941,7 +5702,10 @@ function findGeneratedMapForChat(
 function dedupeGeneratedMaps(artifacts: GeneratedMapArtifact[]): GeneratedMapArtifact[] {
   const latestByKey = new globalThis.Map<string, GeneratedMapArtifact>();
   for (const artifact of artifacts) {
-    const key = `${artifact.cardId}\u0000${artifact.chatId}\u0000${artifact.imageKind}`;
+    const subjectKey = artifact.imageKind === "character"
+      ? artifact.subjectId || artifact.subjectName || artifact.id
+      : "";
+    const key = `${artifact.cardId}\u0000${artifact.chatId}\u0000${artifact.imageKind}\u0000${subjectKey}`;
     const current = latestByKey.get(key);
     if (!current || compareGeneratedArtifactRecency(artifact, current) > 0) {
       latestByKey.set(key, artifact);
@@ -4963,7 +5727,21 @@ function compareGeneratedArtifactRecency(a: GeneratedMapArtifact, b: GeneratedMa
   if (createdDelta !== 0 && Number.isFinite(createdDelta)) {
     return createdDelta;
   }
+  const statusDelta = generatedArtifactStatusRank(a.status) - generatedArtifactStatusRank(b.status);
+  if (statusDelta !== 0) {
+    return statusDelta;
+  }
   return a.id.localeCompare(b.id);
+}
+
+function generatedArtifactStatusRank(status: GeneratedMapArtifact["status"]): number {
+  if (status === "generated") {
+    return 2;
+  }
+  if (status === "error") {
+    return 1;
+  }
+  return 0;
 }
 
 function toGeneratedImageSrc(artifact: GeneratedMapArtifact): string {
@@ -4973,6 +5751,73 @@ function toGeneratedImageSrc(artifact: GeneratedMapArtifact): string {
 
   const separator = artifact.imageUrl.includes("?") ? "&" : "?";
   return `${artifact.imageUrl}${separator}lc_run=${encodeURIComponent(artifact.id)}`;
+}
+
+function findCharacterPortraitsForCard(artifacts: GeneratedMapArtifact[], cardId: string): GeneratedMapArtifact[] {
+  return artifacts.filter((artifact) => artifact.cardId === cardId && artifact.imageKind === "character");
+}
+
+function findCharacterPortraitForEntity(
+  artifacts: GeneratedMapArtifact[],
+  cardId: string,
+  entity: StoryEntity,
+): GeneratedMapArtifact | null {
+  return getNewestGeneratedMap(
+    artifacts.filter((artifact) =>
+      artifact.imageKind === "character" &&
+      (!cardId || artifact.cardId === cardId) &&
+      (artifact.subjectId === entity.id ||
+        (!!artifact.subjectName && normalizeRuntimeText(artifact.subjectName) === normalizeRuntimeText(entity.name))),
+    ),
+  );
+}
+
+function hasGeneratedCharacterPortraitForEntity(
+  artifacts: GeneratedMapArtifact[],
+  cardId: string,
+  entity: StoryEntity,
+): boolean {
+  const portrait = findCharacterPortraitForEntity(artifacts, cardId, entity);
+  return Boolean(portrait?.status === "generated" && portrait.imageUrl);
+}
+
+function shouldAutoGenerateCharacterPortrait(entity: StoryEntity): boolean {
+  return (entity.kind === "player" || entity.kind === "character") && !isDefaultPlayerStoryEntity(entity);
+}
+
+function buildCharacterPortraitPrompt(card: RuntimeCard, entity: StoryEntity): string {
+  const context = [
+    `Subject: ${entity.name}`,
+    `Role: ${formatStoryEntityKind(entity.kind)}`,
+    entity.summary ? `Established description: ${entity.summary}` : "",
+    card.rpg?.location ? `Current scene location: ${card.rpg.location}` : "",
+    card.summary ? `Story context: ${card.summary}` : "",
+    "Use only stable visual details from the story. Keep the portrait reusable across future scenes.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return `${characterPortraitPresetPrompt}\n\n${context}`;
+}
+
+function isComfyUiImageProviderReady(
+  settings: ImageProviderSettings,
+  status: string,
+  installedModels: string[],
+): boolean {
+  return (
+    settings.mode === "comfyui" &&
+    installedModels.length > 0 &&
+    installedModels.includes(settings.model) &&
+    /\bready\b/i.test(status)
+  );
+}
+
+function scrollMediaPanelIntoView(id: string) {
+  const element = document.getElementById(id);
+  if (element && typeof element.scrollIntoView === "function") {
+    element.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
 }
 
 function buildCustomImagePrompt(userInput: string): string {
@@ -5039,6 +5884,7 @@ function createTextProvider(
   if (settings.mode === "mock") {
     return new MockTextProvider({
       responses: [
+        JSON.stringify(buildMockHiddenContinuityResponse(card, draft)),
         JSON.stringify({
           assistant_message: buildLocalProviderResponse(card, draft, activeLoreCount),
           extraction: buildMockExtractionProposal(card, draft),
@@ -5180,10 +6026,7 @@ function splitTrailingStatusBlock(content: string): { body: string; statusBlock:
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     const line = lines[index].trim();
     if (!line) {
-      if (statusLines.length > 0) {
-        break;
-      }
-      continue;
+      break;
     }
     if (!isStatusLine(line)) {
       break;
@@ -5326,8 +6169,10 @@ function buildTurnPromptRequest(
           flags: card.rpg.flags,
         }
       : null,
-    knowledgeBoundaries:
-      "Characters should only know what the card, active lore, memory, or current scene gives them reason to know.",
+    knowledgeBoundaries: [
+      "Characters should only know what the card, active lore, memory, current scene, or explicit story entity ledger gives them reason to know. The narrator may know the broader scene state.",
+      formatStoryEntitiesForKnowledgeBoundary(card.storyEntities),
+    ].filter(Boolean).join("\n\n"),
     tokenBudget: { maxInputTokens: 6_000, reservedOutputTokens: 900 },
     responseContract: buildResponseContract(runtimeSettings),
     preferStreaming: runtimeSettings.textStreaming,
@@ -5337,6 +6182,19 @@ function buildTurnPromptRequest(
 
 function buildLocalProviderResponse(card: RuntimeCard, draft: string, activeLoreCount: number): string {
   const cleanedDraft = draft.trim() || "The player hesitates.";
+  if (cleanedDraft === randomOpeningAction) {
+    if (card.kind === "rpg") {
+      return [
+        "You come to yourself at the edge of an unnamed place, with just enough detail to start choosing what matters.",
+        "Decide who you are, what is immediately around you, and what you do first.",
+        activeLoreCount > 0
+          ? `${activeLoreCount} lore entry applies, so the opening keeps that continuity in view.`
+          : "No lore entry fires yet, so this opening stays flexible until you define the world.",
+      ].join(" ");
+    }
+
+    return `${card.name} is ready. Describe who is here, where they are, and what happens first.`;
+  }
   if (card.kind === "rpg") {
     return [
       `The action is checked against ${card.name}'s active RPG rules before the scene moves.`,
@@ -5351,10 +6209,89 @@ function buildLocalProviderResponse(card: RuntimeCard, draft: string, activeLore
   return `${card.name} answers within this character card's scope: ${cleanedDraft}`;
 }
 
+function buildMockHiddenContinuityResponse(card: RuntimeCard, draft: string): unknown {
+  const cleanedDraft = draft.trim();
+  const playerNameMatch = cleanedDraft.match(/\bI\s+am\s+([A-Z][A-Za-z'-]{1,40})\b/);
+  const playerName = playerNameMatch ? playerNameMatch[1] : "";
+  const playerDescriptionMatch = playerName
+    ? cleanedDraft.match(new RegExp(`\\bI\\s+am\\s+${escapeRegExp(playerName)}\\s*,\\s*([^.!?]+)`, "i"))
+    : null;
+  const playerDescription = playerDescriptionMatch ? cleanExtractedPhrase(playerDescriptionMatch[1]) : "";
+  const nearbyCharacterMatch = cleanedDraft.match(/\b(?:beside|with|near|meet|meets|see|saw|talk(?:ing)? to|speak(?:ing)? to)\s+([A-Z][A-Za-z'-]{1,40})\b/);
+  const nearbyCharacter = nearbyCharacterMatch ? nearbyCharacterMatch[1] : "";
+  const doesNotKnowMatch = cleanedDraft.match(/\b([A-Z][A-Za-z'-]{1,40})\s+does\s+not\s+know\s+(?:about\s+)?(?:the\s+)?([^.!?]+)/i);
+  const unknownSubject = doesNotKnowMatch ? doesNotKnowMatch[1] : "";
+  const unknownFact = doesNotKnowMatch ? cleanExtractedPhrase(doesNotKnowMatch[2]) : "";
+  const locationMatch = cleanedDraft.match(/\b(?:in|at|inside|within)\s+(?:a|an|the)?\s*([a-z][a-z0-9 '-]{2,50})\b/i);
+  const location = locationMatch ? cleanExtractedPhrase(locationMatch[1]) : "";
+  const entityUpdates: Array<Record<string, unknown>> = [];
+  const memoryUpdates: Array<Record<string, unknown>> = [];
+  const knowledgeUpdates: Array<Record<string, unknown>> = [];
+
+  if (playerName) {
+    const summary = playerDescription
+      ? `${playerName} is ${playerDescription}.`
+      : `${playerName} is the player character.`;
+    entityUpdates.push({
+      name: playerName,
+      kind: "player",
+      summary,
+      known_facts: [`${playerName} knows their own identity.`],
+      does_not_know: [],
+      notes: [],
+    });
+    memoryUpdates.push({
+      label: "Player character",
+      detail: summary,
+    });
+  }
+
+  if (nearbyCharacter && nearbyCharacter !== playerName) {
+    const knownFacts = [
+      playerName ? `${nearbyCharacter} knows ${playerName} is present.` : `${nearbyCharacter} knows the player character is present.`,
+      location ? `${nearbyCharacter} knows the current scene is ${location}.` : "",
+    ].filter(Boolean);
+    const doesNotKnow = unknownSubject === nearbyCharacter && unknownFact ? [unknownFact] : [];
+    entityUpdates.push({
+      name: nearbyCharacter,
+      kind: "character",
+      summary: location ? `A story character present in ${location}.` : "A story character present in the current scene.",
+      known_facts: knownFacts,
+      does_not_know: doesNotKnow,
+      notes: [],
+    });
+  }
+
+  if (unknownSubject && unknownFact) {
+    knowledgeUpdates.push({
+      subject: unknownSubject,
+      knows: [],
+      does_not_know: [unknownFact],
+    });
+  }
+
+  const briefParts = [
+    playerName ? `${playerName} is the player character.` : "",
+    nearbyCharacter ? `${nearbyCharacter} is a tracked story character.` : "",
+    unknownSubject && unknownFact ? `${unknownSubject} explicitly does not know ${unknownFact}.` : "",
+  ].filter(Boolean);
+
+  return {
+    continuity_brief: briefParts.join(" ") || "No durable continuity update was identified.",
+    memory_updates: memoryUpdates,
+    entity_updates: entityUpdates,
+    knowledge_updates: knowledgeUpdates,
+    warnings: [],
+  };
+}
+
 function buildMockExtractionProposal(card: RuntimeCard, draft: string): unknown {
   const lower = draft.toLowerCase();
   const locationMatch = lower.match(/\b(?:go|move|travel|walk|head|enter)\s+(?:to|into|toward|through)\s+(?:the\s+)?([a-z0-9][a-z0-9 '-]{1,42})/i);
   const itemMatch = lower.match(/\b(?:take|pick up|collect|grab|loot)\s+(?:the\s+)?([a-z0-9][a-z0-9 '-]{1,36})/i);
+  const learnsMatch = draft.match(
+    /\b([A-Z][A-Za-z'-]{1,40})\s+(?:now\s+)?(?:learns|learned|discovers|discovered|realizes|realized)\s+(?:that\s+)?([^.!?]+)/,
+  );
   const location = locationMatch ? cleanExtractedPhrase(locationMatch[1]) : null;
   const item = itemMatch ? cleanExtractedPhrase(itemMatch[1]) : null;
   const worldFlags: Record<string, boolean | number | string> = {};
@@ -5367,7 +6304,14 @@ function buildMockExtractionProposal(card: RuntimeCard, draft: string): unknown 
     new_characters: [],
     updated_characters: [],
     new_events: [],
-    character_knowledge_updates: [],
+    character_knowledge_updates: learnsMatch
+      ? [
+          {
+            subject: learnsMatch[1],
+            knows: [cleanExtractedPhrase(learnsMatch[2])],
+          },
+        ]
+      : [],
     relationship_updates: [],
     memory_updates: [],
     rpg_state_updates: {
@@ -5391,6 +6335,10 @@ function cleanExtractedPhrase(value: string): string {
   return value
     .split(/\s+(?:and|then|before|after)\s+|[.,;]/)[0]
     .trim();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function isTauriRuntime(): boolean {
@@ -5666,3 +6614,114 @@ function toBoundedFloat(value: string | number, fallback: number, min: number, m
   }
   return Math.min(max, Math.max(min, parsed));
 }
+
+export const __appTestables = {
+  parseChatSessions,
+  getStartupActiveCardId,
+  parseActiveChatIds,
+  sanitizeMessages,
+  createChatSession,
+  cloneMessagesForBranch,
+  filterPersistedOpeningMessages,
+  createRuntimeEntityId,
+  getCardChats,
+  getActiveChatForCard,
+  upsertChatSession,
+  deriveChatTitle,
+  buildWriteForMeDraft,
+  buildMapPromptPlannerPrompt,
+  parsePlannedImagePrompt,
+  normalizeRpgAerialImagePrompt,
+  sanitizeMapNegativePrompt,
+  formatRecentChatForMapPlanner,
+  buildImagePromptRequest,
+  summarizeRecentVisualsForMap,
+  summarizeRecentMessagesForMap,
+  compactForPromptPlanning,
+  normalizeRuntimeCards,
+  createInitialStoryEntities,
+  normalizeStoryEntities,
+  isStaleDemoStoryEntity,
+  orderStoryEntitiesForDisplay,
+  formatStoryEntityKind,
+  parseStoryEntityKind,
+  toHiddenContinuityCard,
+  describeHiddenContinuityChanges,
+  getCleanString,
+  parseStringList,
+  normalizeRuntimeText,
+  slugRuntimeId,
+  normalizeCardLorebooks,
+  parseProviderSettings,
+  getDefaultTextModel,
+  getTextModelChoices,
+  getImageModelChoices,
+  dedupeModelChoices,
+  withCurrentModelChoice,
+  parseImageProviderSettings,
+  isLegacyRemovedImageModel,
+  isLegacyDefaultSdxlWorkflow,
+  normalizeImageProviderQualitySettings,
+  toLocalImageQualityDimension,
+  parseRuntimeSettings,
+  applyPromptDebugRetention,
+  parseGeneratedMaps,
+  normalizeGeneratedImageKind,
+  isGeneratedMapArtifact,
+  upsertGeneratedMap,
+  upsertGeneratedMaps,
+  findGeneratedMapForChat,
+  dedupeGeneratedMaps,
+  getNewestGeneratedMap,
+  compareGeneratedArtifactRecency,
+  toGeneratedImageSrc,
+  findCharacterPortraitsForCard,
+  findCharacterPortraitForEntity,
+  shouldAutoGenerateCharacterPortrait,
+  buildCharacterPortraitPrompt,
+  isComfyUiImageProviderReady,
+  buildCustomImagePrompt,
+  getAllowedProviderBaseUrl,
+  normalizeProviderBaseUrlOrNull,
+  isLoopbackBaseUrl,
+  isHostedDesktopProvider,
+  formatDownloadTimestamp,
+  getErrorMessage,
+  findScrollableAncestor,
+  parseAssistantMessageDisplay,
+  getCardOpeningText,
+  renderTabIcon,
+  splitTrailingStatusBlock,
+  looksLikeStatusBlock,
+  parseStatusItems,
+  isStatusLine,
+  buildResponseContract,
+  createTextProvider,
+  buildLocalProviderResponse,
+  buildMockHiddenContinuityResponse,
+  buildMockExtractionProposal,
+  cleanExtractedPhrase,
+  escapeRegExp,
+  createCustomPlayerRule,
+  getEnabledPlayerRules,
+  formatEnforcementLabel,
+  ensureLorebooks,
+  createInitialLorebooks,
+  createEmptyLorebook,
+  filterLorebookEntries,
+  buildChubLorebookPayload,
+  parseChubLorebookPayload,
+  readFileAsText,
+  parseJsonRecordOrThrow,
+  getPayloadString,
+  getPayloadNumber,
+  getPayloadBoolean,
+  getPayloadStringArray,
+  slugify,
+  parseList,
+  formatFlagsForInput,
+  parseFlags,
+  titleCase,
+  toBoundedNumber,
+  toBoundedFloat,
+};

@@ -1,0 +1,96 @@
+# Production Plan
+
+Audit date: 2026-07-03
+
+Current production audit: 84/100. The audit remediation blockers for share-safe exports, image-provider persistence sanitization, and stronger clean-profile startup smoke are closed in this checkout. The project is suitable for an internal or controlled beta build from the local Windows release lane. Broad public release should wait on signing, full installed-app workflow coverage, upgrade/backup validation, and a documented updater stance.
+
+## Evidence Checked
+
+- Real repo root: `C:\Users\Dwthe\rpg project`.
+- Local release gate: `pnpm verify:release` is the release-candidate gate after blocker fixes.
+- Vitest coverage gate: 31 files, 227 tests passed.
+- Coverage: 99.2% statements, 93.01% branches, 100% functions, 99.2% lines.
+- Browser smoke: 1 Playwright Chromium test passed.
+- Frontend build: Vite production build passed.
+- Dependency audit: `pnpm audit --prod` reported no known vulnerabilities.
+- Rust audit: `cargo audit` completed with 17 allowed advisory warnings.
+- Rust tests: 16 passed.
+- Rust clippy: passed with `-D warnings`.
+- Desktop packaging: MSI and NSIS bundles built under `src-tauri/target/release/bundle/`.
+- Packaged executable smoke: `pnpm desktop:smoke` opened the release executable and confirmed it stayed alive.
+- Installed clean-profile smoke: `pnpm desktop:installed-smoke` stages the MSI into a temp install root, launches twice with isolated app-data paths, and confirms runtime database creation.
+
+## Closed Public-Release Blockers
+
+1. Post-generation state policy gate.
+   - Model-proposed extraction now passes through `filterValidatedTurnEffectsForPolicy` before card mutation.
+   - The gate blocks unsafe memory proposals, replaces unsafe memory labels, canonicalizes inventory removals, blocks ungrounded location changes, caps health deltas, rejects unsupported inventory changes, blocks ungrounded quest updates, and blocks ungrounded or non-boolean flags.
+   - Accepted and blocked deltas are recorded on the prompt run as state changes and warnings.
+
+2. Export sanitization split.
+   - Runtime exports now use share/export sanitization instead of local persistence sanitization for image provider settings.
+   - ComfyUI `workflowJson` is omitted from exports by default so local paths, model names, workflow node settings, and pasted secrets do not leave the machine through a runtime bundle.
+
+3. ComfyUI error redaction.
+   - Successful queue responses containing `node_errors` now go through the same sensitive-content redaction path as non-OK response bodies.
+   - Regression tests cover secret-like `node_errors`.
+
+4. Provider request timeouts and cancellation.
+   - OpenAI-compatible text generation, text streaming, ComfyUI image generation, ComfyUI model discovery, and the Rust stored-secret provider path now support bounded request timeouts.
+   - Browser-side provider timeouts cover initial fetches, response body reads, and stream reads.
+   - Timeout errors preserve their underlying cause without leaking provider secrets.
+
+5. Release lane.
+    - `verify:release` now includes desktop package build and packaged executable smoke.
+    - CI and release workflow inputs are pinned for pnpm and Rust.
+    - A tag-triggered Windows release workflow builds, verifies, uploads MSI/NSIS artifacts, writes SHA256 checksums, and creates GitHub releases for `v*` tags.
+    - `pnpm clean` removes generated frontend, coverage, Playwright, and Tauri output.
+
+6. Share-safe runtime exports.
+   - Runtime exports now always strip compiled prompts, even when local prompt debug logs are enabled.
+   - Import round-tripping reuses the same export sanitizer so prompt text is not reintroduced from imported bundles.
+
+7. Image-provider persistence boundary.
+   - Browser, Tauri invoke, in-memory repository, and Rust SQLite snapshot boundaries now sanitize image provider settings.
+   - Safe ComfyUI workflow JSON can be retained for local recovery, but workflow JSON with secret-like keys or raw-token-looking values is dropped.
+
+## Remaining Public-Launch Work
+
+- Decide signing and updater policy before public distribution. Unsigned builds are acceptable for internal beta, but public Windows releases need a documented certificate strategy or explicit unsigned-distribution warning.
+- Run the installer on a clean non-development Windows profile beyond the local temp-profile installed smoke.
+- Validate upgrade/backup/restore against a real app data directory and a previous packaged build.
+- Track and remove the 17 formally accepted Rust advisory warnings when Tauri/WebKitGTK dependencies publish compatible fixed paths.
+- Extend installed-desktop smoke coverage to a full user path: send a turn, close/reopen, verify SQLite continuity, stored-key behavior, diagnostics, and export.
+- Decide the multi-window write policy: single-window lock, revision checks, or explicit last-writer-wins behavior.
+- Align streaming UX with provider capability by disabling unavailable streaming paths for desktop stored-secret providers or adding a Tauri streaming command.
+- Improve accessibility acceptance coverage for tab linkage, dialog focus management, drawer behavior, and keyboard-only runtime flows.
+- Create a guided first-run flow from blank state to playable RPG card in under five minutes.
+
+## Production Milestones
+
+### Milestone 1: Controlled Beta
+
+Acceptance:
+- `pnpm verify:release` passes in the release checkout.
+- MSI/NSIS bundles are retained with checksum artifacts.
+- Known warnings and unsigned-build status are called out in release notes.
+- Backup/restore instructions are tested once against the local app data directory.
+
+### Milestone 2: Installer Confidence
+
+Acceptance:
+- Installer runs on a clean non-development Windows profile.
+- Installed app opens, creates or imports an RPG card, sends a mock/local turn, persists SQLite continuity through close/reopen, and exports diagnostics/runtime data.
+- Stored desktop API-key path is verified with OS keychain storage and no renderer key echo.
+
+### Milestone 3: Public Launch Readiness
+
+Acceptance:
+- Remote CI is green on the release tag.
+- Release artifacts include checksums, release notes, and signing/updater stance.
+- Rust advisory warnings are either removed or explicitly accepted with rationale.
+- First-run, empty, loading, error, provider-missing, ComfyUI-unavailable, import-failure, and backup/restore paths have visible acceptance coverage.
+
+## Current Recommendation
+
+Ship the next build as a controlled beta, not a broad public release. The code blockers are fixed and locally verified; the remaining risk is release operations, installer trust, and clean-machine validation rather than core runtime safety.

@@ -175,4 +175,85 @@ describe("OpenAI-compatible text provider", () => {
     expect((rawKeyError as Error).message).toMatch(/may contain sensitive data/i);
     expect((rawKeyError as Error).message).not.toMatch(/sk-rawsecretvalue/i);
   });
+
+  it("times out stalled text provider requests", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn((_url: string, init?: RequestInit) => {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+        });
+      });
+      const provider = new OpenAICompatibleTextProvider({
+        baseUrl: "https://example.test/v1",
+        apiKey: "session-key",
+        requestTimeoutMs: 25,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+
+      const pending = expect(provider.generateText({ model: "qwen3.7-max", prompt: "Hello" })).rejects.toThrow(/timed out/i);
+      await vi.advanceTimersByTimeAsync(30);
+
+      await pending;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("times out stalled text provider response bodies", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn(async () =>
+        ({
+          ok: true,
+          json: () => new Promise<unknown>(() => undefined),
+          text: () => Promise.resolve(""),
+        }) as Response,
+      );
+      const provider = new OpenAICompatibleTextProvider({
+        baseUrl: "https://example.test/v1",
+        apiKey: "session-key",
+        requestTimeoutMs: 25,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+
+      const pending = expect(provider.generateText({ model: "qwen3.7-max", prompt: "Hello" })).rejects.toThrow(/timed out/i);
+      await vi.advanceTimersByTimeAsync(30);
+
+      await pending;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("times out stalled text provider streams after headers arrive", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn(async () =>
+        ({
+          ok: true,
+          body: {
+            getReader: () => ({
+              read: () => new Promise<ReadableStreamReadResult<Uint8Array>>(() => undefined),
+            }),
+          },
+          text: () => Promise.resolve(""),
+        }) as Response,
+      );
+      const provider = new OpenAICompatibleTextProvider({
+        baseUrl: "https://example.test/v1",
+        apiKey: "session-key",
+        requestTimeoutMs: 25,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+
+      const iterator = provider.streamText!({ model: "qwen3.7-max", prompt: "Hello" })[Symbol.asyncIterator]();
+      const pending = expect(iterator.next()).rejects.toThrow(/timed out/i);
+      await vi.advanceTimersByTimeAsync(30);
+
+      await pending;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

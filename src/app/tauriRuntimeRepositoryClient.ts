@@ -4,6 +4,7 @@ import type {
   RuntimeRepositoryStoreStatus,
 } from "./runtimeRepositoryStore";
 import {
+  sanitizePersistedImageProviderSettings,
   sanitizePersistedRuntimeSettings,
   sanitizePromptRunsForPersistence,
 } from "./localRuntimeStore";
@@ -69,6 +70,7 @@ export class TauriRuntimeRepositoryStore implements RuntimeRepository {
       snapshot: {
         ...snapshot,
         promptRuns: sanitizePromptRunsForPersistence(snapshot.promptRuns, runtimeSettings),
+        imageProviderSettings: sanitizePersistedImageProviderSettings(snapshot.imageProviderSettings),
         runtimeSettings,
       },
     });

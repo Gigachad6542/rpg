@@ -14,6 +14,7 @@ import type { JsonObject } from "../db/repositories/shared";
 import {
   sanitizePersistedRuntimeSettings,
   sanitizePersistedProviderSettings,
+  sanitizePersistedImageProviderSettings,
   sanitizePromptRunsForPersistence,
   type LocalRuntimeSnapshot,
 } from "./localRuntimeStore";
@@ -193,7 +194,7 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
           ? snapshotMeta.providerKeyStatus
           : "No plaintext keys stored.",
       providerSettings: sanitizePersistedProviderSettings(snapshotMeta.providerSettings),
-      imageProviderSettings: getRecord(snapshotMeta.imageProviderSettings),
+      imageProviderSettings: sanitizePersistedImageProviderSettings(snapshotMeta.imageProviderSettings),
       runtimeSettings,
       generatedMaps: runtimeRowsAreAuthoritative
         ? mapImagePromptRunsToGeneratedMaps(generatedMapRows, snapshotMeta)
@@ -233,7 +234,7 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
           promptRuns,
           providerKeyStatus: snapshot.providerKeyStatus,
           providerSettings: sanitizePersistedProviderSettings(snapshot.providerSettings),
-          imageProviderSettings: getRecord(snapshot.imageProviderSettings),
+          imageProviderSettings: sanitizePersistedImageProviderSettings(snapshot.imageProviderSettings),
           runtimeSettings,
           generatedMaps: getArray(snapshot.generatedMaps),
           savedAt: snapshot.savedAt,
@@ -768,10 +769,6 @@ function readUsage(value: unknown): RuntimePromptRunRecord["usage"] | undefined 
 
 function getString(value: unknown, fallback: string): string {
   return typeof value === "string" ? value : fallback;
-}
-
-function getRecord(value: unknown): Record<string, unknown> | undefined {
-  return isRecord(value) ? value : undefined;
 }
 
 function getArray(value: unknown): unknown[] {

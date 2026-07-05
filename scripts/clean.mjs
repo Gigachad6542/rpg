@@ -3,7 +3,7 @@ import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const generatedPaths = ["dist", "coverage", "src-tauri/target"];
+const generatedPaths = ["dist", "coverage", "playwright-report", "test-results", "src-tauri/target"];
 const reasoningScratchDir = resolve(root, ".reasoning/current");
 
 for (const path of generatedPaths) {

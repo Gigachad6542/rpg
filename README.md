@@ -29,9 +29,11 @@ Useful commands:
 | `pnpm e2e:install` | Install the Playwright Chromium browser used by the smoke test. |
 | `pnpm build` | Build the frontend bundle. |
 | `pnpm verify` | Run the local CI gate: typecheck, tests, build, npm audit, Rust tests, and clippy. |
-| `pnpm verify:release` | Run the release gate: local checks, coverage, browser smoke, audits, Rust checks, and desktop packaging. |
+| `pnpm verify:release` | Run the release gate: local checks, coverage, browser smoke, audits, Rust checks, desktop packaging, executable smoke, and installed smoke. |
 | `pnpm verify:desktop` | Run `pnpm verify`, then build the desktop bundle. |
-| `pnpm clean` | Remove generated output: `dist`, `coverage`, `src-tauri/target`, and local run logs. |
+| `pnpm desktop:smoke` | Start the release executable and fail if it exits during startup. |
+| `pnpm desktop:installed-smoke` | Stage the Windows MSI in a temp install root, launch twice with isolated app data, and confirm SQLite startup durability. |
+| `pnpm clean` | Remove generated output: `dist`, `coverage`, `playwright-report`, `test-results`, and `src-tauri/target`. |
 
 ## Desktop App
 

@@ -1,0 +1,9 @@
+# quick-xml is pulled transitively by plist -> tauri-utils. As of 2026-07-03,
+# plist 1.9.0 is the latest crates.io release and still pins quick-xml ^0.39.2,
+# while quick-xml itself is fixed in 0.41.0. Remove these ignores as soon as
+# Tauri/plist publish a compatible dependency path to quick-xml >=0.41.0.
+[advisories]
+ignore = [
+  "RUSTSEC-2026-0194",
+  "RUSTSEC-2026-0195",
+]

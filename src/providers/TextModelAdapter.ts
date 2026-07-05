@@ -18,6 +18,8 @@ export interface TextGenerationRequest {
   systemPrompt?: string;
   temperature?: number;
   maxOutputTokens?: number;
+  timeoutMs?: number;
+  signal?: AbortSignal;
   metadata?: Record<string, unknown>;
 }
 

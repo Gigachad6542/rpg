@@ -34,6 +34,7 @@ describe("Tauri stored-secret text provider", () => {
         model: "qwen3.7-max",
         prompt: "Open the gate.",
         temperature: 0.4,
+        timeoutMs: 12_000,
       }),
     ).resolves.toMatchObject({
       providerId: "openrouter",
@@ -50,6 +51,7 @@ describe("Tauri stored-secret text provider", () => {
           secretReference: expect.objectContaining({
             storageKey: "openrouter:apiKey",
           }),
+          timeoutMs: 12_000,
         }),
       }),
     );

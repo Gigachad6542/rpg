@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CHAT_MODES,
+  CHARACTER_ORIGINS,
   DEFAULT_PROMPT_LAYER_ORDER,
+  EVENT_KINDS,
   KNOWLEDGE_TYPES,
+  LOREBOOK_SCOPES,
   MEMORY_CATEGORIES,
+  MODEL_PROVIDER_KINDS,
+  RPG_RULESET_STYLES,
   createMessageBranch,
   createRpgStateSnapshot,
   type CharacterKnowledgeRecord,
@@ -55,8 +61,14 @@ describe("domain model helpers", () => {
   });
 
   it("keeps literal category registries narrow enough for extraction contracts", () => {
+    expect(CHARACTER_ORIGINS).toContain("auto_extracted");
+    expect(CHAT_MODES).toContain("group_scene");
+    expect(EVENT_KINDS).toContain("knowledge_change");
     expect(KNOWLEDGE_TYPES).toContain("false_belief");
+    expect(LOREBOOK_SCOPES).toContain("character");
     expect(MEMORY_CATEGORIES).toContain("contradiction_log");
+    expect(MODEL_PROVIDER_KINDS).toContain("local_endpoint");
+    expect(RPG_RULESET_STYLES).toContain("narrative_light");
     expect(DEFAULT_PROMPT_LAYER_ORDER[0]).toBe("global_runtime_rules");
     expect(DEFAULT_PROMPT_LAYER_ORDER).toContain("pre_history_directive");
     expect(DEFAULT_PROMPT_LAYER_ORDER).toContain("post_history_directive");

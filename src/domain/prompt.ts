@@ -20,6 +20,7 @@ export const PROMPT_LAYER_KINDS = [
   "mode_rules",
   "character_definition",
   "user_persona",
+  "pre_history_directive",
   "long_term_memory",
   "active_lore",
   "rpg_state",

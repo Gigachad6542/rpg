@@ -7,6 +7,7 @@ use tauri::{AppHandle, Manager};
 
 const DATABASE_FILENAME: &str = "local-first-ai-rpg-runtime.db";
 const LEGACY_DATABASE_FILENAME: &str = "runtime.db";
+const APP_DATA_DIR_OVERRIDE_ENV: &str = "LOCAL_FIRST_AI_RPG_RUNTIME_APP_DATA_DIR";
 const SCHEMA_VERSION: i64 = 1;
 const SCHEMA_NAME: &str = "initial_core_schema";
 const RUNTIME_CHAT_ID: &str = "chat_local_cards_runtime";
@@ -100,9 +101,23 @@ pub(crate) fn redact_storage_error(error: RuntimeRepositoryError) -> String {
     }
 }
 
+pub(crate) fn initialize_smoke_repository_from_env() -> RepoResult<Option<PathBuf>> {
+    let Some(app_data_dir) = resolve_smoke_app_data_dir_override()? else {
+        return Ok(None);
+    };
+    std::fs::create_dir_all(&app_data_dir).map_err(|_| RuntimeRepositoryError::Storage)?;
+    let path = app_data_dir.join(DATABASE_FILENAME);
+    initialize_repository_at_path(&path)?;
+    Ok(Some(path))
+}
+
 fn resolve_database_path(app: &AppHandle, database_path: Option<String>) -> RepoResult<PathBuf> {
     if let Some(database_path) = database_path {
         return resolve_development_database_path(&database_path);
+    }
+    if let Some(app_data_dir) = resolve_smoke_app_data_dir_override()? {
+        std::fs::create_dir_all(&app_data_dir).map_err(|_| RuntimeRepositoryError::Storage)?;
+        return Ok(app_data_dir.join(DATABASE_FILENAME));
     }
 
     let app_data_dir = app
@@ -118,6 +133,31 @@ fn resolve_database_path(app: &AppHandle, database_path: Option<String>) -> Repo
     }
 
     Ok(primary)
+}
+
+fn resolve_smoke_app_data_dir_override() -> RepoResult<Option<PathBuf>> {
+    let Ok(raw_path) = std::env::var(APP_DATA_DIR_OVERRIDE_ENV) else {
+        return Ok(None);
+    };
+    let trimmed = raw_path.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    let path = PathBuf::from(trimmed);
+    if !path.is_absolute() {
+        return Err(RuntimeRepositoryError::Validation(format!(
+            "{APP_DATA_DIR_OVERRIDE_ENV} must be an absolute temp directory path."
+        )));
+    }
+    let temp_root = std::env::temp_dir();
+    if !path.starts_with(&temp_root) {
+        return Err(RuntimeRepositoryError::Validation(format!(
+            "{APP_DATA_DIR_OVERRIDE_ENV} must stay under the system temp directory."
+        )));
+    }
+
+    Ok(Some(path))
 }
 
 fn resolve_development_database_path(input: &str) -> RepoResult<PathBuf> {
@@ -347,7 +387,11 @@ fn load_runtime_snapshot_at_path(path: &Path) -> RepoResult<Option<Value>> {
     } else {
         object.remove("providerSettings");
     }
-    if !matches!(object.get("imageProviderSettings"), Some(Value::Object(_))) {
+    if let Some(image_provider_settings) =
+        sanitize_image_provider_settings(object.get("imageProviderSettings"))?
+    {
+        object.insert("imageProviderSettings".to_string(), image_provider_settings);
+    } else {
         object.remove("imageProviderSettings");
     }
     if !matches!(object.get("runtimeSettings"), Some(Value::Object(_))) {
@@ -1351,6 +1395,13 @@ fn sanitize_snapshot(snapshot: Value) -> RepoResult<Value> {
         } else {
             object.remove("providerSettings");
         }
+        if let Some(image_provider_settings) =
+            sanitize_image_provider_settings(object.get("imageProviderSettings"))?
+        {
+            object.insert("imageProviderSettings".to_string(), image_provider_settings);
+        } else {
+            object.remove("imageProviderSettings");
+        }
         if !matches!(object.get("generatedMaps"), Some(Value::Array(_))) {
             object.insert("generatedMaps".to_string(), Value::Array(Vec::new()));
         }
@@ -1386,6 +1437,94 @@ fn sanitize_provider_settings(value: Option<&Value>) -> RepoResult<Option<Value>
     }
 
     Ok((!output.is_empty()).then_some(Value::Object(output)))
+}
+
+fn sanitize_image_provider_settings(value: Option<&Value>) -> RepoResult<Option<Value>> {
+    let Some(Value::Object(input)) = value else {
+        return Ok(None);
+    };
+
+    let mut output = Map::new();
+    for key in [
+        "mode",
+        "providerId",
+        "displayName",
+        "endpoint",
+        "model",
+        "samplerName",
+        "scheduler",
+    ] {
+        if let Some(Value::String(field)) = input.get(key) {
+            output.insert(key.to_string(), json!(field));
+        }
+    }
+    if let Some(workflow_json) = input.get("workflowJson").and_then(Value::as_str) {
+        if !workflow_json_contains_sensitive_content(workflow_json) {
+            output.insert("workflowJson".to_string(), json!(workflow_json));
+        }
+    }
+    for key in ["width", "height", "seed", "steps", "cfg", "pollTimeoutMs"] {
+        if let Some(Value::Number(number)) = input.get(key) {
+            output.insert(key.to_string(), Value::Number(number.clone()));
+        }
+    }
+
+    Ok((!output.is_empty()).then_some(Value::Object(output)))
+}
+
+fn workflow_json_contains_sensitive_content(raw: &str) -> bool {
+    if contains_raw_secret_like_token(raw) {
+        return true;
+    }
+
+    match serde_json::from_str::<Value>(raw) {
+        Ok(value) => workflow_value_contains_sensitive_content(&value),
+        Err(_) => contains_secretish_json_key(raw),
+    }
+}
+
+fn workflow_value_contains_sensitive_content(value: &Value) -> bool {
+    match value {
+        Value::String(text) => contains_raw_secret_like_token(text),
+        Value::Array(items) => items.iter().any(workflow_value_contains_sensitive_content),
+        Value::Object(object) => object.iter().any(|(key, field)| {
+            is_secretish_workflow_key(key) || workflow_value_contains_sensitive_content(field)
+        }),
+        _ => false,
+    }
+}
+
+fn is_secretish_workflow_key(key: &str) -> bool {
+    let normalized: String = key
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .map(|character| character.to_ascii_lowercase())
+        .collect();
+    normalized.contains("apikey")
+        || normalized.contains("token")
+        || normalized.contains("secret")
+        || normalized.contains("password")
+        || normalized.contains("authorization")
+        || normalized.contains("bearer")
+        || ((normalized.contains("auth") || normalized.contains("access"))
+            && normalized.contains("key"))
+}
+
+fn contains_secretish_json_key(raw: &str) -> bool {
+    let mut remaining = raw;
+    while let Some(start) = remaining.find('"') {
+        let after_quote = &remaining[start + 1..];
+        let Some(end) = after_quote.find('"') else {
+            return false;
+        };
+        let candidate_key = &after_quote[..end];
+        let after_key = &after_quote[end + 1..];
+        if after_key.trim_start().starts_with(':') && is_secretish_workflow_key(candidate_key) {
+            return true;
+        }
+        remaining = after_key;
+    }
+    false
 }
 
 fn sanitize_secret_reference(value: Option<&Value>) -> RepoResult<Option<Value>> {
@@ -1731,6 +1870,14 @@ fn looks_like_raw_secret(value: &str) -> bool {
             && trimmed.chars().all(|character| {
                 character.is_ascii_alphanumeric() || matches!(character, '_' | '-')
             }))
+}
+
+fn contains_raw_secret_like_token(value: &str) -> bool {
+    value
+        .split(|character: char| {
+            !(character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+        })
+        .any(looks_like_raw_secret)
 }
 
 fn is_id_key(key: &str) -> bool {
@@ -2205,6 +2352,32 @@ mod tests {
     }
 
     #[test]
+    fn smoke_app_data_override_is_confined_to_temp_workspace() {
+        let base = std::env::temp_dir().join(format!(
+            "local-first-ai-rpg-runtime-smoke-{}",
+            now_iso().replace([':', '.'], "")
+        ));
+        std::env::set_var(APP_DATA_DIR_OVERRIDE_ENV, base.to_string_lossy().to_string());
+        let resolved = resolve_smoke_app_data_dir_override().unwrap().unwrap();
+        assert_eq!(resolved, base);
+        let initialized = initialize_smoke_repository_from_env().unwrap().unwrap();
+        assert_eq!(initialized, base.join(DATABASE_FILENAME));
+        assert!(initialized.exists());
+
+        std::env::set_var(APP_DATA_DIR_OVERRIDE_ENV, "relative/path");
+        assert!(resolve_smoke_app_data_dir_override().is_err());
+
+        std::env::set_var(
+            APP_DATA_DIR_OVERRIDE_ENV,
+            std::env::current_dir().unwrap().join("outside").to_string_lossy().to_string(),
+        );
+        assert!(resolve_smoke_app_data_dir_override().is_err());
+
+        std::env::remove_var(APP_DATA_DIR_OVERRIDE_ENV);
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
     fn validation_rejects_oversized_snapshots_and_raw_secrets() {
         let mut too_many_cards = fixture_snapshot("card");
         too_many_cards["cards"] = Value::Array(
@@ -2223,6 +2396,40 @@ mod tests {
             sanitize_snapshot(raw_secret),
             Err(RuntimeRepositoryError::Validation(_))
         ));
+    }
+
+    #[test]
+    fn image_provider_settings_are_sanitized_at_snapshot_boundary() {
+        let mut safe_image_settings = fixture_snapshot("card");
+        safe_image_settings["imageProviderSettings"] = json!({
+            "mode": "comfyui",
+            "providerId": "comfyui",
+            "displayName": "ComfyUI local API",
+            "endpoint": "http://127.0.0.1:8188",
+            "model": "FLUX.1-schnell",
+            "workflowJson": "{\"1\":{\"class_type\":\"CheckpointLoaderSimple\",\"inputs\":{\"ckpt_name\":\"FLUX.1-schnell\"}}}",
+            "width": 1024,
+            "height": 1024,
+            "pollTimeoutMs": 120000,
+            "apiKey": "sk-image-secret-should-drop",
+            "ignored": true
+        });
+        let sanitized = sanitize_snapshot(safe_image_settings).unwrap();
+        assert_eq!(sanitized["imageProviderSettings"]["mode"], json!("comfyui"));
+        assert_eq!(sanitized["imageProviderSettings"]["workflowJson"], json!("{\"1\":{\"class_type\":\"CheckpointLoaderSimple\",\"inputs\":{\"ckpt_name\":\"FLUX.1-schnell\"}}}"));
+        assert!(sanitized["imageProviderSettings"].get("apiKey").is_none());
+        assert!(sanitized["imageProviderSettings"].get("ignored").is_none());
+
+        let mut unsafe_image_settings = fixture_snapshot("card");
+        unsafe_image_settings["imageProviderSettings"] = json!({
+            "mode": "comfyui",
+            "workflowJson": "{\"1\":{\"inputs\":{\"apiKey\":\"workflow-secret\"}}}",
+            "token": "raw-token"
+        });
+        let sanitized = sanitize_snapshot(unsafe_image_settings).unwrap();
+        assert_eq!(sanitized["imageProviderSettings"]["mode"], json!("comfyui"));
+        assert!(sanitized["imageProviderSettings"].get("workflowJson").is_none());
+        assert!(sanitized["imageProviderSettings"].get("token").is_none());
     }
 
     #[test]

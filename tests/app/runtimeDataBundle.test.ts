@@ -29,6 +29,24 @@ describe("runtime data bundle", () => {
     expect(serialized).not.toContain("sk-raw-secret");
     expect(serialized).not.toContain("raw-token-value");
     expect(serialized).not.toContain("full private compiled prompt");
+    expect(serialized).not.toContain("workflow-secret");
+    expect(serialized).not.toContain("C:\\Users\\Dwthe\\ComfyUI");
+    expect(serialized).not.toContain("workflowJson");
+  });
+
+  it("strips compiled prompts from exports even when prompt debug logs are enabled", () => {
+    const bundle = buildVersionedRuntimeExport({
+      ...createSnapshot(),
+      runtimeSettings: {
+        promptDebugLogs: true,
+      },
+    });
+    const roundTripped = parseVersionedRuntimeExport(JSON.stringify(bundle));
+
+    expect(bundle.snapshot.runtimeSettings).toMatchObject({ promptDebugLogs: true });
+    expect(bundle.snapshot.promptRuns[0]?.compiledPrompt).toBe("");
+    expect(roundTripped.promptRuns[0]?.compiledPrompt).toBe("");
+    expect(JSON.stringify(bundle)).not.toContain("full private compiled prompt");
   });
 
   it("round-trips only supported runtime export versions", () => {
@@ -159,6 +177,23 @@ function createSnapshot() {
         storageKey: "openrouter:apiKey",
         providerBaseUrl: "https://openrouter.ai/api/v1",
       },
+    },
+    imageProviderSettings: {
+      mode: "comfyui",
+      providerId: "comfyui",
+      endpoint: "http://127.0.0.1:8188",
+      model: "local-model.safetensors",
+      workflowJson: JSON.stringify({
+        "1": {
+          class_type: "LoadImage",
+          inputs: {
+            apiKey: "workflow-secret",
+            path: "C:\\Users\\Dwthe\\ComfyUI\\private-input.png",
+          },
+        },
+      }),
+      width: 1024,
+      height: 1024,
     },
     runtimeSettings: {
       promptDebugLogs: false,

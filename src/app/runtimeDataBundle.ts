@@ -3,7 +3,7 @@ import {
   sanitizePersistedImageProviderSettings,
   sanitizePersistedProviderSettings,
   sanitizePersistedRuntimeSettings,
-  sanitizePromptRunsForPersistence,
+  sanitizePromptRunsForExport,
   type LocalRuntimeSnapshot,
 } from "./localRuntimeStore";
 import type { RuntimeRepositoryStoreStatus } from "./runtimeRepositoryStore";
@@ -199,14 +199,11 @@ function sanitizeSnapshotForExport(snapshot: RuntimeExportSnapshot): RuntimeExpo
     messages: Array.isArray(snapshot.messages) ? snapshot.messages : [],
     chatSessions: Array.isArray(snapshot.chatSessions) ? snapshot.chatSessions : undefined,
     activeChatIds: isRecord(snapshot.activeChatIds) ? (snapshot.activeChatIds as Record<string, string>) : undefined,
-    promptRuns: sanitizePromptRunsForPersistence(
-      Array.isArray(snapshot.promptRuns) ? snapshot.promptRuns : [],
-      runtimeSettings,
-    ),
+    promptRuns: sanitizePromptRunsForExport(Array.isArray(snapshot.promptRuns) ? snapshot.promptRuns : []),
     providerKeyStatus:
       typeof snapshot.providerKeyStatus === "string" ? redactDiagnosticText(snapshot.providerKeyStatus) : "Unknown.",
     providerSettings: sanitizePersistedProviderSettings(snapshot.providerSettings),
-    imageProviderSettings: sanitizePersistedImageProviderSettings(snapshot.imageProviderSettings),
+    imageProviderSettings: sanitizeImageProviderSettingsForExport(snapshot.imageProviderSettings),
     runtimeSettings,
     generatedMaps: sanitizeGeneratedMaps(snapshot.generatedMaps),
     savedAt: typeof snapshot.savedAt === "string" ? snapshot.savedAt : new Date().toISOString(),
@@ -229,6 +226,16 @@ function countLorebooks(cards: Array<Record<string, unknown>>): { lorebooks: num
     },
     { lorebooks: 0, entries: 0 },
   );
+}
+
+function sanitizeImageProviderSettingsForExport(value: unknown): Record<string, unknown> | undefined {
+  const persisted = sanitizePersistedImageProviderSettings(value);
+  if (!persisted) {
+    return undefined;
+  }
+
+  const { workflowJson: _workflowJson, ...shareable } = persisted;
+  return Object.keys(shareable).length > 0 ? shareable : undefined;
 }
 
 function redactDiagnosticText(value: string): string {

@@ -44,7 +44,7 @@ describe("local runtime store", () => {
       ]),
     });
     expect(compact.chatSessions?.[0].messages).toHaveLength(50);
-    expect(compact.generatedMaps).toHaveLength(5);
+    expect(compact.generatedMaps).toHaveLength(20);
   });
 
   it("persists full compiled prompts only when prompt debug logs are enabled", () => {
@@ -88,6 +88,43 @@ describe("local runtime store", () => {
 
     expect(withoutDebug.promptRuns[0].compiledPrompt).toBe("");
     expect(withDebug.promptRuns[0].compiledPrompt).toBe("debug compiled prompt");
+  });
+
+  it("keeps a larger generated media window with character portrait metadata", () => {
+    const writes: string[] = [];
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation((_key: string, value: string) => {
+      writes.push(value);
+    });
+
+    saveLocalRuntimeSnapshot({
+      ...createLargeSnapshot(),
+      generatedMaps: Array.from({ length: 90 }, (_, index) => ({
+        id: `portrait-${index}`,
+        imageKind: "character",
+        cardId: "card_blank_slate_rpg",
+        chatId: "chat-card",
+        subjectId: `story_entity_${index}`,
+        subjectName: `Character ${index}`,
+        prompt: `Portrait prompt ${index}`,
+        negativePrompt: "no text",
+        provider: "prompt-only",
+        model: "test-image-model",
+        status: "prompt-only",
+        createdAt: `2026-06-27T21:${String(index).padStart(2, "0")}:00.000Z`,
+      })),
+    });
+
+    const snapshot = JSON.parse(writes[0]) as LocalRuntimeSnapshot<unknown, unknown, unknown>;
+    expect(snapshot.generatedMaps).toHaveLength(80);
+    expect(snapshot.generatedMaps?.[0]).toMatchObject({
+      id: "portrait-10",
+      subjectName: "Character 10",
+    });
+    expect(snapshot.generatedMaps?.[79]).toMatchObject({
+      id: "portrait-89",
+      subjectId: "story_entity_89",
+      subjectName: "Character 89",
+    });
   });
 });
 

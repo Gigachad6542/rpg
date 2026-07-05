@@ -7,7 +7,7 @@ import {
   RuntimeRepositoryStore,
   type RepositoryRuntimeSnapshot,
 } from "../../src/app/runtimeRepositoryStore";
-import { createInMemorySqlDriver } from "../../src/db/inMemoryDriver";
+import { createInMemorySqlDriver, type InMemorySqlDriver } from "../../src/db/inMemoryDriver";
 import { runMigrations } from "../../src/db/migrations";
 import { ChatRepository } from "../../src/db/repositories/chats";
 import { ImagePromptRunRepository } from "../../src/db/repositories/imagePromptRuns";
@@ -60,6 +60,16 @@ describe("runtime repository store", () => {
           stateChanges: [],
         },
       ];
+      snapshot.imageProviderSettings = {
+        mode: "comfyui",
+        providerId: "comfyui",
+        endpoint: "http://127.0.0.1:8188",
+        model: "FLUX.1-schnell",
+        workflowJson: JSON.stringify({ "1": { inputs: { apiKey: "workflow-secret" } } }),
+        apiKey: "sk-tauri-image-secret",
+        token: "raw-token-value",
+        ignored: true,
+      };
       await expect(store.loadSnapshot()).resolves.toBeNull();
       await expect(store.saveSnapshot(snapshot)).resolves.toBeUndefined();
 
@@ -70,6 +80,17 @@ describe("runtime repository store", () => {
         "save_runtime_snapshot",
       ]);
       expect((calls[2].args?.snapshot as RepositoryRuntimeSnapshot).promptRuns[0].compiledPrompt).toBe("");
+      expect((calls[2].args?.snapshot as RepositoryRuntimeSnapshot).imageProviderSettings).toMatchObject({
+        mode: "comfyui",
+        providerId: "comfyui",
+        endpoint: "http://127.0.0.1:8188",
+        model: "FLUX.1-schnell",
+      });
+      expect(JSON.stringify((calls[2].args?.snapshot as RepositoryRuntimeSnapshot).imageProviderSettings)).not.toContain(
+        "workflowJson",
+      );
+      expect(JSON.stringify(calls[2].args?.snapshot)).not.toContain("sk-tauri-image-secret");
+      expect(JSON.stringify(calls[2].args?.snapshot)).not.toContain("raw-token-value");
       expect(JSON.stringify(calls)).not.toContain("SELECT");
       expect(JSON.stringify(calls)).not.toContain("DELETE FROM");
     } finally {
@@ -95,6 +116,26 @@ describe("runtime repository store", () => {
           preHistoryInstructions: "",
           postHistoryInstructions: "",
           playerRules: [],
+          storyEntities: [
+            {
+              id: "story_entity_player",
+              name: "Nia",
+              kind: "player",
+              summary: "A careful cartographer.",
+              knownFacts: ["Nia knows she carries a silver coin."],
+              doesNotKnow: [],
+              notes: [],
+            },
+            {
+              id: "story_entity_rook",
+              name: "Rook",
+              kind: "character",
+              summary: "A contact in the alley.",
+              knownFacts: ["Rook knows Nia is nearby."],
+              doesNotKnow: ["Nia carries a silver coin."],
+              notes: [],
+            },
+          ],
           memory: [
             {
               id: "memory-1",
@@ -195,7 +236,17 @@ describe("runtime repository store", () => {
         displayName: "ComfyUI local API",
         endpoint: "http://127.0.0.1:8188",
         model: "FLUX.1-schnell",
-        workflowJson: "{}",
+        workflowJson: JSON.stringify({
+          "1": {
+            class_type: "CheckpointLoaderSimple",
+            inputs: {
+              ckpt_name: "FLUX.1-schnell",
+            },
+          },
+        }),
+        apiKey: "sk-image-secret-should-drop",
+        token: "image-token-should-drop",
+        ignored: true,
         width: 1024,
         height: 1024,
         pollTimeoutMs: 120000,
@@ -232,6 +283,19 @@ describe("runtime repository store", () => {
     });
     expect(JSON.stringify(loaded?.providerSettings)).not.toContain("sk-should-not-persist");
     expect(JSON.stringify(loaded?.providerSettings)).not.toContain("raw-token");
+    expect(loaded?.imageProviderSettings).toMatchObject({
+      mode: "comfyui",
+      providerId: "comfyui",
+      endpoint: "http://127.0.0.1:8188",
+      model: "FLUX.1-schnell",
+      workflowJson: expect.stringContaining("CheckpointLoaderSimple"),
+      width: 1024,
+      height: 1024,
+      pollTimeoutMs: 120000,
+    });
+    expect(JSON.stringify(loaded?.imageProviderSettings)).not.toContain("sk-image-secret-should-drop");
+    expect(JSON.stringify(loaded?.imageProviderSettings)).not.toContain("image-token-should-drop");
+    expect(JSON.stringify(loaded?.imageProviderSettings)).not.toContain("ignored");
     expect(loaded?.messages).toHaveLength(2);
     expect(loaded?.promptRuns[0]).toMatchObject({
       id: "run_001",
@@ -461,6 +525,17 @@ describe("runtime repository store", () => {
         detail: "The player inspected the gate.",
       },
     ]);
+    expect(loaded?.cards[0].storyEntities).toEqual([
+      expect.objectContaining({
+        name: "Nia",
+        kind: "player",
+      }),
+      expect.objectContaining({
+        name: "Rook",
+        kind: "character",
+        doesNotKnow: ["Nia carries a silver coin."],
+      }),
+    ]);
     expect(loaded?.cards[0].lorebooks).toMatchObject([
       {
         id: "lore-1",
@@ -487,6 +562,218 @@ describe("runtime repository store", () => {
         imageUrl: "http://127.0.0.1:8188/view?filename=map.png&type=output&subfolder=",
       },
     ]);
+  });
+
+  it("rejects malformed compatibility snapshots and falls back around malformed arrays", async () => {
+    const driver = createInMemorySqlDriver();
+    await runMigrations(driver, sqliteMigrations);
+    const store = await RuntimeRepositoryStore.create({ driver });
+
+    await insertRawRuntimeSnapshot(driver, {
+      snapshot: {
+        version: 2,
+        theme: "dark",
+        activeCardId: "card",
+        messages: [],
+        promptRuns: [],
+      },
+    });
+    await expect(store.loadSnapshot()).resolves.toBeNull();
+
+    await insertRawRuntimeSnapshot(driver, {
+      snapshot: {
+        version: 2,
+        theme: "dark",
+        activeCardId: 42,
+        cards: [
+          {
+            id: "card",
+            name: "Card",
+            kind: "rpg",
+            lorebooks: [
+              null,
+              {
+                id: "lore-empty",
+                name: "Empty Lore",
+              },
+            ],
+          },
+        ],
+        messages: "bad",
+        promptRuns: "bad",
+        providerKeyStatus: 42,
+      },
+    });
+
+    const loaded = await store.loadSnapshot();
+    expect(loaded).toMatchObject({
+      activeCardId: "card",
+      messages: [],
+      promptRuns: [],
+      providerKeyStatus: "No plaintext keys stored.",
+    });
+    expect(loaded?.cards[0].lorebooks).toEqual([
+      null,
+      {
+        id: "lore-empty",
+        name: "Empty Lore",
+      },
+    ]);
+  });
+
+  it("skips malformed side-table rows while saving and pruning compatibility snapshots", async () => {
+    const driver = createInMemorySqlDriver();
+    await runMigrations(driver, sqliteMigrations);
+    const store = await RuntimeRepositoryStore.create({ driver });
+
+    await insertRawRuntimeSnapshot(driver, {
+      snapshot: {
+        ...createMinimalSnapshot(),
+        cards: [
+          null,
+          {
+            id: "old-card",
+            name: "Old Card",
+            kind: "rpg",
+            rpg: { location: "Old cellar" },
+            lorebooks: [
+              null,
+              {
+                name: "Missing id",
+              },
+            ],
+          },
+        ],
+        generatedMaps: [
+          null,
+          {
+            id: "old-map",
+          },
+        ],
+      },
+    });
+
+    await store.saveSnapshot({
+      ...createMinimalSnapshot(),
+      cards: [
+        {
+          id: "card_blank_slate_rpg",
+          name: "Blank Slate RPG",
+          kind: "rpg",
+          memory: [
+            null,
+            {
+              label: "No detail",
+            },
+            {
+              detail: "Only this stable fact should persist.",
+            },
+          ],
+          lorebooks: [
+            null,
+            {
+              name: "Missing id",
+            },
+            {
+              id: "lore-valid",
+              name: "Valid Lore",
+              entries: [
+                null,
+                {
+                  id: "entry-missing-content",
+                },
+                {
+                  id: "entry-valid",
+                  title: "Valid Entry",
+                  content: "This lore entry should persist.",
+                },
+              ],
+            },
+          ],
+        } as unknown as RepositoryRuntimeSnapshot["cards"][number],
+      ],
+      generatedMaps: [
+        null,
+        {
+          id: "map-missing-prompt",
+        },
+        {
+          id: "map-good",
+          prompt: "Saved generated map prompt.",
+          status: "prompt_ready",
+        },
+      ],
+    });
+
+    await expect(new ImagePromptRunRepository(driver).getById("map-missing-prompt")).resolves.toBeNull();
+    await expect(new ImagePromptRunRepository(driver).getById("map-good")).resolves.toMatchObject({
+      compiledPrompt: "Saved generated map prompt.",
+    });
+    await expect(new MemoryEntryRepository(driver).listByChat(RUNTIME_CHAT_ID)).resolves.toEqual([
+      expect.objectContaining({
+        category: "card_memory:Memory",
+        text: "Only this stable fact should persist.",
+      }),
+    ]);
+    await expect(new LorebookRepository(driver).getById("lore-valid")).resolves.toMatchObject({
+      name: "Valid Lore",
+    });
+    await expect(new LorebookEntryRepository(driver).listByLorebook("lore-valid")).resolves.toEqual([
+      expect.objectContaining({
+        id: "entry-valid",
+        content: "This lore entry should persist.",
+      }),
+    ]);
+  });
+
+  it("rebuilds orphaned first-session messages and drops malformed usage metadata", async () => {
+    const driver = createInMemorySqlDriver();
+    await runMigrations(driver, sqliteMigrations);
+    const store = await RuntimeRepositoryStore.create({ driver });
+
+    await store.saveSnapshot({
+      ...createMinimalSnapshot(),
+      messages: [
+        {
+          id: "user-orphan",
+          role: "user",
+          content: "Hello from the public branch.",
+        },
+      ],
+      chatSessions: [
+        {
+          id: "session-first",
+          cardId: "card_blank_slate_rpg",
+          title: "First session",
+          messages: [],
+        },
+        {
+          id: "session-second",
+          cardId: "card_blank_slate_rpg",
+          title: "Second session",
+          messages: [],
+        },
+      ],
+      promptRuns: [
+        createPromptRun("run-bad-usage", "bad"),
+        createPromptRun("run-zero-usage", {
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+        }),
+      ],
+    });
+
+    const loaded = await store.loadSnapshot();
+    expect(loaded?.chatSessions?.[0].messages).toEqual([
+      {
+        id: "user-orphan",
+        role: "user",
+        content: "Hello from the public branch.",
+      },
+    ]);
+    expect(loaded?.chatSessions?.[1].messages).toEqual([]);
+    expect(loaded?.promptRuns.map((run) => run.usage)).toEqual([undefined, undefined]);
   });
 });
 
@@ -519,6 +806,26 @@ function createFullSnapshot(): RepositoryRuntimeSnapshot {
         id: "card_blank_slate_rpg",
         name: "Blank Slate RPG",
         kind: "rpg",
+        storyEntities: [
+          {
+            id: "story_entity_player",
+            name: "Nia",
+            kind: "player",
+            summary: "A careful cartographer.",
+            knownFacts: ["Nia knows she carries a silver coin."],
+            doesNotKnow: [],
+            notes: [],
+          },
+          {
+            id: "story_entity_rook",
+            name: "Rook",
+            kind: "character",
+            summary: "A contact in the alley.",
+            knownFacts: ["Rook knows Nia is nearby."],
+            doesNotKnow: ["Nia carries a silver coin."],
+            notes: [],
+          },
+        ],
         memory: [
           {
             id: "memory-1",
@@ -635,6 +942,54 @@ function createFullSnapshot(): RepositoryRuntimeSnapshot {
     ],
     savedAt: "2026-06-27T20:00:00.000Z",
   };
+}
+
+function createPromptRun(
+  id: string,
+  usage: unknown,
+): RepositoryRuntimeSnapshot["promptRuns"][number] {
+  return {
+    id,
+    cardId: "card_blank_slate_rpg",
+    chatId: RUNTIME_CHAT_ID,
+    compiledPrompt: "private prompt",
+    response: "response",
+    provider: "mock",
+    model: "mock-narrator",
+    tokenEstimate: 1,
+    includedLayerIds: [],
+    includedLoreEntryIds: [],
+    warnings: [],
+    stateChanges: [],
+    usage: usage as RepositoryRuntimeSnapshot["promptRuns"][number]["usage"],
+  };
+}
+
+async function insertRawRuntimeSnapshot(
+  driver: InMemorySqlDriver,
+  profile: Record<string, unknown>,
+  updatedAt = "2026-07-01T00:00:00.000Z",
+): Promise<void> {
+  await driver.execute(
+    `INSERT OR REPLACE INTO characters (
+      id,
+      name,
+      description,
+      profile_json,
+      source,
+      created_at,
+      updated_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      RUNTIME_SNAPSHOT_CHARACTER_ID,
+      "Snapshot",
+      null,
+      JSON.stringify(profile),
+      "runtime-snapshot",
+      "2026-07-01T00:00:00.000Z",
+      updatedAt,
+    ],
+  );
 }
 
 function setTauriRuntimeForTest(): () => void {

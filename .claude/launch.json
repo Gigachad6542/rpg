@@ -4,7 +4,7 @@
     {
       "name": "rpg-web",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["node_modules/vite/bin/vite.js", "--port", "5173", "--strictPort"],
+      "runtimeArgs": ["scripts/dev.mjs", "--port", "5173", "--strictPort"],
       "port": 5173
     }
   ]

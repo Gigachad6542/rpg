@@ -91,6 +91,29 @@ Acceptance:
 - Rust advisory warnings are either removed or explicitly accepted with rationale.
 - First-run, empty, loading, error, provider-missing, ComfyUI-unavailable, import-failure, and backup/restore paths have visible acceptance coverage.
 
+## Test-Production Gate Run (2026-07-06)
+
+The full release lane was executed stage by stage on the development machine and passed end to end:
+
+| Stage | Result |
+|---|---|
+| `pnpm typecheck` / `pnpm lint` | PASS |
+| `pnpm test:coverage` | PASS, 246 tests, 99%+ statements |
+| `pnpm build` | PASS (460 kB JS, 130 kB gzipped) |
+| `pnpm e2e` | PASS, browser smoke with persisted-state reload |
+| `pnpm audit:prod` | PASS, no known vulnerabilities |
+| `pnpm rust:audit` | PASS, 18 allowed transitive warnings (documented debt) |
+| `pnpm rust:test` / `pnpm rust:clippy` | PASS, 17 tests, zero warnings |
+| `pnpm desktop:build` | PASS, MSI + NSIS bundles under `src-tauri/target/release/bundle/` |
+| `pnpm desktop:smoke` | PASS, release executable stayed alive |
+| `pnpm desktop:installed-smoke` | PASS, staged MSI install launched twice and created SQLite under a clean profile |
+
+Blocking fix landed during the run: `pnpm-workspace.yaml` used pnpm 10 syntax that the
+pinned pnpm 9.15.9 rejects, breaking `pnpm install` locally and in CI. The overrides moved
+to the `package.json` `pnpm` section and the workspace file was removed.
+
+The test-production bundles are unsigned; distribute to testers with that stated plainly.
+
 ## Current Recommendation
 
 Ship the next build as a controlled beta, not a broad public release. The code blockers are fixed and locally verified; the remaining risk is release operations, installer trust, and clean-machine validation rather than core runtime safety.

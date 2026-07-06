@@ -621,4 +621,32 @@ describe("App pure helper coverage", () => {
       expect.objectContaining({ id: "qwen", providerId: "openrouter" }),
     ]);
   });
+
+  it("derives a location proposal from the trailing status block only when extraction lacks one", () => {
+    const assistantText = [
+      "You step onto the docks as the lanterns flare to life.",
+      "",
+      "Location: Harbor town of Vessa",
+      "Health: 9/10",
+    ].join("\n");
+    const card = { kind: "rpg", rpg: { location: "Unmapped starting area" } };
+
+    expect(helpers.deriveStatusBlockLocationProposal(assistantText, null, card)).toBe("Harbor town of Vessa");
+    expect(helpers.deriveStatusBlockLocationProposal(assistantText, "Somewhere else", card)).toBeNull();
+    expect(helpers.deriveStatusBlockLocationProposal("Plain narration with no block.", null, card)).toBeNull();
+    expect(helpers.deriveStatusBlockLocationProposal(assistantText, null, { kind: "character" })).toBeNull();
+    expect(
+      helpers.deriveStatusBlockLocationProposal(assistantText, null, {
+        kind: "rpg",
+        rpg: { location: "harbor town of vessa" },
+      }),
+    ).toBeNull();
+    expect(
+      helpers.deriveStatusBlockLocationProposal(
+        ["Narration.", "", "Location: Not specified", "Health: 9/10"].join("\n"),
+        null,
+        card,
+      ),
+    ).toBeNull();
+  });
 });

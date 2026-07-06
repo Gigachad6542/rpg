@@ -289,11 +289,19 @@ h3 {
 }
 
 .danger-button {
+  background: transparent;
+  border-color: transparent;
+  color: color-mix(in srgb, var(--danger) 74%, var(--muted));
+}
+
+.danger-button:hover {
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 36%, transparent);
   color: var(--danger);
 }
 
 .danger-button svg {
-  color: var(--danger);
+  color: inherit;
 }
 
 .icon-button {
@@ -304,6 +312,50 @@ h3 {
 
 .compact-button {
   width: fit-content;
+}
+
+input[type="checkbox"] {
+  accent-color: var(--accent);
+  block-size: 17px;
+  cursor: pointer;
+  inline-size: 17px;
+  margin: 0;
+}
+
+input[type="file"] {
+  background: var(--surface-raised);
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 9px;
+  width: 100%;
+}
+
+input[type="file"]::file-selector-button {
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 720;
+  margin-right: 10px;
+  padding: 6px 12px;
+}
+
+input[type="file"]:hover {
+  border-color: var(--accent);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .full-width {
@@ -422,7 +474,7 @@ h3 {
 
 .workspace-grid.cards-grid {
   align-content: start;
-  grid-template-columns: minmax(300px, 0.85fr) minmax(360px, 1fr) minmax(420px, 1.1fr);
+  grid-template-columns: minmax(280px, 0.75fr) minmax(260px, 0.65fr) minmax(460px, 1.6fr);
 }
 
 .runtime-chat-layout {
@@ -584,10 +636,9 @@ h3 {
   padding-bottom: 16px;
 }
 
-.photo-generator-section,
-.story-characters-section {
-  min-height: 0;
-}
+/* Media rail rows must keep their content-based minimum height; the panel
+   itself scrolls. A min-height of 0 here lets the grid crush these rows when
+   the rail content exceeds the viewport, overlapping neighboring sections. */
 
 .story-entity-list {
   display: grid;
@@ -757,8 +808,8 @@ h3 {
   background: var(--surface-raised);
   border-bottom: 1px solid var(--border);
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
-  overflow-x: auto;
   padding: 8px;
 }
 

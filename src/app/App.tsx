@@ -1498,7 +1498,21 @@ export function App() {
         model,
         temperature: 0.6,
       });
-      const policyResult = filterValidatedTurnEffectsForPolicy(continuityCard, pipelineResult.stateProposals.extraction, {
+      const statusBlockLocation = deriveStatusBlockLocationProposal(
+        pipelineResult.assistantMessageText,
+        pipelineResult.stateProposals.extraction.rpg_state_updates.location,
+        continuityCard,
+      );
+      const proposedExtraction = statusBlockLocation
+        ? {
+            ...pipelineResult.stateProposals.extraction,
+            rpg_state_updates: {
+              ...pipelineResult.stateProposals.extraction.rpg_state_updates,
+              location: statusBlockLocation,
+            },
+          }
+        : pipelineResult.stateProposals.extraction;
+      const policyResult = filterValidatedTurnEffectsForPolicy(continuityCard, proposedExtraction, {
         latestUserAction: userMessage.content,
         assistantMessageText: pipelineResult.assistantMessageText,
       });
@@ -3761,7 +3775,13 @@ function GlobalLorebooksSection(props: {
           </div>
         </label>
         <div className="lorebook-entry-list">
-          {filteredLorebooks.length === 0 ? <p>No stored lorebooks match this search.</p> : null}
+          {filteredLorebooks.length === 0 ? (
+            <p>
+              {query.trim()
+                ? "No stored lorebooks match this search."
+                : "No lorebooks stored yet. Open a card and add lorebook entries to build its world."}
+            </p>
+          ) : null}
           {filteredLorebooks.map(({ card, lorebook }) => (
             <article className="lorebook-entry" key={`${card.id}:${lorebook.id}`}>
               <header>
@@ -6044,6 +6064,32 @@ function splitTrailingStatusBlock(content: string): { body: string; statusBlock:
   return { body: trimmed, statusBlock: "" };
 }
 
+function deriveStatusBlockLocationProposal(
+  assistantMessageText: string,
+  existingLocationProposal: string | null,
+  card: { kind: string; rpg?: { location: string } },
+): string | null {
+  if (card.kind !== "rpg" || !card.rpg) {
+    return null;
+  }
+  if (existingLocationProposal?.trim()) {
+    return null;
+  }
+  const { statusBlock } = splitTrailingStatusBlock(assistantMessageText);
+  if (!statusBlock) {
+    return null;
+  }
+  const locationItem = parseStatusItems(statusBlock).find((item) => /^location$/i.test(item.label));
+  const value = locationItem?.value.trim() ?? "";
+  if (!value || /^(not specified|unspecified|unknown|none|n\/a|-|unchanged|same)$/i.test(value)) {
+    return null;
+  }
+  if (value.toLowerCase() === card.rpg.location.trim().toLowerCase()) {
+    return null;
+  }
+  return value;
+}
+
 function looksLikeStatusBlock(value: string): boolean {
   return value
     .split(/\r?\n/)
@@ -6694,6 +6740,7 @@ export const __appTestables = {
   splitTrailingStatusBlock,
   looksLikeStatusBlock,
   parseStatusItems,
+  deriveStatusBlockLocationProposal,
   isStatusLine,
   buildResponseContract,
   createTextProvider,

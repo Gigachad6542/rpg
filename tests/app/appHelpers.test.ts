@@ -649,4 +649,28 @@ describe("App pure helper coverage", () => {
       ),
     ).toBeNull();
   });
+
+  it("strips a trailing call-to-action question without touching dialogue or status blocks", () => {
+    const content = [
+      "The gate swings open onto the moonlit road.",
+      "",
+      "*What would you like to do next?*",
+      "",
+      "Location: North road",
+      "Health: 9/10",
+    ].join("\n");
+    const stripped = helpers.stripTrailingCallToAction(content);
+    expect(stripped).not.toContain("What would you like to do next");
+    expect(stripped).toContain("The gate swings open");
+    expect(stripped).toContain("Location: North road");
+
+    const dialogue = ["Mira tilts her head.", "", '"What do you want from me?"'].join("\n");
+    expect(helpers.stripTrailingCallToAction(dialogue)).toBe(dialogue);
+
+    const onlyQuestion = "What do you do?";
+    expect(helpers.stripTrailingCallToAction(onlyQuestion)).toBe(onlyQuestion);
+
+    const midQuestion = ["Do you hear that? The bells ring twice.", "", "The road ahead is quiet."].join("\n");
+    expect(helpers.stripTrailingCallToAction(midQuestion)).toBe(midQuestion);
+  });
 });

@@ -1539,7 +1539,7 @@ export function App() {
       const assistantMessage: Message = {
         id: `assistant-${runId}`,
         role: "assistant",
-        content: pipelineResult.assistantMessageText,
+        content: stripTrailingCallToAction(pipelineResult.assistantMessageText),
       };
       const nextActiveCard = applyValidatedTurnEffectsToCard(
         applyHiddenContinuityToCard(continuityCard, visibleKnowledgeContinuity),
@@ -1772,6 +1772,55 @@ export function App() {
     );
     setPhotoArtifact(null);
     setPhotoPrompt("");
+  }
+
+  async function regenerateCharacterPortrait(entity: StoryEntity, promptOverride: string) {
+    if (!activeCard) {
+      return;
+    }
+    const chatId = activeChat?.id ?? `chat_${activeCard.id}`;
+    const existing = findCharacterPortraitForEntity(generatedMaps, activeCard.id, entity);
+    const prompt = promptOverride.trim() || existing?.prompt || buildCharacterPortraitPrompt(activeCard, entity);
+    const baseArtifact: GeneratedMapArtifact = {
+      id: existing?.id ?? createRuntimeEntityId("portrait"),
+      imageKind: "character",
+      cardId: activeCard.id,
+      chatId,
+      subjectId: entity.id,
+      subjectName: entity.name,
+      prompt,
+      negativePrompt: characterPortraitNegativePrompt,
+      provider: imageProviderSettings.mode === "comfyui" ? "comfyui" : "prompt-only",
+      model: imageProviderSettings.model,
+      status: "prompt-only",
+      userInput: entity.name,
+      createdAt: new Date().toISOString(),
+    };
+    setGeneratedMaps((current) => upsertGeneratedMap(current, baseArtifact));
+    try {
+      const artifact = await runConfiguredImageGeneration({
+        baseArtifact,
+        prompt,
+        negativePrompt: baseArtifact.negativePrompt,
+        metadata: {
+          cardId: activeCard.id,
+          chatId,
+          cardName: activeCard.name,
+          imageKind: "character",
+          subjectId: entity.id,
+          subjectName: entity.name,
+        },
+      });
+      setGeneratedMaps((current) => upsertGeneratedMap(current, artifact));
+    } catch (error) {
+      setGeneratedMaps((current) =>
+        upsertGeneratedMap(current, {
+          ...baseArtifact,
+          status: "error",
+          error: getErrorMessage(error),
+        }),
+      );
+    }
   }
 
   async function generateMissingCharacterPortraits(card: RuntimeCard, chatId: string) {
@@ -2265,6 +2314,8 @@ export function App() {
               resetCustomImageRequest={resetCustomImageRequest}
               deleteCurrentPhoto={deleteCurrentPhoto}
               clearStoryCharacters={clearStoryCharacters}
+              regeneratePortrait={(entity, prompt) => void regenerateCharacterPortrait(entity, prompt)}
+              buildPortraitPrompt={(entity) => (activeCard ? buildCharacterPortraitPrompt(activeCard, entity) : "")}
               openMediaPreview={setMediaPreview}
             />
           ) : (
@@ -2390,6 +2441,8 @@ function RuntimeSection(props: {
   resetCustomImageRequest: () => void;
   deleteCurrentPhoto: () => void;
   clearStoryCharacters: () => void;
+  regeneratePortrait: (entity: StoryEntity, prompt: string) => void;
+  buildPortraitPrompt: (entity: StoryEntity) => string;
   openMediaPreview: (preview: MediaPreviewArtifact) => void;
 }) {
   const showMapPanel = props.activeCard.mapEnabled;
@@ -2724,6 +2777,8 @@ function RuntimeSection(props: {
             entities={props.activeCard.storyEntities}
             portraits={props.characterPortraits}
             clearStoryCharacters={props.clearStoryCharacters}
+            regeneratePortrait={props.regeneratePortrait}
+            buildPortraitPrompt={props.buildPortraitPrompt}
             openMediaPreview={props.openMediaPreview}
           />
 
@@ -2835,10 +2890,13 @@ function StoryCharactersPanel(props: {
   entities: StoryEntity[];
   portraits: GeneratedMapArtifact[];
   clearStoryCharacters: () => void;
+  regeneratePortrait: (entity: StoryEntity, prompt: string) => void;
+  buildPortraitPrompt: (entity: StoryEntity) => string;
   openMediaPreview: (preview: MediaPreviewArtifact) => void;
 }) {
   const entities = orderStoryEntitiesForDisplay(props.entities);
   const [expandedEntityId, setExpandedEntityId] = useState<string | null>(null);
+  const [portraitPromptDrafts, setPortraitPromptDrafts] = useState<Record<string, string>>({});
   const hasTrackedCharacters = entities.some((entity) => !isDefaultPlayerStoryEntity(entity) || hasStoryEntityDetails(entity));
 
   return (
@@ -2881,7 +2939,7 @@ function StoryCharactersPanel(props: {
                     <span className="story-entity-kind">{formatStoryEntityKind(entity.kind)}</span>
                     <strong className="story-entity-name">{entity.name}</strong>
                   </header>
-                  {hasStoryEntityDetails(entity) ? (
+                  {hasStoryEntityDetails(entity) || !isDefaultPlayerStoryEntity(entity) ? (
                     <button
                       className="secondary-button compact-button story-details-button"
                       type="button"
@@ -2917,6 +2975,33 @@ function StoryCharactersPanel(props: {
                         ))}
                       </ul>
                     </div>
+                  ) : null}
+                  <label className="field">
+                    <span>Portrait prompt</span>
+                    <textarea
+                      aria-label={`Portrait prompt for ${entity.name}`}
+                      rows={3}
+                      value={portraitPromptDrafts[entity.id] ?? portrait?.prompt ?? props.buildPortraitPrompt(entity)}
+                      onChange={(event) =>
+                        setPortraitPromptDrafts((current) => ({ ...current, [entity.id]: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <button
+                    className="secondary-button compact-button"
+                    type="button"
+                    onClick={() =>
+                      props.regeneratePortrait(
+                        entity,
+                        portraitPromptDrafts[entity.id] ?? portrait?.prompt ?? props.buildPortraitPrompt(entity),
+                      )
+                    }
+                  >
+                    <RotateCcw size={15} />
+                    Regenerate portrait
+                  </button>
+                  {portrait?.status === "error" && portrait.error ? (
+                    <p className="field-help">{portrait.error}</p>
                   ) : null}
                 </div>
               ) : null}
@@ -6117,6 +6202,30 @@ function deriveStatusBlockLocationProposal(
   return value;
 }
 
+function stripTrailingCallToAction(content: string): string {
+  const { body, statusBlock } = splitTrailingStatusBlock(content);
+  const paragraphs = body.trim().split(/\n{2,}/);
+  if (paragraphs.length < 2 || !isPlayerCallToAction(paragraphs[paragraphs.length - 1] ?? "")) {
+    return content;
+  }
+  const strippedBody = paragraphs.slice(0, -1).join("\n\n").trim();
+  if (!strippedBody) {
+    return content;
+  }
+  return statusBlock ? `${strippedBody}\n\n${statusBlock}` : strippedBody;
+}
+
+function isPlayerCallToAction(paragraph: string): boolean {
+  const cleaned = paragraph.replace(/^[*_\s]+|[*_\s]+$/g, "");
+  if (!cleaned || cleaned.length > 160 || !cleaned.endsWith("?")) {
+    return false;
+  }
+  if (/["“”]/.test(cleaned)) {
+    return false;
+  }
+  return /^(what|where|how|will|do|does|are|is|would|which|who|shall)\b/i.test(cleaned) && /\byou(r)?\b/i.test(cleaned);
+}
+
 function looksLikeStatusBlock(value: string): boolean {
   return value
     .split(/\r?\n/)
@@ -6179,6 +6288,8 @@ function renderNarrativeMarkup(text: string): ReactNode[] {
 function buildResponseContract(settings: RuntimeSettings): string {
   return [
     "Write the in-card response.",
+    "Player agency is absolute: narrate only actions, words, and decisions the player explicitly stated. You may expand and vividly describe what the player declared, but never invent new actions, dialogue, emotions, or inner thoughts for the player character.",
+    "Never end the response by prompting the player, offering choices, or asking what they do next. End on the scene itself.",
     "Presentation rules: use *single asterisks* only for quiet narration/asides, **double asterisks** only for strong emphasis, and normal quotation marks for spoken dialogue.",
     "Do not show raw Markdown fences in the main prose. If useful, put Date, Time, Location, Weather, Health, Inventory, Quest, or Status as a short `status` fenced block at the very end.",
     "If state should change, imply only plausible proposals; the local app validates extraction before saving.",
@@ -6768,6 +6879,8 @@ export const __appTestables = {
   looksLikeStatusBlock,
   parseStatusItems,
   deriveStatusBlockLocationProposal,
+  stripTrailingCallToAction,
+  isPlayerCallToAction,
   isStatusLine,
   buildResponseContract,
   createTextProvider,

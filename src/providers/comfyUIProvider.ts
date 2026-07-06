@@ -792,6 +792,7 @@ async function fetchComfyEndpoint(
         `Could not reach ComfyUI at ${endpoint}.`,
         "Make sure ComfyUI is running and the endpoint matches the Image Provider settings.",
         "If this is the browser/dev app, start ComfyUI with CORS enabled, for example: --enable-cors-header http://localhost:5173",
+        "Comfy Desktop's built-in server usually listens at http://127.0.0.1:8000; if you use Comfy Desktop, set that as the Local endpoint in Image Provider settings.",
         apiKey ? "If you added a ComfyUI API key, verify the auth proxy allows browser CORS preflight requests." : "",
         `Original error: ${sanitizeComfyError(getFetchErrorMessage(error))}`,
       ]

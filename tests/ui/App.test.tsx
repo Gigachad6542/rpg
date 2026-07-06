@@ -545,6 +545,37 @@ describe("local-first card runtime UI", () => {
     });
   });
 
+  it("lets the user edit a character portrait prompt and regenerate the portrait", async () => {
+    await renderApp();
+
+    openBlankRpgCard();
+    sendRuntimeMessage("I am Nia, a careful cartographer in a rainy alley beside Rook.");
+
+    const transcript = screen.getByRole("log", { name: /Chat transcript/i });
+    await waitFor(() => expect(transcript).toHaveTextContent(/I am Nia/i));
+
+    openMediaTab(/^Characters$/i);
+    const charactersPanel = screen.getByRole("region", { name: /Story characters/i });
+    const rookCard = within(charactersPanel).getByText(/^Rook$/i).closest("article");
+    expect(rookCard).not.toBeNull();
+    fireEvent.click(within(rookCard as HTMLElement).getByRole("button", { name: /Show details for Rook/i }));
+
+    const promptField = within(rookCard as HTMLElement).getByLabelText(/Portrait prompt for Rook/i);
+    fireEvent.change(promptField, { target: { value: "Custom Rook portrait, scarlet cloak, harbor light" } });
+    fireEvent.click(within(rookCard as HTMLElement).getByRole("button", { name: /Regenerate portrait/i }));
+
+    await waitFor(() => {
+      const snapshot = JSON.parse(window.localStorage.getItem(RUNTIME_STORAGE_KEY) ?? "{}") as {
+        generatedMaps?: Array<{ imageKind?: string; subjectName?: string; prompt?: string }>;
+      };
+      const rookPortraits =
+        snapshot.generatedMaps?.filter(
+          (artifact) => artifact.imageKind === "character" && artifact.subjectName === "Rook",
+        ) ?? [];
+      expect(rookPortraits.some((artifact) => /scarlet cloak/i.test(artifact.prompt ?? ""))).toBe(true);
+    });
+  });
+
   it("auto-generates new character portraits through ready ComfyUI settings", async () => {
     let promptQueueCount = 0;
     const queuedPrompts: Array<Record<string, { inputs?: Record<string, unknown> }>> = [];

@@ -8,6 +8,7 @@ fn main() {
             "store_provider_secret",
             "delete_provider_secret",
             "generate_text_with_stored_secret",
+            "persist_generated_image",
         ]),
     ))
     .expect("failed to build Tauri app");

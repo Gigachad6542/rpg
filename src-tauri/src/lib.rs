@@ -12,7 +12,8 @@ pub fn run() {
             secure_storage_status,
             store_provider_secret,
             delete_provider_secret,
-            generate_text_with_stored_secret
+            generate_text_with_stored_secret,
+            persist_generated_image
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -306,6 +307,61 @@ async fn generate_text_with_stored_secret(
     })
 }
 
+const GENERATED_IMAGE_DIR: &str = "generated-images";
+const MAX_IMAGE_BASE64_CHARS: usize = 16_000_000;
+
+#[tauri::command]
+fn persist_generated_image(
+    app: tauri::AppHandle,
+    artifact_id: String,
+    format: String,
+    base64_data: String,
+) -> Result<String, String> {
+    use tauri::Manager as _;
+
+    let artifact_id = normalize_identifier(&artifact_id, "artifact id")?;
+    let extension = validate_generated_image_format(&format)?;
+    let bytes = decode_generated_image_base64(&base64_data)?;
+
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "Could not resolve the app data directory.".to_string())?
+        .join(GENERATED_IMAGE_DIR);
+    std::fs::create_dir_all(&directory)
+        .map_err(|_| "Could not create the generated image directory.".to_string())?;
+
+    let path = directory.join(format!("{artifact_id}.{extension}"));
+    std::fs::write(&path, bytes)
+        .map_err(|_| "Could not write the generated image file.".to_string())?;
+
+    Ok(path.to_string_lossy().to_string())
+}
+
+fn validate_generated_image_format(format: &str) -> Result<&'static str, String> {
+    match format.trim().to_ascii_lowercase().as_str() {
+        "png" => Ok("png"),
+        "jpeg" | "jpg" => Ok("jpg"),
+        "webp" => Ok("webp"),
+        _ => Err("Generated images only support png, jpeg, or webp.".to_string()),
+    }
+}
+
+fn decode_generated_image_base64(data: &str) -> Result<Vec<u8>, String> {
+    use base64::Engine as _;
+
+    let trimmed = data.trim();
+    if trimmed.is_empty() {
+        return Err("Generated image data cannot be empty.".to_string());
+    }
+    if trimmed.len() > MAX_IMAGE_BASE64_CHARS {
+        return Err("Generated image exceeds the local size limit.".to_string());
+    }
+    base64::engine::general_purpose::STANDARD
+        .decode(trimmed)
+        .map_err(|_| "Generated image data is not valid base64.".to_string())
+}
+
 fn keyring_entry(storage_key: &str) -> Result<keyring::Entry, String> {
     keyring::Entry::new(KEYRING_SERVICE, storage_key)
         .map_err(|error| format!("Could not open OS keychain entry: {error}"))
@@ -560,6 +616,21 @@ mod tests {
             std::time::Duration::from_millis(DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS)
         );
         assert!(validate_request_timeout(Some(MAX_PROVIDER_REQUEST_TIMEOUT_MS + 1)).is_err());
+    }
+
+    #[test]
+    fn generated_image_persistence_validates_format_and_payload() {
+        assert_eq!(validate_generated_image_format("PNG").unwrap(), "png");
+        assert_eq!(validate_generated_image_format("jpeg").unwrap(), "jpg");
+        assert_eq!(validate_generated_image_format(" webp ").unwrap(), "webp");
+        assert!(validate_generated_image_format("gif").is_err());
+        assert!(validate_generated_image_format("../png").is_err());
+
+        assert!(decode_generated_image_base64("").is_err());
+        assert!(decode_generated_image_base64("not-base64!!").is_err());
+        assert_eq!(decode_generated_image_base64("aGVsbG8=").unwrap(), b"hello");
+        let oversized = "A".repeat(MAX_IMAGE_BASE64_CHARS + 1);
+        assert!(decode_generated_image_base64(&oversized).is_err());
     }
 
     #[test]

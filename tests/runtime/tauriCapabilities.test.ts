@@ -18,6 +18,7 @@ describe("Tauri secure-storage capabilities", () => {
       "store_provider_secret",
       "delete_provider_secret",
       "generate_text_with_stored_secret",
+      "persist_generated_image",
     ]) {
       expect(buildScript).toContain(`"${command}"`);
     }
@@ -29,6 +30,7 @@ describe("Tauri secure-storage capabilities", () => {
         "allow-store-provider-secret",
         "allow-delete-provider-secret",
         "allow-generate-text-with-stored-secret",
+        "allow-persist-generated-image",
       ]),
     );
     expect(capabilities.permissions).not.toContain("allow-get-provider-secret");

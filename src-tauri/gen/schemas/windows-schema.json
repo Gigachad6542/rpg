@@ -201,6 +201,12 @@
           "markdownDescription": "Enables the load_runtime_snapshot command without any pre-configured scope."
         },
         {
+          "description": "Enables the persist_generated_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-persist-generated-image",
+          "markdownDescription": "Enables the persist_generated_image command without any pre-configured scope."
+        },
+        {
           "description": "Enables the save_runtime_snapshot command without any pre-configured scope.",
           "type": "string",
           "const": "allow-save-runtime-snapshot",
@@ -241,6 +247,12 @@
           "type": "string",
           "const": "deny-load-runtime-snapshot",
           "markdownDescription": "Denies the load_runtime_snapshot command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the persist_generated_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-persist-generated-image",
+          "markdownDescription": "Denies the persist_generated_image command without any pre-configured scope."
         },
         {
           "description": "Denies the save_runtime_snapshot command without any pre-configured scope.",

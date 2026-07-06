@@ -10,6 +10,7 @@
     "allow-secure-storage-status",
     "allow-store-provider-secret",
     "allow-delete-provider-secret",
-    "allow-generate-text-with-stored-secret"
+    "allow-generate-text-with-stored-secret",
+    "allow-persist-generated-image"
   ]
 }

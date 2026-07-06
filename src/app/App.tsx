@@ -15,6 +15,7 @@ import {
   Maximize2,
   MessageSquare,
   Moon,
+  PenLine,
   Plus,
   Power,
   Play,
@@ -32,6 +33,8 @@ import {
   X,
 } from "lucide-react";
 import profileImageUrl from "../assets/local-cards-profile.png";
+import { persistGeneratedImageLocally } from "./imagePersistence";
+import { createSnapshotSaveQueue, type SnapshotSaveQueue } from "./snapshotSaveQueue";
 import { compileImagePrompt, type CompiledImagePrompt } from "../runtime/imagePromptCompiler";
 import {
   applyHiddenContinuityToCard,
@@ -637,6 +640,7 @@ export function App() {
     initialActiveCardId,
   );
   const repositoryStoreRef = useRef<RuntimeRepository | null>(null);
+  const snapshotSaveQueueRef = useRef<SnapshotSaveQueue<RepositoryRuntimeSnapshot> | null>(null);
   const keyStorageRef = useRef<KeyStorage>(requireSecureKeyStorage());
   const [theme, setTheme] = useState<Theme>(() => initialSnapshot?.theme ?? "dark");
   const [section, setSection] = useState<MainSection>("runtime");
@@ -953,8 +957,11 @@ export function App() {
 
     const store = repositoryStoreRef.current;
     if (store && repositoryHydrated) {
-      void store
-        .saveSnapshot(toRepositorySnapshot(currentSnapshot))
+      snapshotSaveQueueRef.current ??= createSnapshotSaveQueue((snapshot: RepositoryRuntimeSnapshot) =>
+        store.saveSnapshot(snapshot),
+      );
+      void snapshotSaveQueueRef.current
+        .enqueue(toRepositorySnapshot(currentSnapshot))
         .then(() => {
           if (!cancelled) {
             setSaveStatus(
@@ -1887,12 +1894,19 @@ export function App() {
       };
     }
 
-    return {
+    const generatedArtifact: GeneratedMapArtifact = {
       ...input.baseArtifact,
       provider: result.providerId,
       status: "generated",
       imageUrl,
     };
+    if (isTauriRuntime()) {
+      const durableImageUrl = await persistGeneratedImageLocally(generatedArtifact.id, imageUrl);
+      if (durableImageUrl) {
+        return { ...generatedArtifact, imageUrl: durableImageUrl };
+      }
+    }
+    return generatedArtifact;
   }
 
   async function refreshComfyUICheckpoints() {
@@ -2177,6 +2191,19 @@ export function App() {
             </p>
           </div>
           <div className="topbar-actions">
+            {section === "runtime" && activeCard ? (
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => {
+                  editCard(activeCard);
+                  setSection("cards");
+                }}
+              >
+                <PenLine size={17} />
+                Edit card
+              </button>
+            ) : null}
             <button className="secondary-button" type="button" onClick={() => setMemoryOpen(true)} disabled={!activeCard}>
               <Eye size={17} />
               Inspect memory

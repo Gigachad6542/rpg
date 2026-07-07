@@ -51,7 +51,13 @@ import {
 import { detectKnowledgeLeaks, describeKnowledgeLeaks } from "../runtime/knowledgeLeakDetector";
 import { selectActiveLorebookEntries } from "../runtime/loreTriggerEngine";
 import { type CompiledPrompt } from "../runtime/promptCompiler";
-import { compileTurnPrompt, runTurnPipeline, type RunTurnPipelineRequest } from "../runtime/turnPipeline";
+import {
+  compileTurnPrompt,
+  runTurnPipeline,
+  TURN_PIPELINE_LAYER_IDS,
+  type RunTurnPipelineRequest,
+} from "../runtime/turnPipeline";
+import { buildSceneText, orderByRelevance, selectPresentNames } from "../runtime/relevanceScoring";
 import {
   validatePlayerAction as validatePlayerActionWithRules,
   type PlayerRuleDefinition,
@@ -1549,7 +1555,16 @@ export function App() {
       const leakWarnings = describeKnowledgeLeaks(
         detectKnowledgeLeaks(assistantMessage.content, nextActiveCard.storyEntities),
       );
-      const turnWarnings = [...warnings, ...leakWarnings];
+      const hasKnowledgeBoundaries = continuityCard.storyEntities?.some(
+        (entity) => entity.doesNotKnow.length > 0,
+      );
+      const boundariesDropped =
+        Boolean(hasKnowledgeBoundaries) &&
+        !pipelineResult.promptRun.includedLayerIds.includes(TURN_PIPELINE_LAYER_IDS.knowledgeBoundaries);
+      const boundaryWarnings = boundariesDropped
+        ? ["Knowledge boundaries were dropped from this prompt by the token budget; character isolation may be weaker this turn."]
+        : [];
+      const turnWarnings = [...warnings, ...leakWarnings, ...boundaryWarnings];
 
       setChatSessions((current) =>
         upsertChatSession(current, {
@@ -6315,6 +6330,21 @@ function buildTurnPromptRequest(
   runtimeSettings: RuntimeSettings,
   overrides: Partial<TurnPromptRequest> = {},
 ): TurnPromptRequest {
+  const sceneText = buildSceneText([
+    ...messages.slice(-6).map((message) => message.content),
+    draft,
+    card.rpg?.location,
+    ...(card.rpg?.quests ?? []),
+  ]);
+  const orderedMemory = orderByRelevance(
+    card.memory,
+    (entry) => `${entry.label} ${entry.detail}`,
+    sceneText,
+  );
+  const presentEntityNames = selectPresentNames(
+    (card.storyEntities ?? []).map((entity) => entity.name),
+    sceneText,
+  );
   return {
     session: {
       id: `session_${card.id}`,
@@ -6335,7 +6365,7 @@ function buildTurnPromptRequest(
     messages,
     latestUserMessage: draft.trim() || "(empty)",
     rules: card.playerRules,
-    memoryEntries: card.memory.map((entry) => ({
+    memoryEntries: orderedMemory.map((entry) => ({
       id: entry.id,
       label: entry.label,
       detail: entry.detail,
@@ -6360,7 +6390,7 @@ function buildTurnPromptRequest(
       : null,
     knowledgeBoundaries: [
       "Characters should only know what the card, active lore, memory, current scene, or explicit story entity ledger gives them reason to know. The narrator may know the broader scene state.",
-      formatStoryEntitiesForKnowledgeBoundary(card.storyEntities),
+      formatStoryEntitiesForKnowledgeBoundary(card.storyEntities, presentEntityNames),
     ].filter(Boolean).join("\n\n"),
     tokenBudget: { maxInputTokens: 6_000, reservedOutputTokens: 900 },
     responseContract: buildResponseContract(runtimeSettings),

@@ -329,8 +329,15 @@ export function buildVisibleUserMessageWithHiddenContinuity(
   ].join("\n\n");
 }
 
-export function formatStoryEntitiesForKnowledgeBoundary(entities: readonly StoryEntity[] = []): string {
-  const lines = formatStoryEntitiesForVisibleContext(entities);
+export function formatStoryEntitiesForKnowledgeBoundary(
+  entities: readonly StoryEntity[] = [],
+  presentNames?: ReadonlySet<string>,
+): string {
+  const lines = orderStoryEntities(entities)
+    .map((entity) =>
+      formatStoryEntityBoundaryLine(entity, presentNames ? presentNames.has(entity.name) : true),
+    )
+    .filter(Boolean);
   if (lines.length === 0) {
     return "";
   }
@@ -340,6 +347,15 @@ export function formatStoryEntitiesForKnowledgeBoundary(entities: readonly Story
     ...lines,
     "Never let an entity state, hint at, or act on facts listed under does not know until the story reveals them.",
   ].join("\n");
+}
+
+function formatStoryEntityBoundaryLine(entity: StoryEntity, includeFacts: boolean): string {
+  const parts = [
+    entity.summary ? `summary: ${entity.summary}` : "",
+    includeFacts && entity.knownFacts.length ? `knows: ${entity.knownFacts.join("; ")}` : "",
+    includeFacts && entity.doesNotKnow.length ? `does not know: ${entity.doesNotKnow.join("; ")}` : "",
+  ].filter(Boolean);
+  return `- ${entity.kind}: ${entity.name}${parts.length ? ` (${parts.join(" | ")})` : ""}`;
 }
 
 export function toHiddenContinuityKnowledgeUpdates(

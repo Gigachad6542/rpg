@@ -13,7 +13,6 @@ import {
   type ExtractionResult,
   type ExtractionValidationIssue,
 } from "./extraction";
-import { analyzeSocialExpectation } from "./socialExpectation";
 
 export type TurnPipelineRole = "system" | "user" | "assistant" | "tool" | "narrator";
 
@@ -462,12 +461,6 @@ export function buildTurnPromptLayers(
       required: false,
     }),
     createLayer({
-      id: TURN_PIPELINE_LAYER_IDS.socialExpectation,
-      kind: "socialExpectation",
-      content: formatSocialExpectation(request),
-      required: false,
-    }),
-    createLayer({
       id: TURN_PIPELINE_LAYER_IDS.recentChatHistory,
       kind: "recentChatHistory",
       content: formatMessages(historyMessages),
@@ -588,24 +581,6 @@ function getPromptIncludedLoreEntryIds(
   return getEnabledLoreEntries(entries)
     .filter((entry) => prompt.includes(formatLoreEntry(entry)))
     .map((entry) => entry.id);
-}
-
-function formatSocialExpectation(request: Omit<RunTurnPipelineRequest, "modelAdapter" | "model">): string {
-  const analysis = analyzeSocialExpectation({
-    actorName: request.card?.name,
-    socialRole: request.card?.kind === "rpg" ? "narrator" : "character",
-    situation: request.session.summary,
-    publicContext: true,
-    userAppearsComposed: true,
-  });
-
-  return [
-    `Tone: ${analysis.tone}`,
-    `Public behavior: ${analysis.likelyPublicBehavior.join("; ")}`,
-    `Likely actions: ${analysis.likelyActions.join("; ")}`,
-    `Forbidden actions: ${analysis.unlikelyOrForbiddenActions.join("; ")}`,
-    `Knowledge boundary: ${analysis.knowledgeBoundary}`,
-  ].join("\n");
 }
 
 function formatRpgState(state?: TurnPipelineRpgState | null): string {

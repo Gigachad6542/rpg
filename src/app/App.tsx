@@ -58,6 +58,7 @@ import {
   type RunTurnPipelineRequest,
 } from "../runtime/turnPipeline";
 import { buildSceneText, orderByRelevance, selectPresentNames } from "../runtime/relevanceScoring";
+import { runMemoryConsolidationSafely } from "../runtime/memoryConsolidation";
 import {
   validatePlayerAction as validatePlayerActionWithRules,
   type PlayerRuleDefinition,
@@ -707,6 +708,8 @@ export function App() {
   const [imageSessionApiKey, setImageSessionApiKey] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [streamingReply, setStreamingReply] = useState("");
+  const [isConsolidatingMemory, setIsConsolidatingMemory] = useState(false);
+  const [memoryConsolidationStatus, setMemoryConsolidationStatus] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState(initialSnapshot ? "Loaded local runtime snapshot." : "Ready for local save.");
   const [repositoryStatus, setRepositoryStatus] = useState("Repository store initializing.");
   const [dataManagementStatus, setDataManagementStatus] = useState("Runtime export, import, and diagnostics are ready.");
@@ -1623,6 +1626,50 @@ export function App() {
     }
   }
 
+  async function consolidateActiveCardMemory() {
+    if (!activeCard || isConsolidatingMemory) {
+      return;
+    }
+    const entries = activeCard.memory.map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      detail: entry.detail,
+    }));
+    setIsConsolidatingMemory(true);
+    setMemoryConsolidationStatus("Consolidating memory...");
+    try {
+      const provider = createTextProvider(providerSettings, sessionApiKey, activeCard, "", 0);
+      const model = providerSettings.mode === "mock" ? "mock-narrator" : providerSettings.model;
+      const result = await runMemoryConsolidationSafely({ modelAdapter: provider, model, entries });
+      if (result.changed) {
+        const before = entries.length;
+        setCards((current) =>
+          current.map((card) =>
+            card.id === activeCard.id
+              ? {
+                  ...card,
+                  memory: result.entries.map((entry) => ({
+                    id: entry.id ?? createRuntimeEntityId("memory"),
+                    label: entry.label,
+                    detail: entry.detail,
+                  })),
+                }
+              : card,
+          ),
+        );
+        setMemoryConsolidationStatus(`Memory consolidated: ${before} to ${result.entries.length} entries.`);
+      } else {
+        setMemoryConsolidationStatus(
+          result.warnings[0] ?? "Memory is already concise; nothing to consolidate.",
+        );
+      }
+    } catch (error) {
+      setMemoryConsolidationStatus(`Memory consolidation failed: ${getErrorMessage(error)}`);
+    } finally {
+      setIsConsolidatingMemory(false);
+    }
+  }
+
   async function prepareImagePrompt() {
     if (!activeCard) {
       return;
@@ -2425,7 +2472,15 @@ export function App() {
       </section>
 
       {mediaPreview ? <MediaPreviewDialog preview={mediaPreview} close={() => setMediaPreview(null)} /> : null}
-      {memoryOpen && activeCard ? <MemoryDrawer card={activeCard} close={() => setMemoryOpen(false)} /> : null}
+      {memoryOpen && activeCard ? (
+        <MemoryDrawer
+          card={activeCard}
+          close={() => setMemoryOpen(false)}
+          consolidate={() => void consolidateActiveCardMemory()}
+          isConsolidating={isConsolidatingMemory}
+          status={memoryConsolidationStatus}
+        />
+      ) : null}
     </main>
   );
 }
@@ -4777,7 +4832,13 @@ function ProvidersSection(props: {
   );
 }
 
-function MemoryDrawer(props: { card: RuntimeCard; close: () => void }) {
+function MemoryDrawer(props: {
+  card: RuntimeCard;
+  close: () => void;
+  consolidate: () => void;
+  isConsolidating: boolean;
+  status: string | null;
+}) {
   useEffect(() => {
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -4800,6 +4861,22 @@ function MemoryDrawer(props: { card: RuntimeCard; close: () => void }) {
           <X size={18} />
         </button>
       </div>
+      <div className="button-row">
+        <button
+          className="secondary-button compact-button"
+          type="button"
+          onClick={props.consolidate}
+          disabled={props.isConsolidating || props.card.memory.length < 2}
+        >
+          <Layers3 size={15} />
+          {props.isConsolidating ? "Consolidating..." : "Consolidate memory"}
+        </button>
+      </div>
+      {props.status ? (
+        <p className="field-help" role="status" aria-live="polite">
+          {props.status}
+        </p>
+      ) : null}
       {props.card.memory.length === 0 ? <p>No saved memory for this card yet.</p> : null}
       <div className="memory-list">
         {props.card.memory.map((entry) => (

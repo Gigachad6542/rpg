@@ -204,6 +204,29 @@ describe("hidden continuity pass", () => {
     expect(prompt).toContain("track who explicitly knows or does not know each fact");
   });
 
+  it("includes blocked proposals for review only when some are pending", () => {
+    const withReview = buildHiddenContinuityPrompt({
+      card: createCard(),
+      messages: [],
+      latestUserMessage: "I travel to the north gate.",
+      activeLoreCount: 0,
+      pendingReviewProposals: ["Blocked ungrounded location proposal: North Gate.", "  ", ""],
+      now: "2026-07-01T12:00:00.000Z",
+    });
+    expect(withReview).toContain("previous turn's automatic grounding filter blocked");
+    expect(withReview).toContain("- Blocked ungrounded location proposal: North Gate.");
+    expect(withReview).toContain("Never approve a change the scene does not support.");
+
+    const withoutReview = buildHiddenContinuityPrompt({
+      card: createCard(),
+      messages: [],
+      latestUserMessage: "I look around.",
+      activeLoreCount: 0,
+      now: "2026-07-01T12:00:00.000Z",
+    });
+    expect(withoutReview).not.toContain("previous turn's automatic grounding filter blocked");
+  });
+
   it("fails open when the hidden continuity provider call fails", async () => {
     const result = await runHiddenContinuityPassSafely({
       modelAdapter: new FailingAdapter(),

@@ -648,6 +648,7 @@ export function App() {
   );
   const repositoryStoreRef = useRef<RuntimeRepository | null>(null);
   const snapshotSaveQueueRef = useRef<SnapshotSaveQueue<RepositoryRuntimeSnapshot> | null>(null);
+  const pendingReviewRef = useRef<Record<string, string[]>>({});
   const keyStorageRef = useRef<KeyStorage>(requireSecureKeyStorage());
   const [theme, setTheme] = useState<Theme>(() => initialSnapshot?.theme ?? "dark");
   const [section, setSection] = useState<MainSection>("runtime");
@@ -1485,6 +1486,7 @@ export function App() {
         messages: chatMessages,
         latestUserMessage: generationAction,
         activeLoreCount: activeLorebookEntries.length,
+        pendingReviewProposals: pendingReviewRef.current[activeCard.id] ?? [],
       });
       const continuityCard = applyHiddenContinuityToCard(activeCard, hiddenContinuity);
       const hiddenLatestUserMessage: Message = {
@@ -1530,6 +1532,9 @@ export function App() {
         latestUserAction: userMessage.content,
         assistantMessageText: pipelineResult.assistantMessageText,
       });
+      pendingReviewRef.current[activeCard.id] = policyResult.warnings
+        .filter((warning) => /^Blocked/i.test(warning))
+        .slice(-8);
       const visibleKnowledgeContinuity: HiddenContinuityResult = {
         ...createEmptyHiddenContinuityResult(),
         knowledgeUpdates: toHiddenContinuityKnowledgeUpdates(policyResult.extraction.character_knowledge_updates),

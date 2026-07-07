@@ -82,6 +82,7 @@ export interface HiddenContinuityRunRequest {
   messages: readonly HiddenContinuityMessage[];
   latestUserMessage: string;
   activeLoreCount: number;
+  pendingReviewProposals?: readonly string[];
   now?: () => string;
 }
 
@@ -90,6 +91,7 @@ export interface HiddenContinuityPromptRequest {
   messages: readonly HiddenContinuityMessage[];
   latestUserMessage: string;
   activeLoreCount: number;
+  pendingReviewProposals?: readonly string[];
   now: string;
 }
 
@@ -123,6 +125,7 @@ export async function runHiddenContinuityPass(
     messages: request.messages,
     latestUserMessage: request.latestUserMessage,
     activeLoreCount: request.activeLoreCount,
+    pendingReviewProposals: request.pendingReviewProposals,
     now: request.now?.() ?? new Date().toISOString(),
   });
   const generationRequest: TextGenerationRequest = {
@@ -154,6 +157,15 @@ export async function runHiddenContinuityPassSafely(
 }
 
 export function buildHiddenContinuityPrompt(request: HiddenContinuityPromptRequest): string {
+  const pendingReview = (request.pendingReviewProposals ?? []).filter((proposal) => proposal.trim());
+  const reviewSection =
+    pendingReview.length > 0
+      ? [
+          "The previous turn's automatic grounding filter blocked these proposed changes as unsupported.",
+          "If the established scene now clearly justifies any of them, record it as a memory or knowledge update. Otherwise ignore it. Never approve a change the scene does not support.",
+          ...pendingReview.map((proposal) => `- ${proposal}`),
+        ].join("\n")
+      : "";
   const recentMessages = request.messages
     .slice(-12)
     .map((message) => `${message.role}: ${message.content}`)
@@ -208,8 +220,11 @@ export function buildHiddenContinuityPrompt(request: HiddenContinuityPromptReque
     entities ? `Current story entities:\n${entities}` : "Current story entities: none",
     rpgState ? `Current RPG state:\n${rpgState}` : "Current RPG state: none",
     recentMessages ? `Recent visible chat:\n${recentMessages}` : "Recent visible chat: none",
+    reviewSection,
     `Latest visible user message:\n${request.latestUserMessage || "(blank message requesting a random opening)"}`,
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 export function parseHiddenContinuityResponse(responseText: string): HiddenContinuityResult {

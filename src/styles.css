@@ -534,6 +534,27 @@ textarea:focus-visible {
   scroll-behavior: smooth;
 }
 
+.streaming-reply {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.streaming-reply .message-prose::after {
+  content: "";
+  display: inline-block;
+  width: 0.5ch;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  animation: streaming-caret 1s steps(2, start) infinite;
+}
+
+@keyframes streaming-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
 .chat-composer label {
   display: grid;
   gap: 8px;

@@ -706,6 +706,7 @@ export function App() {
   const [sessionApiKey, setSessionApiKey] = useState("");
   const [imageSessionApiKey, setImageSessionApiKey] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [streamingReply, setStreamingReply] = useState("");
   const [saveStatus, setSaveStatus] = useState(initialSnapshot ? "Loaded local runtime snapshot." : "Ready for local save.");
   const [repositoryStatus, setRepositoryStatus] = useState("Repository store initializing.");
   const [dataManagementStatus, setDataManagementStatus] = useState("Runtime export, import, and diagnostics are ready.");
@@ -1464,6 +1465,7 @@ export function App() {
     }
 
     setIsGenerating(true);
+    setStreamingReply("");
     const runId = createRuntimeEntityId("run");
     const chat = activeChat ?? createChatSession(activeCard.id, `${activeCard.name} chat`);
     const chatMessages = filterPersistedOpeningMessages(chat.messages);
@@ -1513,6 +1515,7 @@ export function App() {
         modelAdapter: provider,
         model,
         temperature: 0.6,
+        onStreamText: (text) => setStreamingReply(text),
       });
       const statusBlockLocation = deriveStatusBlockLocationProposal(
         pipelineResult.assistantMessageText,
@@ -1616,6 +1619,7 @@ export function App() {
       setRuleWarning(getErrorMessage(error));
     } finally {
       setIsGenerating(false);
+      setStreamingReply("");
     }
   }
 
@@ -2315,6 +2319,7 @@ export function App() {
               runtimeRunning={runtimeRunning}
               startRuntime={startRuntime}
               isGenerating={isGenerating}
+              streamingReply={streamingReply}
               promptRuns={promptRuns.filter((run) => run.cardId === activeCard.id && (!activeChat || run.chatId === activeChat.id))}
               ruleWarning={ruleWarning}
               mapPrompt={mapPrompt}
@@ -2442,6 +2447,7 @@ function RuntimeSection(props: {
   runtimeRunning: boolean;
   startRuntime: () => void;
   isGenerating: boolean;
+  streamingReply: string;
   promptRuns: PromptRun[];
   ruleWarning: string | null;
   mapPrompt: string | null;
@@ -2585,6 +2591,19 @@ function RuntimeSection(props: {
               <MessageContent message={message} />
             </article>
           ))}
+          {props.runtimeRunning && props.isGenerating && props.streamingReply.trim() ? (
+            <article className="message response streaming-reply" aria-label="Streaming reply">
+              <header>
+                <span className="message-role">
+                  <Sparkles size={14} />
+                  {props.activeCard.name}
+                </span>
+              </header>
+              <MessageContent
+                message={{ id: "streaming-reply", role: "assistant", content: props.streamingReply }}
+              />
+            </article>
+          ) : null}
         </div>
         {props.ruleWarning ? (
           <p className="rule-warning" role="status" aria-live="polite">

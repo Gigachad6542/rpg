@@ -107,6 +107,47 @@ describe("turn pipeline", () => {
     });
   });
 
+  it("parses the extraction fence even when a status fence appears first", async () => {
+    const adapter = new RecordingTextAdapter({
+      text: [
+        "You cross into the gatehouse shadow.",
+        "",
+        "```status",
+        "Location: Gatehouse",
+        "Health: 9/10",
+        "```",
+        "",
+        "```json",
+        JSON.stringify({
+          extraction: {
+            rpg_state_updates: {
+              location: "Gatehouse",
+            },
+          },
+        }),
+        "```",
+      ].join("\n"),
+      finishReason: "stop",
+      usage: {
+        inputTokens: 80,
+        outputTokens: 30,
+        totalTokens: 110,
+      },
+    });
+
+    const result = await runTurnPipeline({
+      ...baseRequest(adapter),
+      promptRunId: "prompt_test_fences",
+    });
+
+    expect(result.stateProposals.rpgStateUpdates.location).toBe("Gatehouse");
+    expect(result.promptRun.extractionValidated).toBe(true);
+    expect(result.assistantMessageText).toContain("gatehouse shadow");
+    expect(result.assistantMessageText).toContain("Location: Gatehouse");
+    expect(result.assistantMessageText).not.toContain('"extraction"');
+    expect(result.assistantMessageText).not.toContain("```json");
+  });
+
   it("surfaces invalid extraction as warnings and uses persistence callbacks without a DB", async () => {
     const adapter = new RecordingTextAdapter({
       text: JSON.stringify({

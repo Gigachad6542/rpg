@@ -791,20 +791,19 @@ function parseJsonObject(value: string): Record<string, unknown> | undefined {
 function parseFirstFencedJson(
   value: string,
 ): { value: Record<string, unknown>; fullMatch: string } | undefined {
-  const match = /```(?:json)?\s*([\s\S]*?)```/i.exec(value);
-  if (!match) {
-    return undefined;
+  // Scan every fence: models often emit a `status` fence before the
+  // extraction fence, and the first fence is not always valid JSON.
+  for (const match of value.matchAll(/```[a-z]*\s*([\s\S]*?)```/gi)) {
+    const parsed = parseRecordJson(match[1].trim());
+    if (parsed) {
+      return {
+        value: parsed,
+        fullMatch: match[0],
+      };
+    }
   }
 
-  const parsed = parseRecordJson(match[1].trim());
-  if (!parsed) {
-    return undefined;
-  }
-
-  return {
-    value: parsed,
-    fullMatch: match[0],
-  };
+  return undefined;
 }
 
 function parseEmbeddedJsonObject(value: string): ParsedJsonMatch | undefined {

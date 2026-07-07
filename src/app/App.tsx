@@ -6292,7 +6292,7 @@ function buildResponseContract(settings: RuntimeSettings): string {
     "Never end the response by prompting the player, offering choices, or asking what they do next. End on the scene itself.",
     "Presentation rules: use *single asterisks* only for quiet narration/asides, **double asterisks** only for strong emphasis, and normal quotation marks for spoken dialogue.",
     "Do not show raw Markdown fences in the main prose. If useful, put Date, Time, Location, Weather, Health, Inventory, Quest, or Status as a short `status` fenced block at the very end.",
-    "If state should change, imply only plausible proposals; the local app validates extraction before saving.",
+    "When this turn changed durable state, append a fenced ```json block at the very end (after the status block) containing one object with any of these keys: memory_updates (array of {label, detail}), character_knowledge_updates (array of {subject, knows, does_not_know}), rpg_state_updates ({location, health_delta, inventory_add, inventory_remove, quest_updates, world_flags}), image_prompt_opportunity, continuity_warnings. The app strips this block from the visible reply and validates every proposal before saving; omit the block when nothing durable changed.",
     settings.banEmojis ? "Do not include emojis or emoticons in the response." : "",
     settings.impersonationPrompt.trim()
       ? `Account for this user impersonation/persona prompt without speaking as the user:\n${settings.impersonationPrompt.trim()}`

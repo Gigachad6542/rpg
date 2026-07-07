@@ -48,6 +48,7 @@ import {
   type StoryEntity,
   type StoryEntityKind,
 } from "../runtime/hiddenContinuity";
+import { detectKnowledgeLeaks, describeKnowledgeLeaks } from "../runtime/knowledgeLeakDetector";
 import { selectActiveLorebookEntries } from "../runtime/loreTriggerEngine";
 import { type CompiledPrompt } from "../runtime/promptCompiler";
 import { compileTurnPrompt, runTurnPipeline, type RunTurnPipelineRequest } from "../runtime/turnPipeline";
@@ -1545,6 +1546,10 @@ export function App() {
         applyHiddenContinuityToCard(continuityCard, visibleKnowledgeContinuity),
         policyResult.extraction,
       );
+      const leakWarnings = describeKnowledgeLeaks(
+        detectKnowledgeLeaks(assistantMessage.content, nextActiveCard.storyEntities),
+      );
+      const turnWarnings = [...warnings, ...leakWarnings];
 
       setChatSessions((current) =>
         upsertChatSession(current, {
@@ -1581,7 +1586,7 @@ export function App() {
           tokenEstimate: pipelineResult.promptRun.tokenEstimate,
           includedLayerIds: [...pipelineResult.promptRun.includedLayerIds],
           includedLoreEntryIds: [...pipelineResult.promptRun.includedLoreEntryIds],
-          warnings,
+          warnings: turnWarnings,
           stateChanges,
           usage: pipelineResult.promptRun.usage,
         },

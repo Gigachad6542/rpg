@@ -1,6 +1,6 @@
 :root {
-  color: #202522;
-  background: #f4f6f4;
+  color: #3d1f12;
+  background: #fdf3e8;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
@@ -40,30 +40,36 @@ p {
 }
 
 .app-shell {
-  --bg: #f3f5f3;
-  --surface: #ffffff;
-  --surface-raised: #fbfcfb;
-  --panel: #ffffff;
-  --panel-soft: #eef3f0;
-  --panel-warm: #f7f1e6;
-  --border: #d9e0da;
-  --border-strong: #b8c4bd;
-  --text: #202522;
-  --muted: #68746d;
-  --faint: #8d9991;
-  --accent: #287b6a;
-  --accent-strong: #155f51;
-  --accent-soft: rgba(40, 123, 106, 0.12);
-  --gold: #a76f20;
-  --gold-soft: rgba(167, 111, 32, 0.14);
-  --violet: #666fd3;
-  --danger: #a64434;
-  --danger-soft: rgba(166, 68, 52, 0.13);
-  --code-bg: #161a18;
-  --code-text: #edf4ef;
-  --shadow-soft: 0 18px 44px rgba(33, 39, 35, 0.08);
-  --shadow-tight: 0 8px 18px rgba(33, 39, 35, 0.08);
-  background: var(--bg);
+  --bg: #fdf3e8;
+  --surface: #fffaf4;
+  --surface-raised: #fff4e9;
+  --panel: #fffbf6;
+  --panel-soft: #fce7d4;
+  --panel-warm: #fbdcc0;
+  --border: #f2d6bd;
+  --border-strong: #e7b892;
+  --text: #3d1f12;
+  --muted: #94614a;
+  --faint: #bd8d72;
+  --accent: #e5431f;
+  --accent-strong: #c22f0f;
+  --accent-soft: rgba(229, 67, 31, 0.12);
+  --gold: #f08a1c;
+  --gold-soft: rgba(240, 138, 28, 0.16);
+  --violet: #e2701a;
+  --danger: #b12414;
+  --danger-soft: rgba(177, 36, 20, 0.13);
+  --code-bg: #2a1509;
+  --code-text: #ffe9d6;
+  --shadow-soft: 0 18px 44px rgba(120, 45, 20, 0.13);
+  --shadow-tight: 0 8px 18px rgba(120, 45, 20, 0.1);
+  --radius: 16px;
+  --radius-sm: 11px;
+  --radius-pill: 999px;
+  background:
+    radial-gradient(1100px 760px at 10% -12%, color-mix(in srgb, var(--gold) 24%, transparent), transparent 58%),
+    radial-gradient(980px 680px at 112% 8%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 54%),
+    var(--bg);
   color: var(--text);
   display: grid;
   grid-template-columns: 268px minmax(0, 1fr);
@@ -73,29 +79,29 @@ p {
 }
 
 .app-shell.dark {
-  --bg: #111311;
-  --surface: #171a17;
-  --surface-raised: #1c201d;
-  --panel: #1b1f1c;
-  --panel-soft: #232922;
-  --panel-warm: #2a2419;
-  --border: #323b34;
-  --border-strong: #4a574d;
-  --text: #eff4f0;
-  --muted: #a5b1a9;
-  --faint: #7f8b83;
-  --accent: #58c3aa;
-  --accent-strong: #91dfcc;
-  --accent-soft: rgba(88, 195, 170, 0.14);
-  --gold: #e0a64c;
-  --gold-soft: rgba(224, 166, 76, 0.14);
-  --violet: #9ba2ff;
-  --danger: #ff9b86;
-  --danger-soft: rgba(255, 155, 134, 0.13);
-  --code-bg: #0b0e0c;
-  --code-text: #e5eee8;
-  --shadow-soft: 0 20px 54px rgba(0, 0, 0, 0.34);
-  --shadow-tight: 0 10px 24px rgba(0, 0, 0, 0.24);
+  --bg: #1a0f0a;
+  --surface: #241611;
+  --surface-raised: #2c1a13;
+  --panel: #281811;
+  --panel-soft: #341f16;
+  --panel-warm: #3d2415;
+  --border: #4a2d20;
+  --border-strong: #6b4130;
+  --text: #fce9dd;
+  --muted: #cd9c86;
+  --faint: #9a6f5c;
+  --accent: #ff6a33;
+  --accent-strong: #ff8a5a;
+  --accent-soft: rgba(255, 106, 51, 0.18);
+  --gold: #ffb24d;
+  --gold-soft: rgba(255, 178, 77, 0.18);
+  --violet: #ff8a44;
+  --danger: #ff7a63;
+  --danger-soft: rgba(255, 122, 99, 0.16);
+  --code-bg: #140b07;
+  --code-text: #ffe4d1;
+  --shadow-soft: 0 20px 54px rgba(0, 0, 0, 0.46);
+  --shadow-tight: 0 10px 24px rgba(0, 0, 0, 0.34);
 }
 
 .sidebar {
@@ -142,7 +148,7 @@ p {
 .brand-mark {
   background: var(--accent);
   border: 1px solid color-mix(in srgb, var(--accent) 78%, #ffffff 22%);
-  border-radius: 8px;
+  border-radius: var(--radius);
   box-shadow: inset 0 -10px 18px rgba(0, 0, 0, 0.14);
   color: #ffffff;
   display: grid;
@@ -156,7 +162,7 @@ p {
 
 .brand-image {
   border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
-  border-radius: 8px;
+  border-radius: var(--radius);
   box-shadow: var(--shadow-tight);
   flex: 0 0 auto;
   height: 46px;
@@ -206,7 +212,7 @@ h3 {
 .primary-button,
 .secondary-button,
 .icon-button {
-  border-radius: 8px;
+  border-radius: var(--radius);
   cursor: pointer;
   gap: 8px;
   min-height: 38px;
@@ -325,7 +331,7 @@ input[type="checkbox"] {
 input[type="file"] {
   background: var(--surface-raised);
   border: 1px dashed var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--radius);
   color: var(--muted);
   cursor: pointer;
   font-size: 13px;
@@ -336,7 +342,7 @@ input[type="file"] {
 input[type="file"]::file-selector-button {
   background: var(--panel-soft);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   color: var(--text);
   cursor: pointer;
   font: inherit;
@@ -366,7 +372,7 @@ textarea:focus-visible {
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   box-shadow: var(--shadow-tight);
 }
 
@@ -497,7 +503,7 @@ textarea:focus-visible {
 .selected-card-panel {
   background: var(--surface-raised);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   box-shadow: var(--shadow-tight);
   min-width: 0;
 }
@@ -569,7 +575,7 @@ textarea:focus-visible {
   align-self: center;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   display: grid;
   gap: 10px;
   justify-items: center;
@@ -604,7 +610,7 @@ textarea:focus-visible {
 .media-panel-tabs {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   display: grid;
   gap: 6px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -615,7 +621,7 @@ textarea:focus-visible {
   align-items: center;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
   cursor: pointer;
   display: inline-flex;
@@ -670,7 +676,7 @@ textarea:focus-visible {
 .story-entity-empty {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   display: grid;
   gap: 9px;
   min-width: 0;
@@ -752,7 +758,7 @@ textarea:focus-visible {
   aspect-ratio: 1;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   box-shadow: var(--shadow-tight);
   width: 76px;
 }
@@ -838,7 +844,7 @@ textarea:focus-visible {
   align-items: center;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius);
   color: var(--muted);
   cursor: pointer;
   display: inline-flex;
@@ -879,7 +885,7 @@ textarea:focus-visible {
 
 .message {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   box-shadow: var(--shadow-tight);
   max-width: 880px;
   overflow-wrap: anywhere;
@@ -925,7 +931,7 @@ textarea:focus-visible {
   align-self: center;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   box-shadow: var(--shadow-tight);
   display: grid;
   gap: 10px;
@@ -987,7 +993,7 @@ textarea:focus-visible {
 .message-status-footer div {
   background: color-mix(in srgb, var(--surface-raised) 76%, transparent);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   display: grid;
   gap: 3px;
   min-width: 0;
@@ -1029,7 +1035,7 @@ select,
 input {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   color: var(--text);
   outline: none;
   width: 100%;
@@ -1099,7 +1105,7 @@ input {
   align-items: center;
   background: var(--surface-raised);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   display: grid;
   gap: 12px;
   grid-template-columns: 86px minmax(0, 1fr);
@@ -1110,7 +1116,7 @@ input {
 .card-library-hero img {
   aspect-ratio: 1;
   border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
-  border-radius: 8px;
+  border-radius: var(--radius);
   object-fit: cover;
   width: 86px;
 }
@@ -1140,7 +1146,7 @@ input {
 .card-library-stats span {
   background: var(--surface-raised);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   color: var(--muted);
   display: grid;
   font-size: 12px;
@@ -1158,7 +1164,7 @@ input {
 .card-row {
   background: var(--surface-raised);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   display: grid;
   gap: 8px;
   padding: 12px;
@@ -1271,7 +1277,7 @@ input {
 .flag-grid span {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   font-size: 12px;
   font-weight: 780;
   min-height: 33px;
@@ -1305,7 +1311,7 @@ input {
   align-items: center;
   background: var(--accent-soft);
   border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
-  border-radius: 8px;
+  border-radius: var(--radius);
   display: flex;
   gap: 9px;
   min-height: 46px;
@@ -1327,7 +1333,7 @@ input {
 .rule-add-panel {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   display: grid;
   gap: 11px;
   padding: 12px;
@@ -1365,7 +1371,7 @@ pre,
 code {
   background: var(--code-bg);
   border: 1px solid color-mix(in srgb, var(--border) 34%, transparent);
-  border-radius: 8px;
+  border-radius: var(--radius);
   color: var(--code-text);
   display: block;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
@@ -1427,7 +1433,7 @@ pre {
 .lorebook-toolbar {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   display: grid;
   gap: 11px;
   padding: 12px;
@@ -1442,7 +1448,7 @@ pre {
   align-items: center;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   min-height: 38px;
@@ -1479,7 +1485,7 @@ pre {
 .toggle-row {
   background: var(--surface-raised);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   gap: 8px;
   min-height: 38px;
   padding: 0 10px;
@@ -1499,7 +1505,7 @@ pre {
 .lorebook-active {
   background: var(--accent-soft);
   border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
-  border-radius: 8px;
+  border-radius: var(--radius);
   gap: 9px;
   min-height: 46px;
   padding: 10px 12px;
@@ -1513,7 +1519,7 @@ pre {
 .lorebook-entry {
   background: var(--surface-raised);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   display: grid;
   gap: 9px;
   padding: 11px;
@@ -1581,7 +1587,7 @@ pre {
   aspect-ratio: 1;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   box-shadow: var(--shadow-tight);
   max-height: min(560px, 65vh);
   object-fit: contain;
@@ -1604,7 +1610,7 @@ pre {
   aspect-ratio: 4 / 3;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   box-shadow: var(--shadow-tight);
   max-height: min(680px, 58vh);
   object-fit: contain;
@@ -1615,7 +1621,7 @@ pre {
   align-items: center;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -1649,7 +1655,7 @@ pre {
     var(--panel);
   background-size: 30px 30px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   display: grid;
   gap: 9px;
   justify-items: center;
@@ -1673,7 +1679,7 @@ pre {
 .compiled-image-prompt {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
@@ -1697,7 +1703,7 @@ pre {
 .media-preview-dialog {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   box-shadow: 0 30px 90px rgba(0, 0, 0, 0.42);
   display: grid;
   gap: 12px;
@@ -1724,7 +1730,7 @@ pre {
   align-items: center;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   display: grid;
   min-height: 0;
   overflow: hidden;
@@ -1763,7 +1769,7 @@ pre {
 .memory-row {
   background: var(--surface-raised);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   display: grid;
   gap: 7px;
   padding: 10px;
@@ -1906,4 +1912,63 @@ pre {
   .topbar-meta span {
     justify-content: center;
   }
+}
+
+/* Warm circle theme: rounded controls, circular avatars, and the ember brand mark. */
+.primary-button,
+.secondary-button,
+.icon-button,
+.compact-button,
+.nav-item,
+.tab-strip button,
+.media-panel-tabs button,
+.kind-pill,
+.search-input,
+input[type="search"] {
+  border-radius: var(--radius-pill);
+}
+
+.brand-mark {
+  position: relative;
+  width: 40px;
+  aspect-ratio: 1;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 28%, var(--gold), var(--accent) 58%, var(--accent-strong));
+  box-shadow:
+    0 6px 16px var(--accent-soft),
+    inset 0 0 0 2px color-mix(in srgb, #fff 34%, transparent);
+}
+
+.brand-mark::after {
+  content: "";
+  position: absolute;
+  inset: 32%;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, #fff 62%, transparent);
+}
+
+.brand-mark-large {
+  width: 86px;
+}
+
+.brand-mark-large::after {
+  border-width: 3px;
+}
+
+.story-portrait-image-frame,
+.story-portrait-image,
+.story-portrait-placeholder,
+.character-portrait,
+.character-portrait img {
+  border-radius: 50%;
+}
+
+.nav-item.active {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.section-title svg,
+.brand-lockup svg {
+  color: var(--accent);
 }

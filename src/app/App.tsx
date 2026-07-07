@@ -32,7 +32,6 @@ import {
   Wand2,
   X,
 } from "lucide-react";
-import profileImageUrl from "../assets/local-cards-profile.png";
 import { persistGeneratedImageLocally } from "./imagePersistence";
 import { createSnapshotSaveQueue, type SnapshotSaveQueue } from "./snapshotSaveQueue";
 import { compileImagePrompt, type CompiledImagePrompt } from "../runtime/imagePromptCompiler";
@@ -2215,7 +2214,7 @@ export function App() {
     <main className={`app-shell ${theme}`} data-theme={theme}>
       <aside className="sidebar" aria-label="Main navigation">
         <div className="brand-lockup">
-          <img className="brand-image" src={profileImageUrl} alt="" />
+          <span className="brand-mark" aria-hidden="true" />
           <div>
             <h1>Local Cards</h1>
             <p>Character and RPG runtime</p>
@@ -4125,7 +4124,7 @@ function CardsSection(props: {
           <h3>Card Library</h3>
         </div>
         <div className="card-library-hero" aria-label="Card library profile">
-          <img src={profileImageUrl} alt="" />
+          <span className="brand-mark brand-mark-large" aria-hidden="true" />
           <div>
             <strong>Local-first runtime</strong>
             <span>Cards, rules, memory, lorebooks, and maps stay scoped to the active card.</span>

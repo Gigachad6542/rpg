@@ -5116,6 +5116,7 @@ function buildMapPromptPlannerPrompt(
         `Inventory: ${card.rpg.inventory.join(", ") || "none"}`,
         `Health/status: ${card.rpg.health || "not configured"}`,
         `Map style: ${card.rpg.mapStyle}`,
+        `Atmosphere (weather, era, light): ${deriveAerialAtmosphere(card, messages) || "unspecified; match the established setting"}`,
       ].join("\n")
     : [`Scenario: ${card.scenario || card.summary}`, `Character: ${card.characterName || card.name}`].join("\n");
 
@@ -5125,6 +5126,9 @@ function buildMapPromptPlannerPrompt(
     "Focus only on visual requirements: large environment features, spatial relationships, mood, lighting, camera, and continuity details visible from the requested aerial height.",
     card.kind === "rpg"
       ? "For RPG aerial images, do not make a map, cartographic layout, diagram, tabletop reference, or labeled game board. Describe an overhead environment image from about 200 feet above ground. Include only large features that would be visible from 200 feet up, such as clearings, tree clusters, rivers, ponds, shorelines, roads, trails, bridges, ruins, buildings, fires, smoke, fields, hills, or coastlines. Do not include recent actions, inventory, fish, sticks, small tools, facial details, text labels, people, characters, player figures, silhouettes, tokens, portraits, or a single figure unless they are visibly large from that height. Put those exclusions in negativePrompt."
+      : "",
+    card.kind === "rpg"
+      ? "Reflect the setting's era through the architecture, materials, and land use, and show the current weather and broad time of day through lighting and atmosphere. Never draw a clock, watch, sundial, timestamp, or any written time."
       : "",
     "Return only compact JSON with keys `prompt` and `negativePrompt`. No markdown, no commentary.",
     runtimeSettings.banEmojis ? "Do not use emojis." : "",
@@ -5207,9 +5211,75 @@ function formatRecentChatForMapPlanner(card: RuntimeCard, messages: Message[]): 
     .join("\n");
 }
 
+const AERIAL_WEATHER_CUES: Array<[RegExp, string]> = [
+  [/\b(thunder|lightning|storm|tempest)\b/i, "stormy skies"],
+  [/\b(downpour|heavy rain|rain|drizzle|rainfall|raining)\b/i, "rain"],
+  [/\b(snow|blizzard|sleet|snowfall|snowing)\b/i, "snow"],
+  [/\b(fog|mist|haze|misty|foggy)\b/i, "fog and haze"],
+  [/\b(overcast|cloudy|grey sky|gray sky|clouded)\b/i, "overcast clouds"],
+  [/\b(clear sky|sunny|cloudless|blue sky|bright sun)\b/i, "clear skies"],
+];
+
+const AERIAL_ERA_CUES: Array<[RegExp, string]> = [
+  [/\b(steampunk|clockwork|airship)\b/i, "steampunk industrial"],
+  [/\b(victorian|industrial|factory|gaslight|steam engine)\b/i, "industrial-era"],
+  [/\b(medieval|feudal|castle|knight|keep|fiefdom|serf)\b/i, "medieval"],
+  [/\b(ancient|antiquity|roman|greek|pharaoh|bronze age|marble column)\b/i, "ancient"],
+  [/\b(renaissance|baroque)\b/i, "renaissance"],
+  [/\b(futuristic|cyber|neon city|spaceport|starship|hologram)\b/i, "futuristic"],
+  [/\b(post-?apocalyp|wasteland|ruined city|scavenger)\b/i, "post-apocalyptic ruins"],
+  [/\b(modern|city street|skyscraper|automobile|highway)\b/i, "modern-day"],
+  [/\b(arcane|wizard|enchanted|rune|dragon|sorcery)\b/i, "high-fantasy"],
+];
+
+const AERIAL_TIME_LIGHT_CUES: Array<[RegExp, string]> = [
+  [/\b(dawn|sunrise|first light|daybreak)\b/i, "soft dawn light"],
+  [/\b(morning|forenoon)\b/i, "clear morning light"],
+  [/\b(noon|midday|high sun)\b/i, "bright overhead daylight"],
+  [/\b(afternoon)\b/i, "warm afternoon light"],
+  [/\b(dusk|sunset|twilight|evening|gloaming)\b/i, "golden dusk light"],
+  [/\b(night|midnight|nightfall|moonlit|starlit)\b/i, "moonlit night"],
+];
+
+/**
+ * Derives an aerial atmosphere descriptor (weather, setting era, and broad
+ * time-of-day expressed as lighting) from the scene. Time is deliberately
+ * rendered as a lighting mood, never a clock reading, and the era captures the
+ * period's architecture/materials rather than a timestamp.
+ */
+function deriveAerialAtmosphere(card: RuntimeCard, messages: Message[]): string {
+  const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
+  const status = lastAssistant ? parseStatusItems(splitTrailingStatusBlock(lastAssistant.content).statusBlock) : [];
+  const statusValue = (label: RegExp): string => status.find((item) => label.test(item.label))?.value ?? "";
+  const recentText = messages.slice(-4).map((message) => message.content).join(" ");
+  const eraSource = `${card.summary} ${card.scenario} ${card.systemPrompt} ${recentText}`;
+
+  const weather = matchCue([statusValue(/weather/i), recentText].join(" "), AERIAL_WEATHER_CUES);
+  const era = matchCue(eraSource, AERIAL_ERA_CUES);
+  const light = matchCue([statusValue(/time/i), recentText].join(" "), AERIAL_TIME_LIGHT_CUES);
+
+  return [
+    weather ? `weather ${weather}` : "",
+    era ? `${era} setting architecture and materials` : "",
+    light ? `${light}` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+function matchCue(text: string, cues: ReadonlyArray<[RegExp, string]>): string {
+  for (const [pattern, label] of cues) {
+    if (pattern.test(text)) {
+      return label;
+    }
+  }
+  return "";
+}
+
 function buildImagePromptRequest(card: RuntimeCard, messages: Message[]): Parameters<typeof compileImagePrompt>[0] {
   const recentStory = summarizeRecentMessagesForMap(card, messages);
   const recentMapVisuals = summarizeRecentVisualsForMap(messages);
+  const atmosphere = deriveAerialAtmosphere(card, messages);
 
   if (card.kind === "rpg" && card.rpg) {
     return {
@@ -5224,7 +5294,7 @@ function buildImagePromptRequest(card: RuntimeCard, messages: Message[]): Parame
       ]
         .filter(Boolean)
         .join("; "),
-      mood: "natural overhead scene image, readable terrain and large landmarks, no story transcript text",
+      mood: `natural overhead scene image, readable terrain and large landmarks, no story transcript text${atmosphere ? `, ${atmosphere}` : ""}`,
       camera: "strict top-down overhead view from about 200 feet above ground",
       stylePreset: "cinematic aerial terrain image, natural terrain detail, large visible landmarks",
       continuityLocks: Object.entries(card.rpg.flags)
@@ -6915,6 +6985,7 @@ export const __appTestables = {
   deriveChatTitle,
   buildWriteForMeDraft,
   buildMapPromptPlannerPrompt,
+  deriveAerialAtmosphere,
   parsePlannedImagePrompt,
   normalizeRpgAerialImagePrompt,
   sanitizeMapNegativePrompt,

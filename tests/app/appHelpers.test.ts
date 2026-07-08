@@ -206,6 +206,23 @@ describe("App pure helper coverage", () => {
     expect(plannerPrompt).toContain("Do not use emojis.");
     expect(helpers.buildMapPromptPlannerPrompt(characterCard(), [], fallback, { ...runtimeSettings, banEmojis: false })).toContain("(no chat yet)");
 
+    const atmosphere = helpers.deriveAerialAtmosphere(rpgCard(), [
+      { id: "u1", role: "user", content: "We ride up toward the medieval keep." },
+      { id: "a1", role: "assistant", content: "Rain lashes the ramparts.\n\nWeather: heavy rain\nTime: dusk" },
+    ] as any);
+    expect(atmosphere).toContain("rain");
+    expect(atmosphere).toContain("medieval");
+    expect(atmosphere).toContain("dusk light");
+    expect(atmosphere).not.toMatch(/\b\d{1,2}:\d{2}\b/);
+    const eraPlanner = helpers.buildMapPromptPlannerPrompt(
+      rpgCard(),
+      [{ id: "a2", role: "assistant", content: "Snow drifts over the ancient marble columns at first light." }] as any,
+      fallback,
+      runtimeSettings,
+    );
+    expect(eraPlanner).toContain("Never draw a clock");
+    expect(eraPlanner).toMatch(/Atmosphere \(weather, era, light\):/);
+
     expect(helpers.parsePlannedImagePrompt('noise {"prompt":" map ","negative_prompt":" people "}')).toEqual({
       prompt: "map",
       negativePrompt: "people",

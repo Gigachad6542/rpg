@@ -35,6 +35,7 @@
     "desktop:installed-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-installed-smoke.ps1",
     "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm audit:prod && pnpm rust:test && pnpm rust:clippy",
     "verify:release": "pnpm typecheck && pnpm lint && pnpm test:coverage && pnpm build && pnpm e2e && pnpm audit:prod && pnpm rust:audit && pnpm rust:test && pnpm rust:clippy && pnpm desktop:build && pnpm desktop:smoke && pnpm desktop:installed-smoke",
+    "verify:release:mac": "pnpm typecheck && pnpm lint && pnpm test:coverage && pnpm build && pnpm e2e && pnpm audit:prod && pnpm rust:audit && pnpm rust:test && pnpm rust:clippy && pnpm desktop:build",
     "verify:desktop": "pnpm verify && pnpm desktop:build",
     "tauri": "tauri",
     "desktop:open": "tauri dev",

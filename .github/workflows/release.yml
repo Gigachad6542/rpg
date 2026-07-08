@@ -78,4 +78,77 @@ jobs:
           $artifacts = Get-ChildItem -Path $bundleRoot -Recurse -File -Include *.msi,*.exe
           $checksum = Join-Path $bundleRoot "SHA256SUMS.txt"
           $releaseFiles = @($artifacts | ForEach-Object { $_.FullName }) + @($checksum)
-          gh release create $env:GITHUB_REF_NAME $releaseFiles --generate-notes --title "Local-First AI RPG Runtime $env:GITHUB_REF_NAME"
+          $title = "Local-First AI RPG Runtime $env:GITHUB_REF_NAME"
+          gh release create $env:GITHUB_REF_NAME $releaseFiles --generate-notes --title $title
+          if ($LASTEXITCODE -ne 0) {
+            gh release upload $env:GITHUB_REF_NAME $releaseFiles --clobber
+          }
+
+  macos-desktop-release:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@1.94.1
+        with:
+          components: clippy
+          targets: aarch64-apple-darwin
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm e2e:install
+
+      - name: Verify release candidate (macOS)
+        run: pnpm verify:release:mac
+
+      - name: Create checksum manifest
+        run: |
+          bundle_root="src-tauri/target/release/bundle"
+          shopt -s nullglob
+          artifacts=("$bundle_root"/dmg/*.dmg)
+          if [ ${#artifacts[@]} -eq 0 ]; then
+            echo "No macOS .dmg artifacts found under $bundle_root" >&2
+            exit 1
+          fi
+          ( cd "$bundle_root/dmg" && shasum -a 256 *.dmg > SHA256SUMS.txt )
+
+      - name: Upload macOS desktop artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-first-ai-rpg-runtime-macos
+          path: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/dmg/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish to GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bundle_root="src-tauri/target/release/bundle"
+          shopt -s nullglob
+          files=("$bundle_root"/dmg/*.dmg "$bundle_root/dmg/SHA256SUMS.txt")
+          title="Local-First AI RPG Runtime ${GITHUB_REF_NAME}"
+          gh release create "$GITHUB_REF_NAME" "${files[@]}" --generate-notes --title "$title" \
+            || gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber

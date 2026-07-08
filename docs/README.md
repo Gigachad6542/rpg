@@ -12,6 +12,8 @@ This folder keeps operational notes and verification evidence for `rpg`.
   snapshot durability, migrations, and provider boundaries.
 - [Production plan](production-plan.md) summarizes the current production-readiness audit,
   closed blockers, remaining launch work, release milestones, and acceptance gates.
+- [macOS install](macos-install.md) covers downloading the CI-built Apple Silicon `.dmg`,
+  the unsigned-build Gatekeeper bypass, and building locally on a Mac.
 
 ## Testing Evidence
 

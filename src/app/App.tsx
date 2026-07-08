@@ -1,4 +1,4 @@
-import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
   Brush,
@@ -256,6 +256,7 @@ type RuntimeSettings = {
   banEmojis: boolean;
   promptDebugLogs: boolean;
   impersonationPrompt: string;
+  accentColor: string;
 };
 
 type ModelChoice = {
@@ -552,6 +553,7 @@ const defaultRuntimeSettings: RuntimeSettings = {
   banEmojis: false,
   promptDebugLogs: false,
   impersonationPrompt: "",
+  accentColor: "",
 };
 
 const emptyCompiledPrompt: CompiledPrompt = {
@@ -2211,7 +2213,19 @@ export function App() {
   }
 
   return (
-    <main className={`app-shell ${theme}`} data-theme={theme}>
+    <main
+      className={`app-shell ${theme}`}
+      data-theme={theme}
+      style={
+        /^#[0-9a-fA-F]{6}$/.test(runtimeSettings.accentColor)
+          ? ({
+              "--accent": runtimeSettings.accentColor,
+              "--accent-strong": `color-mix(in srgb, ${runtimeSettings.accentColor} 78%, #000)`,
+              "--accent-soft": `color-mix(in srgb, ${runtimeSettings.accentColor} 16%, transparent)`,
+            } as CSSProperties)
+          : undefined
+      }
+    >
       <aside className="sidebar" aria-label="Main navigation">
         <div className="brand-lockup">
           <span className="brand-mark" aria-hidden="true" />
@@ -2461,7 +2475,7 @@ export function App() {
           <SettingsSection
             runtimeSettings={runtimeSettings}
             setRuntimeSettings={setRuntimeSettings}
-            promptPreview={formatRuntimeSettingsForPrompt(runtimeSettings)}
+            promptPreview={compiledPrompt}
             dataManagementStatus={dataManagementStatus}
             exportRuntimeData={exportRuntimeData}
             importRuntimeData={importRuntimeData}
@@ -2715,36 +2729,6 @@ function RuntimeSection(props: {
 
       {showMediaPanel ? (
         <aside className="media-side-panel" aria-label="Image and story tools">
-          <div className="media-panel-tabs" role="toolbar" aria-label="Aerial image, characters, and image panel shortcuts">
-            <button
-              className="active"
-              type="button"
-              aria-controls="media-panel-map"
-              onClick={() => scrollMediaPanelIntoView("media-panel-map")}
-              disabled={!showMapPanel}
-            >
-              <Image size={16} />
-              {mediaPrimaryLabel}
-            </button>
-            <button
-              className="active"
-              type="button"
-              aria-controls="media-panel-characters"
-              onClick={() => scrollMediaPanelIntoView("media-panel-characters")}
-            >
-              <UserRound size={16} />
-              Characters
-            </button>
-            <button
-              className="active"
-              type="button"
-              aria-controls="media-panel-image"
-              onClick={() => scrollMediaPanelIntoView("media-panel-image")}
-            >
-              <Image size={16} />
-              Image
-            </button>
-          </div>
           {showMapPanel ? (
             <section
               className="media-section map-generator-section"
@@ -3025,7 +3009,7 @@ function StoryCharactersPanel(props: {
         {entities.map((entity) => {
           const portrait = findCharacterPortraitForEntity(props.portraits, "", entity);
           return (
-            <article className={`story-entity-card ${entity.kind}`} key={entity.id}>
+            <div className={`story-entity-item ${entity.kind}`} key={entity.id}>
               <div className="story-entity-main">
                 <CharacterPortrait
                   entity={entity}
@@ -3033,10 +3017,6 @@ function StoryCharactersPanel(props: {
                   openMediaPreview={props.openMediaPreview}
                 />
                 <div className="story-entity-copy">
-                  <header>
-                    <span className="story-entity-kind">{formatStoryEntityKind(entity.kind)}</span>
-                    <strong className="story-entity-name">{entity.name}</strong>
-                  </header>
                   {hasStoryEntityDetails(entity) || !isDefaultPlayerStoryEntity(entity) ? (
                     <button
                       className="secondary-button compact-button story-details-button"
@@ -3103,7 +3083,7 @@ function StoryCharactersPanel(props: {
                   ) : null}
                 </div>
               ) : null}
-            </article>
+            </div>
           );
         })}
       </div>
@@ -5848,6 +5828,10 @@ function parseRuntimeSettings(value?: Record<string, unknown>): RuntimeSettings 
       typeof value?.impersonationPrompt === "string"
         ? value.impersonationPrompt
         : defaultRuntimeSettings.impersonationPrompt,
+    accentColor:
+      typeof value?.accentColor === "string" && /^#[0-9a-fA-F]{6}$/.test(value.accentColor)
+        ? value.accentColor
+        : defaultRuntimeSettings.accentColor,
   };
 }
 
@@ -6065,13 +6049,6 @@ function isComfyUiImageProviderReady(
   );
 }
 
-function scrollMediaPanelIntoView(id: string) {
-  const element = document.getElementById(id);
-  if (element && typeof element.scrollIntoView === "function") {
-    element.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }
-}
-
 function buildCustomImagePrompt(userInput: string): string {
   return `${customImagePresetPrompt}\n\nplus user inputs: ${userInput.trim()}`;
 }
@@ -6227,17 +6204,6 @@ function formatDetailedCharacterDefinition(card: RuntimeCard): string {
     card.scenario ? `Scenario:\n${card.scenario}` : "",
     card.greeting ? `Greeting:\n${card.greeting}` : "",
     card.exampleDialogs ? `Example dialogs:\n${card.exampleDialogs}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-}
-
-function formatRuntimeSettingsForPrompt(settings: RuntimeSettings): string {
-  return [
-    settings.banEmojis ? "Do not use emojis, emoticons, kaomoji, or decorative unicode faces in replies." : "",
-    settings.impersonationPrompt.trim()
-      ? `User impersonation/persona prompt:\n${settings.impersonationPrompt.trim()}`
-      : "",
   ]
     .filter(Boolean)
     .join("\n\n");

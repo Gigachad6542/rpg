@@ -1972,3 +1972,58 @@ input[type="search"] {
 .brand-lockup svg {
   color: var(--accent);
 }
+
+.accent-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.accent-swatch {
+  block-size: 30px;
+  inline-size: 30px;
+  border: 2px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 120ms ease;
+}
+
+.accent-swatch:hover {
+  transform: scale(1.08);
+}
+
+.accent-swatch.active {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+}
+
+.accent-controls {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.accent-controls input[type="color"] {
+  block-size: 34px;
+  inline-size: 44px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  padding: 2px;
+  background: var(--surface-raised);
+}
+
+.story-entity-item {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.story-entity-item .story-entity-main {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-width: 0;
+}

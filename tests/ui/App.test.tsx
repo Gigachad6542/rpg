@@ -43,8 +43,10 @@ function openCardEditorTab(name: RegExp) {
   fireEvent.click(screen.getByRole("tab", { name }));
 }
 
-function openMediaTab(name: RegExp) {
-  fireEvent.click(screen.getByRole("button", { name }));
+function openMediaTab(name: RegExp): void {
+  // Media sections (aerial image, characters, image) are always visible now;
+  // the tab-shortcut bar was removed, so this is a no-op kept for readability.
+  void name;
 }
 
 function sendRuntimeMessage(message: string) {
@@ -464,9 +466,9 @@ describe("local-first card runtime UI", () => {
 
     openMediaTab(/^Characters$/i);
     const charactersPanel = screen.getByRole("region", { name: /Story characters/i });
-    expect(within(charactersPanel).getByText(/Player character/i)).toBeInTheDocument();
-    expect(within(charactersPanel).getByText(/^Nia$/i)).toBeInTheDocument();
-    expect(within(charactersPanel).getByText(/^Rook$/i)).toBeInTheDocument();
+    expect(within(charactersPanel).getAllByLabelText(/Character portrait for/i).length).toBeGreaterThanOrEqual(2);
+    expect(within(charactersPanel).getByLabelText(/Character portrait for Nia/i)).toBeInTheDocument();
+    expect(within(charactersPanel).getByLabelText(/Character portrait for Rook/i)).toBeInTheDocument();
     await waitFor(() =>
       expect(within(charactersPanel).getByLabelText(/Character portrait for Nia/i)).toHaveTextContent(
         /Portrait prompt ready|Portrait generated/i,
@@ -477,7 +479,7 @@ describe("local-first card runtime UI", () => {
     );
     expect(within(charactersPanel).queryByText(/Does not know/i)).not.toBeInTheDocument();
     expect(within(charactersPanel).queryByText(/silver coin hidden in my boot/i)).not.toBeInTheDocument();
-    const rookCard = within(charactersPanel).getByText(/^Rook$/i).closest("article");
+    const rookCard = within(charactersPanel).getByLabelText(/Character portrait for Rook/i).closest(".story-entity-item");
     expect(rookCard).not.toBeNull();
     fireEvent.click(within(rookCard as HTMLElement).getByRole("button", { name: /Show details for Rook/i }));
     expect(within(rookCard as HTMLElement).getByText(/Does not know/i)).toBeInTheDocument();
@@ -512,8 +514,8 @@ describe("local-first card runtime UI", () => {
     openBlankRpgCard();
     openMediaTab(/^Characters$/i);
     const reloadedCharactersPanel = screen.getByRole("region", { name: /Story characters/i });
-    expect(within(reloadedCharactersPanel).getByText(/^Nia$/i)).toBeInTheDocument();
-    expect(within(reloadedCharactersPanel).getByText(/^Rook$/i)).toBeInTheDocument();
+    expect(within(reloadedCharactersPanel).getByLabelText(/Character portrait for Nia/i)).toBeInTheDocument();
+    expect(within(reloadedCharactersPanel).getByLabelText(/Character portrait for Rook/i)).toBeInTheDocument();
     expect(within(reloadedCharactersPanel).getByLabelText(/Character portrait for Nia/i)).toHaveTextContent(/Portrait/i);
     expect(screen.getByRole("region", { name: /^Image generator$/i })).toBeInTheDocument();
   });
@@ -529,7 +531,7 @@ describe("local-first card runtime UI", () => {
 
     openMediaTab(/^Characters$/i);
     const charactersPanel = screen.getByRole("region", { name: /Story characters/i });
-    const rookCard = within(charactersPanel).getByText(/^Rook$/i).closest("article");
+    const rookCard = within(charactersPanel).getByLabelText(/Character portrait for Rook/i).closest(".story-entity-item");
     expect(rookCard).not.toBeNull();
     fireEvent.click(within(rookCard as HTMLElement).getByRole("button", { name: /Show details for Rook/i }));
     expect(within(rookCard as HTMLElement).getByText(/^Knows$/)).toBeInTheDocument();
@@ -556,7 +558,7 @@ describe("local-first card runtime UI", () => {
 
     openMediaTab(/^Characters$/i);
     const charactersPanel = screen.getByRole("region", { name: /Story characters/i });
-    const rookCard = within(charactersPanel).getByText(/^Rook$/i).closest("article");
+    const rookCard = within(charactersPanel).getByLabelText(/Character portrait for Rook/i).closest(".story-entity-item");
     expect(rookCard).not.toBeNull();
     fireEvent.click(within(rookCard as HTMLElement).getByRole("button", { name: /Show details for Rook/i }));
 
@@ -763,12 +765,12 @@ describe("local-first card runtime UI", () => {
     openBlankRpgCard();
     openMediaTab(/^Characters$/i);
     const charactersPanel = screen.getByRole("region", { name: /Story characters/i });
-    expect(within(charactersPanel).getByText(/^Nia$/i)).toBeInTheDocument();
-    expect(within(charactersPanel).getByText(/^Rook$/i)).toBeInTheDocument();
+    expect(within(charactersPanel).getByLabelText(/Character portrait for Nia/i)).toBeInTheDocument();
+    expect(within(charactersPanel).getByLabelText(/Character portrait for Rook/i)).toBeInTheDocument();
     expect(within(charactersPanel).queryByText(/Nia carries a silver coin/i)).not.toBeInTheDocument();
     expect(within(charactersPanel).queryByText(/This NPC note should not render/i)).not.toBeInTheDocument();
 
-    const rookCard = within(charactersPanel).getByText(/^Rook$/i).closest("article");
+    const rookCard = within(charactersPanel).getByLabelText(/Character portrait for Rook/i).closest(".story-entity-item");
     expect(rookCard).not.toBeNull();
     fireEvent.click(within(rookCard as HTMLElement).getByRole("button", { name: /Show details for Rook/i }));
     expect(within(rookCard as HTMLElement).getByText(/Rook knows Nia is nearby/i)).toBeInTheDocument();
@@ -874,7 +876,7 @@ describe("local-first card runtime UI", () => {
     const charactersPanel = screen.getByRole("region", { name: /Story characters/i });
     expect(within(charactersPanel).getByLabelText(/Character portrait for Rook/i)).toHaveTextContent(/Portrait needs attention/i);
     expect(within(charactersPanel).getByText(/Portrait generation failed/i)).toBeInTheDocument();
-    const rookCard = within(charactersPanel).getByText(/^Rook$/i).closest("article");
+    const rookCard = within(charactersPanel).getByLabelText(/Character portrait for Rook/i).closest(".story-entity-item");
     expect(rookCard).not.toBeNull();
     fireEvent.click(within(rookCard as HTMLElement).getByRole("button", { name: /Show details for Rook/i }));
     expect(within(rookCard as HTMLElement).getByText(/Rook knows the old pier/i)).toBeInTheDocument();
@@ -961,14 +963,14 @@ describe("local-first card runtime UI", () => {
     openBlankRpgCard();
     openMediaTab(/^Characters$/i);
     const charactersPanel = screen.getByRole("region", { name: /Story characters/i });
-    expect(within(charactersPanel).getByText(/^Nia$/i)).toBeInTheDocument();
-    expect(within(charactersPanel).getByText(/^Rook$/i)).toBeInTheDocument();
+    expect(within(charactersPanel).getByLabelText(/Character portrait for Nia/i)).toBeInTheDocument();
+    expect(within(charactersPanel).getByLabelText(/Character portrait for Rook/i)).toBeInTheDocument();
 
     fireEvent.click(within(charactersPanel).getByRole("button", { name: /Clear tracked characters/i }));
 
-    expect(charactersPanel.querySelector(".story-entity-name")).toHaveTextContent(/^Player Character$/i);
-    expect(within(charactersPanel).queryByText(/^Nia$/i)).not.toBeInTheDocument();
-    expect(within(charactersPanel).queryByText(/^Rook$/i)).not.toBeInTheDocument();
+    expect(within(charactersPanel).getByLabelText(/Character portrait for Player Character/i)).toBeInTheDocument();
+    expect(within(charactersPanel).queryByLabelText(/Character portrait for Nia/i)).not.toBeInTheDocument();
+    expect(within(charactersPanel).queryByLabelText(/Character portrait for Rook/i)).not.toBeInTheDocument();
     await waitFor(() => {
       const snapshot = JSON.parse(window.localStorage.getItem(RUNTIME_STORAGE_KEY) ?? "{}") as {
         cards?: Array<{ id?: string; storyEntities?: Array<{ name?: string; kind?: string }> }>;
@@ -1662,6 +1664,7 @@ describe("local-first card runtime UI", () => {
 
   it("persists runtime settings into prompt construction", async () => {
     await renderApp();
+    openBlankRpgCard();
 
     fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
     fireEvent.click(screen.getByLabelText(/Ban emojis/i));
@@ -1669,7 +1672,9 @@ describe("local-first card runtime UI", () => {
       target: { value: "The user is a cautious cartographer who avoids rash promises." },
     });
 
-    expect(screen.getByRole("region", { name: /Settings prompt preview/i })).toHaveTextContent(/Do not use emojis/i);
+    const settingsPreview = screen.getByRole("region", { name: /Settings prompt preview/i });
+    expect(settingsPreview).toHaveTextContent(/Do not include emojis/i);
+    expect(settingsPreview).toHaveTextContent(/cautious cartographer/i);
     openCardEditorTab(/rules/i);
     const promptDebugger = screen.getByLabelText(/Prompt debugger/i);
     expect(promptDebugger).toHaveTextContent(/Do not include emojis/i);
@@ -4192,11 +4197,6 @@ describe("local-first card runtime UI", () => {
     try {
       await renderApp();
       openBlankRpgCard();
-
-      fireEvent.click(screen.getByRole("button", { name: /^Aerial image$/i }));
-      fireEvent.click(screen.getByRole("button", { name: /^Characters$/i }));
-      fireEvent.click(screen.getByRole("button", { name: /^Image$/i }));
-      expect(scrollIntoView).toHaveBeenCalledTimes(3);
 
       const mapGenerator = screen.getByRole("region", { name: /Aerial image generator/i });
       fireEvent.click(within(mapGenerator).getByRole("button", { name: /Maximize aerial image/i }));

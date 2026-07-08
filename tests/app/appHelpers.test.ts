@@ -10,6 +10,7 @@ const runtimeSettings = {
   banEmojis: false,
   promptDebugLogs: false,
   impersonationPrompt: "",
+  accentColor: "",
 };
 
 function providerSettings(overrides: Record<string, unknown> = {}) {
@@ -198,6 +199,7 @@ describe("App pure helper coverage", () => {
       banEmojis: true,
       promptDebugLogs: false,
       impersonationPrompt: "Do not write as the user.",
+      accentColor: "",
     });
     expect(plannerPrompt).toContain("about 200 feet above ground");
     expect(plannerPrompt).toContain("do not make a map");

@@ -14,6 +14,7 @@ describe("SettingsSection", () => {
       banEmojis: false,
       promptDebugLogs: false,
       impersonationPrompt: "You are cautious.",
+      accentColor: "",
     };
 
     render(

@@ -6,7 +6,16 @@ export type RuntimeSettingsView = {
   banEmojis: boolean;
   promptDebugLogs: boolean;
   impersonationPrompt: string;
+  accentColor: string;
 };
+
+const ACCENT_PRESETS: Array<{ label: string; value: string }> = [
+  { label: "Ember red", value: "#d83a2e" },
+  { label: "Molten orange", value: "#e8722a" },
+  { label: "Amber", value: "#e0a11f" },
+  { label: "Crimson", value: "#b7263c" },
+  { label: "Sunflare", value: "#f0b429" },
+];
 
 export function SettingsSection(props: {
   runtimeSettings: RuntimeSettingsView;
@@ -79,6 +88,42 @@ export function SettingsSection(props: {
             placeholder="Describe the user's persona, point of view, boundaries, or roleplay voice the card should account for."
           />
         </label>
+        <div className="field">
+          <span>Accent color</span>
+          <div className="accent-swatches">
+            {ACCENT_PRESETS.map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                className={`accent-swatch ${props.runtimeSettings.accentColor === preset.value ? "active" : ""}`}
+                style={{ background: preset.value }}
+                aria-label={`Use ${preset.label} accent`}
+                aria-pressed={props.runtimeSettings.accentColor === preset.value}
+                onClick={() =>
+                  props.setRuntimeSettings({ ...props.runtimeSettings, accentColor: preset.value })
+                }
+              />
+            ))}
+          </div>
+          <div className="accent-controls">
+            <input
+              type="color"
+              aria-label="Custom accent color"
+              value={props.runtimeSettings.accentColor || "#d83a2e"}
+              onChange={(event) =>
+                props.setRuntimeSettings({ ...props.runtimeSettings, accentColor: event.target.value })
+              }
+            />
+            <button
+              type="button"
+              className="secondary-button compact-button"
+              onClick={() => props.setRuntimeSettings({ ...props.runtimeSettings, accentColor: "" })}
+              disabled={!props.runtimeSettings.accentColor}
+            >
+              Use theme default
+            </button>
+          </div>
+        </div>
       </section>
       <section className="panel" aria-label="Settings prompt preview">
         <div className="section-title">

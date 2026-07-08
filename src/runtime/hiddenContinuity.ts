@@ -193,6 +193,7 @@ export function buildHiddenContinuityPrompt(request: HiddenContinuityPromptReque
     "Recent actions usually stay in chat context. Add a recent movement/action to memory only when it has become a stable state, such as the player now being based in or clearly located in the north.",
     "Track story entities as player, character, faction, or group. Keep the player character first.",
     "For immersion, track who explicitly knows or does not know each fact. Do not invent relationship scores, romance meters, hostility scores, or numeric stance systems.",
+    "Never track what the player character knows or does not know; the player is the real user and already knows their own knowledge. Only track knowledge boundaries for other characters, factions, and groups.",
     "The narrator may know the broader state, but characters should only act on what they plausibly know.",
     "Return this exact JSON shape:",
     "The JSON example is structural only. Do not copy placeholder names or placeholder facts into updates.",
@@ -296,8 +297,23 @@ export function applyHiddenContinuityToCard<T extends HiddenContinuityCard>(
   return {
     ...card,
     memory,
-    storyEntities: orderStoryEntities(storyEntities),
+    storyEntities: orderStoryEntities(storyEntities).map(clearPlayerKnowledge),
   };
+}
+
+/**
+ * The player character is the user, who already knows their own knowledge, so
+ * tracking knows/does-not-know for the player is wasted space and effort. Only
+ * other characters need knowledge boundaries.
+ */
+function clearPlayerKnowledge(entity: StoryEntity): StoryEntity {
+  if (entity.kind !== "player") {
+    return entity;
+  }
+  if (entity.knownFacts.length === 0 && entity.doesNotKnow.length === 0) {
+    return entity;
+  }
+  return { ...entity, knownFacts: [], doesNotKnow: [] };
 }
 
 export function buildVisibleUserMessageWithHiddenContinuity(

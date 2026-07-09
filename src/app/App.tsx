@@ -1491,6 +1491,25 @@ export function App() {
     return true;
   }
 
+  function editMessageContent(messageId: string, content: string) {
+    if (!activeChat) {
+      return;
+    }
+    const trimmed = content.trim();
+    if (!trimmed) {
+      return;
+    }
+    setChatSessions((current) =>
+      upsertChatSession(current, {
+        ...activeChat,
+        messages: activeChat.messages.map((message) =>
+          message.id === messageId ? { ...message, content: trimmed } : message,
+        ),
+        updatedAt: new Date().toISOString(),
+      }),
+    );
+  }
+
   async function runSlashCommand(name: string, args: string) {
     if (name === "roll") {
       if (!runtimeSettings.diceRollsEnabled) {
@@ -2529,6 +2548,7 @@ export function App() {
               deleteChat={deleteActiveChat}
               isDeleteChatPending={pendingDeleteChatId === activeChat?.id}
               messages={visibleMessages}
+              editMessage={editMessageContent}
               draft={draft}
               setDraft={setDraft}
               sendMessage={generateMockTurn}
@@ -2675,6 +2695,7 @@ function RuntimeSection(props: {
   deleteChat: () => void;
   isDeleteChatPending: boolean;
   messages: Message[];
+  editMessage: (messageId: string, content: string) => void;
   draft: string;
   setDraft: (draft: string) => void;
   sendMessage: () => Promise<void>;
@@ -2735,6 +2756,8 @@ function RuntimeSection(props: {
   );
   const openingText = getCardOpeningText(props.activeCard);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
 
   useEffect(() => {
     const transcript = transcriptRef.current;
@@ -2822,8 +2845,57 @@ function RuntimeSection(props: {
                   {message.role === "assistant" ? <Sparkles size={14} /> : <UserRound size={14} />}
                   {message.role === "assistant" ? props.activeCard.name : "You"}
                 </span>
+                {editingMessageId === message.id ? null : (
+                  <button
+                    type="button"
+                    className="message-action"
+                    aria-label="Edit message"
+                    onClick={() => {
+                      setEditingMessageId(message.id);
+                      setEditDraft(message.content);
+                    }}
+                  >
+                    <PenLine size={13} />
+                    Edit
+                  </button>
+                )}
               </header>
-              <MessageContent message={message} />
+              {editingMessageId === message.id ? (
+                <div className="message-editor">
+                  <textarea
+                    aria-label="Edit message text"
+                    value={editDraft}
+                    onChange={(event) => setEditDraft(event.target.value)}
+                    rows={4}
+                  />
+                  <div className="message-editor-actions">
+                    <button
+                      type="button"
+                      className="primary-button compact-button"
+                      disabled={!editDraft.trim()}
+                      onClick={() => {
+                        props.editMessage(message.id, editDraft);
+                        setEditingMessageId(null);
+                        setEditDraft("");
+                      }}
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button compact-button"
+                      onClick={() => {
+                        setEditingMessageId(null);
+                        setEditDraft("");
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <MessageContent message={message} />
+              )}
             </article>
           ))}
           {props.runtimeRunning && props.isGenerating && props.streamingReply.trim() ? (

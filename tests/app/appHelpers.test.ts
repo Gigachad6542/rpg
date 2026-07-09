@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, expect, it, vi } from "vitest";
 
-import { __appTestables } from "../../src/app/App";
+import { __appTestables } from "../../src/app/appTestables";
 
 const helpers = __appTestables;
 

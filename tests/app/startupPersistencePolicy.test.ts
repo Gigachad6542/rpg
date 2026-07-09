@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   shouldPersistFullLocalSnapshot,
+  shouldShowOnboarding,
   shouldUseRepositorySnapshot,
   type SnapshotCandidate,
 } from "../../src/app/startupPersistencePolicy";
@@ -64,5 +65,25 @@ describe("startup persistence policy", () => {
         isDesktopRuntime: false,
       }),
     ).toBe(true);
+  });
+
+  it("shows onboarding for a fresh install with no persisted snapshot", () => {
+    expect(shouldShowOnboarding({ onboardingCompleted: false, snapshot: null })).toBe(true);
+  });
+
+  it("shows onboarding when the only content is the blank fallback card", () => {
+    expect(
+      shouldShowOnboarding({ onboardingCompleted: false, snapshot: blankLocalSnapshot }),
+    ).toBe(true);
+  });
+
+  it("skips onboarding once it has been completed", () => {
+    expect(shouldShowOnboarding({ onboardingCompleted: true, snapshot: null })).toBe(false);
+  });
+
+  it("skips onboarding for an existing user who already has real content", () => {
+    expect(
+      shouldShowOnboarding({ onboardingCompleted: false, snapshot: repositorySnapshot }),
+    ).toBe(false);
   });
 });

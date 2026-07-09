@@ -35,6 +35,31 @@ export function shouldPersistFullLocalSnapshot(input: LocalSnapshotPersistenceIn
   return !input.isDesktopRuntime;
 }
 
+export interface OnboardingDecisionInput {
+  /** Whether the user has already completed (or dismissed) onboarding. */
+  onboardingCompleted: boolean;
+  /** The snapshot that was hydrated at startup, if any. */
+  snapshot?: SnapshotCandidate | null;
+}
+
+/**
+ * Decides whether to show the first-run onboarding overlay. Onboarding is shown
+ * only to genuinely new users: once completed it never shows again, and an
+ * existing user who already has real content (imported or upgraded) is treated
+ * as already onboarded so they are not nagged.
+ */
+export function shouldShowOnboarding(input: OnboardingDecisionInput): boolean {
+  if (input.onboardingCompleted) {
+    return false;
+  }
+
+  if (input.snapshot && hasUserContinuity(input.snapshot)) {
+    return false;
+  }
+
+  return true;
+}
+
 function parseSnapshotTime(value: unknown): number {
   return typeof value === "string" ? Date.parse(value) || 0 : 0;
 }

@@ -75,13 +75,11 @@ import {
   compileTurnPrompt,
   runTurnPipeline,
   TURN_PIPELINE_LAYER_IDS,
-  type RunTurnPipelineRequest,
 } from "../runtime/turnPipeline";
 import { buildSceneText, orderByRelevance, selectPresentNames } from "../runtime/relevanceScoring";
 import { runMemoryConsolidationSafely } from "../runtime/memoryConsolidation";
 import {
   validatePlayerAction as validatePlayerActionWithRules,
-  type PlayerRuleDefinition,
   type PlayerRuleEnforcement,
 } from "../runtime/playerRuleEngine";
 import { ComfyUIImageProvider, fetchComfyUIImageModels } from "../providers/comfyUIProvider";
@@ -93,7 +91,6 @@ import {
   parseSecretReference,
   requireSecureKeyStorage,
   type KeyStorage,
-  type SecretReference,
   type SecureStorageStatus,
 } from "../security/keyStorage";
 import {
@@ -121,212 +118,32 @@ import {
   filterValidatedTurnEffectsForPolicy,
 } from "./turnEffects";
 
-type Theme = "light" | "dark";
-type MainSection = "runtime" | "cards" | "lorebooks" | "providers" | "settings";
-type CardKind = "character" | "rpg";
-type CardTab = "chat" | "instructions" | "rules" | "lorebooks" | "rpg" | "map";
-type TextProviderMode = "mock" | "openai-compatible";
-type ImageProviderMode = "prompt-only" | "comfyui";
-
-type RuntimeCard = {
-  id: string;
-  name: string;
-  kind: CardKind;
-  summary: string;
-  characterName: string;
-  characterDescription: string;
-  scenario: string;
-  greeting: string;
-  exampleDialogs: string;
-  systemPrompt: string;
-  preHistoryInstructions: string;
-  postHistoryInstructions: string;
-  playerRules: PlayerRule[];
-  lorebooks: Lorebook[];
-  memory: MemoryEntry[];
-  storyEntities: StoryEntity[];
-  mapEnabled: boolean;
-  rpg?: RpgCardState;
-};
-
-type PlayerRule = PlayerRuleDefinition;
-
-type Lorebook = {
-  id: string;
-  name: string;
-  enabled: boolean;
-  scanDepth: number;
-  tokenBudget: number;
-  recursiveScanning: boolean;
-  entries: LorebookEntry[];
-};
-
-type LorebookEntry = {
-  id: string;
-  title: string;
-  keys: string[];
-  secondaryKeys: string[];
-  content: string;
-  insertionOrder: number;
-  priority: number;
-  enabled: boolean;
-  constant: boolean;
-  probability: number;
-  caseSensitive: boolean;
-  wholeWord: boolean;
-};
-
-type NewLorebookEntry = {
-  title: string;
-  keys: string;
-  secondaryKeys: string;
-  content: string;
-  insertionOrder: string;
-  priority: string;
-  constant: boolean;
-  probability: string;
-  caseSensitive: boolean;
-  wholeWord: boolean;
-};
-
-type NewPlayerRule = {
-  title: string;
-  description: string;
-};
-
-type RpgCardState = {
-  location: string;
-  health: string;
-  inventory: string[];
-  quests: string[];
-  flags: Record<string, boolean>;
-  knownPlaces: string[];
-  mapStyle: string;
-};
-
-type MemoryEntry = {
-  id: string;
-  label: string;
-  detail: string;
-};
-
-type Message = {
-  id: string;
-  role: "system" | "user" | "assistant";
-  content: string;
-  /** Alternate generations for this message; content mirrors variants[activeVariantIndex]. */
-  variants?: string[];
-  activeVariantIndex?: number;
-};
-
-type ChatSession = {
-  id: string;
-  cardId: string;
-  title: string;
-  branchOfId?: string;
-  branchedFromMessageId?: string;
-  createdAt: string;
-  updatedAt: string;
-  messages: Message[];
-};
-
-type PromptRun = {
-  id: string;
-  cardId: string;
-  chatId: string;
-  compiledPrompt: string;
-  response: string;
-  provider: string;
-  model: string;
-  tokenEstimate: number;
-  includedLayerIds: string[];
-  includedLoreEntryIds: string[];
-  warnings: string[];
-  stateChanges: string[];
-  usage?: {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-  };
-  blockedReason?: string;
-};
-
-type ProviderSettings = {
-  mode: TextProviderMode;
-  providerId: string;
-  displayName: string;
-  baseUrl: string;
-  model: string;
-  secretReference?: SecretReference;
-};
-
-type ImageProviderSettings = {
-  mode: ImageProviderMode;
-  providerId: string;
-  displayName: string;
-  endpoint: string;
-  model: string;
-  workflowJson: string;
-  width: number;
-  height: number;
-  seed: number;
-  steps: number;
-  cfg: number;
-  samplerName: string;
-  scheduler: string;
-  pollTimeoutMs: number;
-};
-
-type RuntimeSettings = {
-  textStreaming: boolean;
-  banEmojis: boolean;
-  promptDebugLogs: boolean;
-  diceRollsEnabled: boolean;
-  onboardingCompleted: boolean;
-  impersonationPrompt: string;
-  accentColor: string;
-};
-
-type ModelChoice = {
-  id: string;
-  label: string;
-};
-
-type GeneratedImageKind = "map" | "photo" | "character";
-
-type GeneratedMapArtifact = {
-  id: string;
-  imageKind: GeneratedImageKind;
-  cardId: string;
-  chatId: string;
-  subjectId?: string;
-  subjectName?: string;
-  prompt: string;
-  negativePrompt: string;
-  provider: string;
-  model: string;
-  status: "prompt-only" | "generated" | "error";
-  imageUrl?: string;
-  error?: string;
-  userInput?: string;
-  createdAt: string;
-};
-
-type MediaPreviewArtifact = {
-  artifact: GeneratedMapArtifact;
-  label: string;
-};
-
-type AppRuntimeSnapshot = LocalRuntimeSnapshot<RuntimeCard, Message, PromptRun, ChatSession> & {
-  providerSettings: ProviderSettings;
-  imageProviderSettings: ImageProviderSettings;
-  runtimeSettings: RuntimeSettings;
-  generatedMaps: GeneratedMapArtifact[];
-  chatSessions: ChatSession[];
-  activeChatIds: Record<string, string>;
-};
-
-type TurnPromptRequest = Omit<RunTurnPipelineRequest, "modelAdapter" | "model">;
+import type {
+  AppRuntimeSnapshot,
+  CardKind,
+  CardTab,
+  ChatSession,
+  GeneratedImageKind,
+  GeneratedMapArtifact,
+  ImageProviderMode,
+  ImageProviderSettings,
+  Lorebook,
+  LorebookEntry,
+  MainSection,
+  MediaPreviewArtifact,
+  Message,
+  ModelChoice,
+  NewLorebookEntry,
+  NewPlayerRule,
+  PlayerRule,
+  PromptRun,
+  ProviderSettings,
+  RpgCardState,
+  RuntimeCard,
+  RuntimeSettings,
+  Theme,
+  TurnPromptRequest,
+} from "./runtimeTypes";
 
 const initialCards: RuntimeCard[] = [
   {

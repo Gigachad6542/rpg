@@ -53,6 +53,12 @@ import { type CompiledPrompt } from "../runtime/promptCompiler";
 import { formatDiceResult, rollFromNotation } from "../runtime/diceEngine";
 import { matchSlashCommands, parseSlashCommand } from "../runtime/slashCommands";
 import {
+  appendRestorePoint,
+  buildRestorePoint,
+  findRestorePoint,
+  type RestorePoint,
+} from "../runtime/restorePoints";
+import {
   compileTurnPrompt,
   runTurnPipeline,
   TURN_PIPELINE_LAYER_IDS,
@@ -724,6 +730,8 @@ export function App() {
   const [dataManagementStatus, setDataManagementStatus] = useState("Runtime export, import, and diagnostics are ready.");
   const [repositoryHydrated, setRepositoryHydrated] = useState(false);
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+  const [restorePoints, setRestorePoints] = useState<RestorePoint<AppRuntimeSnapshot>[]>([]);
+  const [restoreStatus, setRestoreStatus] = useState("Restore points capture automatically as you play this session.");
   const [pendingDeleteChatId, setPendingDeleteChatId] = useState<string | null>(null);
   const [pendingDeleteCardId, setPendingDeleteCardId] = useState<string | null>(null);
   const [newCardError, setNewCardError] = useState<string | null>(null);
@@ -806,6 +814,35 @@ export function App() {
       theme,
     ],
   );
+
+  const currentSnapshotRef = useRef(currentSnapshot);
+  const restoreSignatureRef = useRef<string>("");
+
+  useEffect(() => {
+    currentSnapshotRef.current = currentSnapshot;
+  }, [currentSnapshot]);
+
+  useEffect(() => {
+    if (!repositoryHydrated) {
+      return;
+    }
+    const totalMessages = chatSessions.reduce((count, session) => count + session.messages.length, 0);
+    const signature = `${totalMessages}:${cards.length}`;
+    if (signature === restoreSignatureRef.current) {
+      return;
+    }
+    restoreSignatureRef.current = signature;
+    setRestorePoints((current) =>
+      appendRestorePoint(
+        current,
+        buildRestorePoint({
+          id: createRuntimeEntityId("restore"),
+          createdAt: new Date().toISOString(),
+          snapshot: currentSnapshotRef.current,
+        }),
+      ),
+    );
+  }, [cards, chatSessions, repositoryHydrated]);
 
   useEffect(() => {
     function handleWheelZoom(event: WheelEvent) {
@@ -2295,6 +2332,35 @@ export function App() {
     setOnboardingDismissed(true);
   }
 
+  function restoreRuntimeFromPoint(pointId: string) {
+    const point = findRestorePoint(restorePoints, pointId);
+    if (!point) {
+      setRestoreStatus("That restore point is no longer available.");
+      return;
+    }
+    const snapshot = point.snapshot;
+    const restoredMessages = snapshot.chatSessions.reduce((count, session) => count + session.messages.length, 0);
+    restoreSignatureRef.current = `${restoredMessages}:${snapshot.cards.length}`;
+    setTheme(snapshot.theme);
+    setCards(snapshot.cards);
+    setActiveCardId(snapshot.activeCardId);
+    setChatSessions(snapshot.chatSessions);
+    setActiveChatIds(snapshot.activeChatIds);
+    setPromptRuns(snapshot.promptRuns);
+    setProviderKeyStatus(snapshot.providerKeyStatus);
+    setProviderSettings(snapshot.providerSettings);
+    setImageProviderSettings(snapshot.imageProviderSettings);
+    setRuntimeSettings(snapshot.runtimeSettings);
+    setGeneratedMaps(snapshot.generatedMaps);
+    setRestoreStatus(`Restored "${point.label}" from ${formatRestorePointTime(point.createdAt)}.`);
+  }
+
+  const restorePointViews = restorePoints.map((point) => ({
+    id: point.id,
+    label: point.label,
+    timeLabel: formatRestorePointTime(point.createdAt),
+  }));
+
   const showOnboarding =
     repositoryHydrated &&
     !onboardingDismissed &&
@@ -2571,6 +2637,9 @@ export function App() {
             exportRuntimeData={exportRuntimeData}
             importRuntimeData={importRuntimeData}
             downloadDiagnostics={downloadDiagnostics}
+            restorePoints={restorePointViews}
+            restoreStatus={restoreStatus}
+            restoreRuntimePoint={restoreRuntimeFromPoint}
           />
         ) : null}
       </section>
@@ -6367,6 +6436,14 @@ function toRuntimeExportSnapshot(snapshot: AppRuntimeSnapshot): RuntimeExportSna
 
 function formatDownloadTimestamp(value: string): string {
   return value.replace(/[:.]/g, "-");
+}
+
+function formatRestorePointTime(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "unknown time";
+  }
+  return parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
 function getErrorMessage(error: unknown): string {

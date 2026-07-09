@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, Layers3, Settings2, ShieldCheck, Upload } from "lucide-react";
+import { Download, History, Layers3, RotateCcw, Settings2, ShieldCheck, Upload } from "lucide-react";
 
 export type RuntimeSettingsView = {
   textStreaming: boolean;
@@ -9,6 +9,12 @@ export type RuntimeSettingsView = {
   onboardingCompleted: boolean;
   impersonationPrompt: string;
   accentColor: string;
+};
+
+export type RestorePointView = {
+  id: string;
+  label: string;
+  timeLabel: string;
 };
 
 const ACCENT_PRESETS: Array<{ label: string; value: string }> = [
@@ -27,6 +33,9 @@ export function SettingsSection(props: {
   exportRuntimeData: () => void;
   importRuntimeData: (rawJson: string) => void;
   downloadDiagnostics: () => void;
+  restorePoints: RestorePointView[];
+  restoreStatus: string;
+  restoreRuntimePoint: (id: string) => void;
 }) {
   const [runtimeImportDraft, setRuntimeImportDraft] = useState("");
 
@@ -185,6 +194,40 @@ export function SettingsSection(props: {
         </button>
         <p className="status-line" role="status" aria-label="Data management status" aria-live="polite">
           {props.dataManagementStatus}
+        </p>
+      </section>
+      <section className="panel" aria-label="Restore points">
+        <div className="section-title">
+          <History size={17} />
+          <h3>Restore Points</h3>
+        </div>
+        <p className="panel-hint">
+          Automatic snapshots from this session. Restore one to roll the runtime back to that state.
+        </p>
+        {props.restorePoints.length === 0 ? (
+          <p className="empty-hint">No restore points yet — they appear as you play.</p>
+        ) : (
+          <ul className="restore-point-list">
+            {props.restorePoints.map((point) => (
+              <li key={point.id} className="restore-point-row">
+                <span className="restore-point-body">
+                  <span className="restore-point-label">{point.label}</span>
+                  <span className="restore-point-time">{point.timeLabel}</span>
+                </span>
+                <button
+                  type="button"
+                  className="secondary-button compact-button"
+                  onClick={() => props.restoreRuntimePoint(point.id)}
+                >
+                  <RotateCcw size={15} />
+                  Restore
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="status-line" role="status" aria-label="Restore status" aria-live="polite">
+          {props.restoreStatus}
         </p>
       </section>
     </div>

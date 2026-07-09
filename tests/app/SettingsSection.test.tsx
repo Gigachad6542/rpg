@@ -28,6 +28,9 @@ describe("SettingsSection", () => {
         exportRuntimeData={exportRuntimeData}
         importRuntimeData={importRuntimeData}
         downloadDiagnostics={downloadDiagnostics}
+        restorePoints={[]}
+        restoreStatus="Restore points capture automatically as you play this session."
+        restoreRuntimePoint={vi.fn()}
       />,
     );
 

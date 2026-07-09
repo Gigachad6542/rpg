@@ -90,8 +90,10 @@ import {
 } from "./runtimeDataBundle";
 import { RuntimeRepositoryStore, type RuntimeRepository, type RepositoryRuntimeSnapshot } from "./runtimeRepositoryStore";
 import { SettingsSection } from "./SettingsSection";
+import { OnboardingOverlay } from "./OnboardingOverlay";
 import {
   shouldPersistFullLocalSnapshot,
+  shouldShowOnboarding,
   shouldUseRepositorySnapshot,
 } from "./startupPersistencePolicy";
 import {
@@ -721,6 +723,7 @@ export function App() {
   const [repositoryStatus, setRepositoryStatus] = useState("Repository store initializing.");
   const [dataManagementStatus, setDataManagementStatus] = useState("Runtime export, import, and diagnostics are ready.");
   const [repositoryHydrated, setRepositoryHydrated] = useState(false);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [pendingDeleteChatId, setPendingDeleteChatId] = useState<string | null>(null);
   const [pendingDeleteCardId, setPendingDeleteCardId] = useState<string | null>(null);
   const [newCardError, setNewCardError] = useState<string | null>(null);
@@ -2287,6 +2290,19 @@ export function App() {
     setDraft("");
   }
 
+  function completeOnboarding() {
+    setRuntimeSettings((current) => ({ ...current, onboardingCompleted: true }));
+    setOnboardingDismissed(true);
+  }
+
+  const showOnboarding =
+    repositoryHydrated &&
+    !onboardingDismissed &&
+    shouldShowOnboarding({
+      onboardingCompleted: runtimeSettings.onboardingCompleted,
+      snapshot: { cards, messages, promptRuns, chatSessions },
+    });
+
   return (
     <main
       className={`app-shell ${theme}`}
@@ -2567,6 +2583,13 @@ export function App() {
           consolidate={() => void consolidateActiveCardMemory()}
           isConsolidating={isConsolidatingMemory}
           status={memoryConsolidationStatus}
+        />
+      ) : null}
+      {showOnboarding ? (
+        <OnboardingOverlay
+          onAddApiKey={() => setSection("providers")}
+          onOpenCards={() => setSection("cards")}
+          onDismiss={completeOnboarding}
         />
       ) : null}
     </main>

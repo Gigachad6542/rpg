@@ -614,6 +614,125 @@ textarea:focus-visible {
   opacity: 0.75;
 }
 
+.onboarding-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, #000 62%, transparent);
+  backdrop-filter: blur(3px);
+}
+
+.onboarding-card {
+  width: min(520px, 100%);
+  display: grid;
+  gap: 20px;
+  padding: 28px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 6px);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.onboarding-heading {
+  display: grid;
+  gap: 8px;
+}
+
+.onboarding-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.onboarding-heading h2 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.onboarding-heading p {
+  margin: 0;
+  opacity: 0.78;
+}
+
+.onboarding-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.onboarding-step {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: start;
+  gap: 12px;
+}
+
+.onboarding-step-index {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.onboarding-step-icon {
+  display: grid;
+  place-items: center;
+  height: 26px;
+  color: var(--accent);
+}
+
+.onboarding-step-body {
+  display: grid;
+  gap: 2px;
+}
+
+.onboarding-step-title {
+  font-weight: 600;
+}
+
+.onboarding-step-detail {
+  font-size: 0.88rem;
+  opacity: 0.75;
+}
+
+.onboarding-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.ghost-button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.7;
+  cursor: pointer;
+}
+
+.ghost-button:hover {
+  opacity: 1;
+}
+
 .empty-chat {
   align-self: center;
   background: var(--panel);

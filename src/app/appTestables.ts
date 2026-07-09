@@ -125,7 +125,7 @@ import {
   escapeRegExp,
 } from "./turnPromptBuilders";
 import { buildChubLorebookPayload, parseChubLorebookPayload } from "./lorebookIo";
-import { getCardOpeningText, renderTabIcon } from "./App";
+import { getCardOpeningText, renderTabIcon } from "./RuntimeSection";
 
 export const __appTestables = {
   parseChatSessions,

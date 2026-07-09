@@ -322,6 +322,7 @@ fn persist_generated_image(
     let artifact_id = normalize_identifier(&artifact_id, "artifact id")?;
     let extension = validate_generated_image_format(&format)?;
     let bytes = decode_generated_image_base64(&base64_data)?;
+    validate_image_magic_bytes(extension, &bytes)?;
 
     let directory = app
         .path()
@@ -360,6 +361,24 @@ fn decode_generated_image_base64(data: &str) -> Result<Vec<u8>, String> {
     base64::engine::general_purpose::STANDARD
         .decode(trimmed)
         .map_err(|_| "Generated image data is not valid base64.".to_string())
+}
+
+/// Rejects decoded payloads whose leading bytes do not match the declared image
+/// format. The extension has already been narrowed to one of "png"/"jpg"/"webp"
+/// by `validate_generated_image_format`, so this only guards against arbitrary
+/// bytes being written under an image extension.
+fn validate_image_magic_bytes(extension: &str, bytes: &[u8]) -> Result<(), String> {
+    let matches = match extension {
+        "png" => bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
+        "jpg" => bytes.starts_with(&[0xFF, 0xD8, 0xFF]),
+        "webp" => bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP",
+        _ => false,
+    };
+    if matches {
+        Ok(())
+    } else {
+        Err("Generated image bytes do not match the declared image format.".to_string())
+    }
 }
 
 fn keyring_entry(storage_key: &str) -> Result<keyring::Entry, String> {
@@ -631,6 +650,23 @@ mod tests {
         assert_eq!(decode_generated_image_base64("aGVsbG8=").unwrap(), b"hello");
         let oversized = "A".repeat(MAX_IMAGE_BASE64_CHARS + 1);
         assert!(decode_generated_image_base64(&oversized).is_err());
+    }
+
+    #[test]
+    fn image_magic_bytes_must_match_declared_format() {
+        let png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00];
+        assert!(validate_image_magic_bytes("png", &png).is_ok());
+        assert!(validate_image_magic_bytes("jpg", &png).is_err());
+
+        let jpg = [0xFF, 0xD8, 0xFF, 0xE0];
+        assert!(validate_image_magic_bytes("jpg", &jpg).is_ok());
+
+        let webp = [b'R', b'I', b'F', b'F', 0, 0, 0, 0, b'W', b'E', b'B', b'P'];
+        assert!(validate_image_magic_bytes("webp", &webp).is_ok());
+        assert!(validate_image_magic_bytes("webp", &jpg).is_err());
+
+        // Arbitrary bytes written under an image extension are rejected.
+        assert!(validate_image_magic_bytes("png", b"hello").is_err());
     }
 
     #[test]

@@ -1,4 +1,13 @@
-import { type ChangeEvent, type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ChangeEvent,
+  type CSSProperties,
+  type ReactNode,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   BookOpen,
   Brush,
@@ -61,6 +70,7 @@ import {
   findRestorePoint,
   type RestorePoint,
 } from "../runtime/restorePoints";
+import { conversationRestoreSignature } from "./restoreSignature";
 import {
   compileTurnPrompt,
   runTurnPipeline,
@@ -775,17 +785,25 @@ export function App() {
     [activeCard, messages, draft],
   );
 
+  // The prompt preview recompiles the full token-budgeted prompt, which is
+  // expensive for large cards and lorebooks. Deferring the draft and lore inputs
+  // keeps typing responsive under React's concurrent scheduler: the preview
+  // recomputes at low priority instead of synchronously on every keystroke. The
+  // live `draft` / `activeLorebookEntries` still drive the actual turn (see
+  // generateMockTurn), so deferring only affects the preview, never what is sent.
+  const deferredDraft = useDeferredValue(draft);
+  const deferredLorebookEntries = useDeferredValue(activeLorebookEntries);
   const compiledPromptResult = useMemo(
     () => {
       if (!activeCard) {
         return emptyCompiledPrompt;
       }
       return compileTurnPrompt({
-        ...buildTurnPromptRequest(activeCard, activeLorebookEntries, messages, draft, runtimeSettings),
+        ...buildTurnPromptRequest(activeCard, deferredLorebookEntries, messages, deferredDraft, runtimeSettings),
         includeLayerLabels: true,
       });
     },
-    [activeCard, activeLorebookEntries, draft, messages, runtimeSettings],
+    [activeCard, deferredLorebookEntries, deferredDraft, messages, runtimeSettings],
   );
   const compiledPrompt = compiledPromptResult.prompt;
   const currentSnapshot = useMemo<AppRuntimeSnapshot>(
@@ -832,8 +850,7 @@ export function App() {
     if (!repositoryHydrated) {
       return;
     }
-    const totalMessages = chatSessions.reduce((count, session) => count + session.messages.length, 0);
-    const signature = `${totalMessages}:${cards.length}`;
+    const signature = conversationRestoreSignature(chatSessions, cards.length);
     if (signature === restoreSignatureRef.current) {
       return;
     }
@@ -1646,6 +1663,13 @@ export function App() {
     }
     if (!runtimeRunning) {
       setRuleWarning("Runtime is shut down. Start the runtime before generating another turn.");
+      return;
+    }
+    // Defense in depth: the Send button and Enter handler are already disabled
+    // while a turn is in flight, but a re-entrant call would capture a stale
+    // `activeChat`/`chatMessages` snapshot and overwrite the in-progress turn's
+    // committed messages. Refuse to start a second turn concurrently.
+    if (isGenerating) {
       return;
     }
 

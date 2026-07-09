@@ -59,6 +59,10 @@ export function SettingsSection(props: {
           />
           <span>Text streaming</span>
         </label>
+        <p className="panel-hint">
+          Streaming applies to session-key and local providers. Desktop keys stored in the OS keychain use
+          request/response generation, so replies appear once complete.
+        </p>
         <label className="toggle-row">
           <input
             type="checkbox"

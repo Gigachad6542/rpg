@@ -34,8 +34,18 @@ export async function persistGeneratedImageLocally(
       return null;
     }
     const blob = await response.blob();
-    const format = FORMAT_BY_MIME_TYPE[blob.type] ?? "png";
-    const base64Data = arrayBufferToBase64(await blob.arrayBuffer());
+    const buffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    // Derive the format from the actual bytes so the persisted extension always
+    // matches the payload — providers such as ComfyUI's /view endpoint do not
+    // always set a Content-Type. Fall back to the declared MIME type, and bail
+    // (keeping the provider URL) when the bytes are not a recognized image, so we
+    // never write mislabeled data.
+    const format = detectImageFormat(bytes) ?? FORMAT_BY_MIME_TYPE[blob.type];
+    if (!format) {
+      return null;
+    }
+    const base64Data = arrayBufferToBase64(buffer);
     if (!base64Data) {
       return null;
     }
@@ -51,6 +61,46 @@ export async function persistGeneratedImageLocally(
   } catch {
     return null;
   }
+}
+
+/**
+ * Sniffs the leading magic bytes of a decoded image, returning the canonical
+ * format name the desktop backend expects, or undefined when the bytes are not a
+ * recognized PNG/JPEG/WebP payload. Keeping this in sync with the backend's
+ * magic-byte guard means a legitimately generated image never mismatches its
+ * declared extension.
+ */
+function detectImageFormat(bytes: Uint8Array): string | undefined {
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return "png";
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "jpeg";
+  }
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 && // "RIFF"
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50 // "WEBP"
+  ) {
+    return "webp";
+  }
+  return undefined;
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {

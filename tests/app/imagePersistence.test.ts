@@ -17,6 +17,18 @@ function pngResponse(bytes: Uint8Array, ok = true): Response {
   } as unknown as Response;
 }
 
+function imageResponse(bytes: Uint8Array, type: string, ok = true): Response {
+  return {
+    ok,
+    blob: async () => ({
+      type,
+      arrayBuffer: async () => bytes.buffer,
+    }),
+  } as unknown as Response;
+}
+
+const JPEG_MAGIC = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
+
 describe("generated image persistence", () => {
   it("persists downloaded image bytes through the desktop command and returns an asset URL", async () => {
     const bytes = new Uint8Array([137, 80, 78, 71]);
@@ -37,6 +49,35 @@ describe("generated image persistence", () => {
       base64Data: btoa(String.fromCharCode(...bytes)),
     });
     expect(result).toBe(`asset://localhost/${encodeURIComponent("C:/app-data/generated-images/map_1.png")}`);
+  });
+
+  it("derives the format from the image bytes when the provider omits a Content-Type", async () => {
+    const invokeImpl = vi.fn(async () => "C:/app-data/generated-images/map_1.jpg");
+
+    await persistGeneratedImageLocally("map_1", "http://127.0.0.1:8188/view?f=x", {
+      fetchImpl: vi.fn(async () => imageResponse(JPEG_MAGIC, "")) as unknown as typeof fetch,
+      invokeImpl: invokeImpl as unknown as InvokeImpl,
+      convertFileSrcImpl: (path) => path,
+    });
+
+    expect(invokeImpl).toHaveBeenCalledWith("persist_generated_image", {
+      artifactId: "map_1",
+      format: "jpeg",
+      base64Data: btoa(String.fromCharCode(...JPEG_MAGIC)),
+    });
+  });
+
+  it("fails open without persisting when the bytes are not a recognized image", async () => {
+    const invokeImpl = vi.fn(async () => "C:/should-not-happen.png");
+
+    const result = await persistGeneratedImageLocally("map_1", "http://127.0.0.1:8188/view", {
+      fetchImpl: vi.fn(async () => imageResponse(new Uint8Array([1, 2, 3, 4]), "")) as unknown as typeof fetch,
+      invokeImpl: invokeImpl as unknown as InvokeImpl,
+      convertFileSrcImpl: (path) => path,
+    });
+
+    expect(result).toBeNull();
+    expect(invokeImpl).not.toHaveBeenCalled();
   });
 
   it("fails open when the download or the desktop command fails", async () => {

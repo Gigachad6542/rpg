@@ -1126,6 +1126,12 @@ textarea:focus-visible {
   color: var(--accent);
 }
 
+.message-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .message-action {
   display: inline-flex;
   align-items: center;

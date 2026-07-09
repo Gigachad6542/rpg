@@ -19,6 +19,7 @@ import {
   Plus,
   Power,
   Play,
+  RefreshCw,
   RotateCcw,
   Search,
   Send,
@@ -1510,6 +1511,30 @@ export function App() {
     );
   }
 
+  async function regenerateLastReply() {
+    if (!activeCard || !activeChat || isGenerating || !runtimeRunning) {
+      return;
+    }
+    const history = filterPersistedOpeningMessages(activeChat.messages);
+    let assistantIndex = -1;
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      if (history[index].role === "assistant") {
+        assistantIndex = index;
+        break;
+      }
+    }
+    if (assistantIndex === -1) {
+      return;
+    }
+    let userIndex = assistantIndex - 1;
+    while (userIndex >= 0 && history[userIndex].role !== "user") {
+      userIndex -= 1;
+    }
+    const action = userIndex >= 0 ? history[userIndex].content : randomOpeningAction;
+    const baseMessages = userIndex >= 0 ? history.slice(0, userIndex) : history.slice(0, assistantIndex);
+    await generateMockTurn({ actionOverride: action, baseMessages });
+  }
+
   async function runSlashCommand(name: string, args: string) {
     if (name === "roll") {
       if (!runtimeSettings.diceRollsEnabled) {
@@ -1569,7 +1594,7 @@ export function App() {
     setRuleWarning("");
   }
 
-  async function generateMockTurn() {
+  async function generateMockTurn(options?: { actionOverride?: string; baseMessages?: Message[] }) {
     if (!activeCard) {
       setRuleWarning("Open a card before starting the runtime.");
       return;
@@ -1579,13 +1604,13 @@ export function App() {
       return;
     }
 
-    const parsedCommand = parseSlashCommand(draft.trim());
+    const parsedCommand = options?.actionOverride === undefined ? parseSlashCommand(draft.trim()) : null;
     if (parsedCommand) {
       await runSlashCommand(parsedCommand.command.name, parsedCommand.args);
       return;
     }
 
-    const visibleUserAction = draft.trim();
+    const visibleUserAction = (options?.actionOverride ?? draft).trim();
     const generationAction = visibleUserAction || randomOpeningAction;
 
     const validation = validatePlayerActionWithRules({
@@ -1603,7 +1628,7 @@ export function App() {
     setStreamingReply("");
     const runId = createRuntimeEntityId("run");
     const chat = activeChat ?? createChatSession(activeCard.id, `${activeCard.name} chat`);
-    const chatMessages = filterPersistedOpeningMessages(chat.messages);
+    const chatMessages = options?.baseMessages ?? filterPersistedOpeningMessages(chat.messages);
     if (!activeChat) {
       setChatSessions((current) => [...current, chat]);
       setActiveChatIds((current) => ({ ...current, [activeCard.id]: chat.id }));
@@ -2549,6 +2574,7 @@ export function App() {
               isDeleteChatPending={pendingDeleteChatId === activeChat?.id}
               messages={visibleMessages}
               editMessage={editMessageContent}
+              regenerateLastReply={regenerateLastReply}
               draft={draft}
               setDraft={setDraft}
               sendMessage={generateMockTurn}
@@ -2696,6 +2722,7 @@ function RuntimeSection(props: {
   isDeleteChatPending: boolean;
   messages: Message[];
   editMessage: (messageId: string, content: string) => void;
+  regenerateLastReply: () => Promise<void>;
   draft: string;
   setDraft: (draft: string) => void;
   sendMessage: () => Promise<void>;
@@ -2758,6 +2785,9 @@ function RuntimeSection(props: {
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
+  const lastMessage = props.messages[props.messages.length - 1];
+  const regenerableMessageId =
+    lastMessage?.role === "assistant" && props.runtimeRunning && !props.isGenerating ? lastMessage.id : null;
 
   useEffect(() => {
     const transcript = transcriptRef.current;
@@ -2846,18 +2876,31 @@ function RuntimeSection(props: {
                   {message.role === "assistant" ? props.activeCard.name : "You"}
                 </span>
                 {editingMessageId === message.id ? null : (
-                  <button
-                    type="button"
-                    className="message-action"
-                    aria-label="Edit message"
-                    onClick={() => {
-                      setEditingMessageId(message.id);
-                      setEditDraft(message.content);
-                    }}
-                  >
-                    <PenLine size={13} />
-                    Edit
-                  </button>
+                  <span className="message-actions">
+                    {regenerableMessageId === message.id ? (
+                      <button
+                        type="button"
+                        className="message-action"
+                        aria-label="Regenerate reply"
+                        onClick={() => void props.regenerateLastReply()}
+                      >
+                        <RefreshCw size={13} />
+                        Regenerate
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="message-action"
+                      aria-label="Edit message"
+                      onClick={() => {
+                        setEditingMessageId(message.id);
+                        setEditDraft(message.content);
+                      }}
+                    >
+                      <PenLine size={13} />
+                      Edit
+                    </button>
+                  </span>
                 )}
               </header>
               {editingMessageId === message.id ? (

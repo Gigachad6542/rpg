@@ -1158,6 +1158,37 @@ textarea:focus-visible {
   color: var(--accent);
 }
 
+.message-swipe {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+}
+
+.message-swipe-arrow {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 6px;
+}
+
+.message-swipe-arrow:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.message-swipe-count {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 2.4ch;
+  text-align: center;
+}
+
 .message-editor {
   display: grid;
   gap: 8px;

@@ -3,6 +3,8 @@ import {
   BookOpen,
   Brush,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   ClipboardList,
   Download,
   Eye,
@@ -202,6 +204,9 @@ type Message = {
   id: string;
   role: "system" | "user" | "assistant";
   content: string;
+  /** Alternate generations for this message; content mirrors variants[activeVariantIndex]. */
+  variants?: string[];
+  activeVariantIndex?: number;
 };
 
 type ChatSession = {
@@ -1503,9 +1508,40 @@ export function App() {
     setChatSessions((current) =>
       upsertChatSession(current, {
         ...activeChat,
-        messages: activeChat.messages.map((message) =>
-          message.id === messageId ? { ...message, content: trimmed } : message,
-        ),
+        messages: activeChat.messages.map((message) => {
+          if (message.id !== messageId) {
+            return message;
+          }
+          if (message.variants && message.variants.length > 0) {
+            const activeIndex = message.activeVariantIndex ?? message.variants.length - 1;
+            return {
+              ...message,
+              content: trimmed,
+              variants: message.variants.map((variant, index) => (index === activeIndex ? trimmed : variant)),
+            };
+          }
+          return { ...message, content: trimmed };
+        }),
+        updatedAt: new Date().toISOString(),
+      }),
+    );
+  }
+
+  function swipeMessageVariant(messageId: string, direction: -1 | 1) {
+    if (!activeChat) {
+      return;
+    }
+    setChatSessions((current) =>
+      upsertChatSession(current, {
+        ...activeChat,
+        messages: activeChat.messages.map((message) => {
+          if (message.id !== messageId || !message.variants || message.variants.length < 2) {
+            return message;
+          }
+          const currentIndex = message.activeVariantIndex ?? message.variants.length - 1;
+          const nextIndex = (currentIndex + direction + message.variants.length) % message.variants.length;
+          return { ...message, content: message.variants[nextIndex], activeVariantIndex: nextIndex };
+        }),
         updatedAt: new Date().toISOString(),
       }),
     );
@@ -1532,7 +1568,12 @@ export function App() {
     }
     const action = userIndex >= 0 ? history[userIndex].content : randomOpeningAction;
     const baseMessages = userIndex >= 0 ? history.slice(0, userIndex) : history.slice(0, assistantIndex);
-    await generateMockTurn({ actionOverride: action, baseMessages });
+    const lastAssistant = history[assistantIndex];
+    const previousVariants =
+      lastAssistant.variants && lastAssistant.variants.length > 0
+        ? lastAssistant.variants
+        : [lastAssistant.content];
+    await generateMockTurn({ actionOverride: action, baseMessages, previousVariants });
   }
 
   async function runSlashCommand(name: string, args: string) {
@@ -1594,7 +1635,11 @@ export function App() {
     setRuleWarning("");
   }
 
-  async function generateMockTurn(options?: { actionOverride?: string; baseMessages?: Message[] }) {
+  async function generateMockTurn(options?: {
+    actionOverride?: string;
+    baseMessages?: Message[];
+    previousVariants?: string[];
+  }) {
     if (!activeCard) {
       setRuleWarning("Open a card before starting the runtime.");
       return;
@@ -1711,10 +1756,17 @@ export function App() {
         ...describeHiddenContinuityChanges(hiddenContinuity),
         ...describeValidatedTurnEffects(policyResult.extraction),
       ];
+      const assistantContent = stripTrailingCallToAction(pipelineResult.assistantMessageText);
+      const assistantVariants = options?.previousVariants
+        ? [...options.previousVariants, assistantContent]
+        : undefined;
       const assistantMessage: Message = {
         id: `assistant-${runId}`,
         role: "assistant",
-        content: stripTrailingCallToAction(pipelineResult.assistantMessageText),
+        content: assistantContent,
+        ...(assistantVariants && assistantVariants.length > 1
+          ? { variants: assistantVariants, activeVariantIndex: assistantVariants.length - 1 }
+          : {}),
       };
       const nextActiveCard = applyValidatedTurnEffectsToCard(
         applyHiddenContinuityToCard(continuityCard, visibleKnowledgeContinuity),
@@ -2575,6 +2627,7 @@ export function App() {
               messages={visibleMessages}
               editMessage={editMessageContent}
               regenerateLastReply={regenerateLastReply}
+              swipeMessageVariant={swipeMessageVariant}
               draft={draft}
               setDraft={setDraft}
               sendMessage={generateMockTurn}
@@ -2723,6 +2776,7 @@ function RuntimeSection(props: {
   messages: Message[];
   editMessage: (messageId: string, content: string) => void;
   regenerateLastReply: () => Promise<void>;
+  swipeMessageVariant: (messageId: string, direction: -1 | 1) => void;
   draft: string;
   setDraft: (draft: string) => void;
   sendMessage: () => Promise<void>;
@@ -2877,6 +2931,29 @@ function RuntimeSection(props: {
                 </span>
                 {editingMessageId === message.id ? null : (
                   <span className="message-actions">
+                    {message.variants && message.variants.length > 1 ? (
+                      <span className="message-swipe" aria-label="Alternate replies">
+                        <button
+                          type="button"
+                          className="message-swipe-arrow"
+                          aria-label="Previous reply"
+                          onClick={() => props.swipeMessageVariant(message.id, -1)}
+                        >
+                          <ChevronLeft size={14} />
+                        </button>
+                        <span className="message-swipe-count">
+                          {(message.activeVariantIndex ?? message.variants.length - 1) + 1}/{message.variants.length}
+                        </span>
+                        <button
+                          type="button"
+                          className="message-swipe-arrow"
+                          aria-label="Next reply"
+                          onClick={() => props.swipeMessageVariant(message.id, 1)}
+                        >
+                          <ChevronRight size={14} />
+                        </button>
+                      </span>
+                    ) : null}
                     {regenerableMessageId === message.id ? (
                       <button
                         type="button"
@@ -5270,10 +5347,19 @@ function sanitizeMessages(value: unknown): Message[] {
       ) {
         return null;
       }
+      const variants =
+        Array.isArray(message.variants) && message.variants.every((variant) => typeof variant === "string")
+          ? (message.variants as string[])
+          : undefined;
+      const activeVariantIndex =
+        variants && typeof message.activeVariantIndex === "number"
+          ? Math.min(Math.max(Math.trunc(message.activeVariantIndex), 0), variants.length - 1)
+          : undefined;
       return {
         id: message.id,
         role: message.role,
         content: message.content,
+        ...(variants && variants.length > 1 ? { variants, activeVariantIndex } : {}),
       };
     })
     .filter((message): message is Message => Boolean(message));

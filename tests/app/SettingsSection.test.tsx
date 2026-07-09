@@ -13,6 +13,8 @@ describe("SettingsSection", () => {
       textStreaming: true,
       banEmojis: false,
       promptDebugLogs: false,
+      diceRollsEnabled: false,
+      onboardingCompleted: false,
       impersonationPrompt: "You are cautious.",
       accentColor: "",
     };

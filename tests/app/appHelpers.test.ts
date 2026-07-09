@@ -9,6 +9,8 @@ const runtimeSettings = {
   textStreaming: true,
   banEmojis: false,
   promptDebugLogs: false,
+  diceRollsEnabled: false,
+  onboardingCompleted: false,
   impersonationPrompt: "",
   accentColor: "",
 };
@@ -198,6 +200,8 @@ describe("App pure helper coverage", () => {
       textStreaming: true,
       banEmojis: true,
       promptDebugLogs: false,
+      diceRollsEnabled: false,
+      onboardingCompleted: false,
       impersonationPrompt: "Do not write as the user.",
       accentColor: "",
     });

@@ -5,6 +5,8 @@ export type RuntimeSettingsView = {
   textStreaming: boolean;
   banEmojis: boolean;
   promptDebugLogs: boolean;
+  diceRollsEnabled: boolean;
+  onboardingCompleted: boolean;
   impersonationPrompt: string;
   accentColor: string;
 };
@@ -60,6 +62,19 @@ export function SettingsSection(props: {
             }
           />
           <span>Ban emojis in model replies</span>
+        </label>
+        <label className="toggle-row">
+          <input
+            type="checkbox"
+            checked={props.runtimeSettings.diceRollsEnabled}
+            onChange={(event) =>
+              props.setRuntimeSettings({
+                ...props.runtimeSettings,
+                diceRollsEnabled: event.target.checked,
+              })
+            }
+          />
+          <span>Dice rolls (/roll in chat)</span>
         </label>
         <label className="toggle-row">
           <input

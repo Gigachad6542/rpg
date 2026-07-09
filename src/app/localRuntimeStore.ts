@@ -271,7 +271,7 @@ export function sanitizePersistedRuntimeSettings(value: unknown): Record<string,
   }
 
   const sanitized: Record<string, unknown> = {};
-  for (const key of ["textStreaming", "banEmojis", "promptDebugLogs"]) {
+  for (const key of ["textStreaming", "banEmojis", "promptDebugLogs", "diceRollsEnabled", "onboardingCompleted"]) {
     const field = value[key];
     if (typeof field === "boolean") {
       sanitized[key] = field;

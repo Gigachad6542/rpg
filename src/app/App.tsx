@@ -50,6 +50,8 @@ import {
 import { detectKnowledgeLeaks, describeKnowledgeLeaks } from "../runtime/knowledgeLeakDetector";
 import { selectActiveLorebookEntries } from "../runtime/loreTriggerEngine";
 import { type CompiledPrompt } from "../runtime/promptCompiler";
+import { formatDiceResult, rollFromNotation } from "../runtime/diceEngine";
+import { matchSlashCommands, parseSlashCommand } from "../runtime/slashCommands";
 import {
   compileTurnPrompt,
   runTurnPipeline,
@@ -255,6 +257,8 @@ type RuntimeSettings = {
   textStreaming: boolean;
   banEmojis: boolean;
   promptDebugLogs: boolean;
+  diceRollsEnabled: boolean;
+  onboardingCompleted: boolean;
   impersonationPrompt: string;
   accentColor: string;
 };
@@ -552,6 +556,8 @@ const defaultRuntimeSettings: RuntimeSettings = {
   textStreaming: false,
   banEmojis: false,
   promptDebugLogs: false,
+  diceRollsEnabled: false,
+  onboardingCompleted: false,
   impersonationPrompt: "",
   accentColor: "",
 };
@@ -1445,6 +1451,65 @@ export function App() {
     return true;
   }
 
+  async function runSlashCommand(name: string, args: string) {
+    if (name === "roll") {
+      if (!runtimeSettings.diceRollsEnabled) {
+        setRuleWarning("Dice rolls are turned off. Enable them in Settings to use /roll.");
+        return;
+      }
+      postDiceRoll(args);
+      return;
+    }
+    if (name === "branch") {
+      if (!activeChat) {
+        setRuleWarning("Start a chat before branching.");
+        return;
+      }
+      branchActiveChat();
+      return;
+    }
+    if (name === "img") {
+      const prompt = args.trim();
+      if (!prompt) {
+        setRuleWarning("Describe the image, e.g. /img a storm over the harbor.");
+        return;
+      }
+      setDraft("");
+      setRuleWarning("");
+      await generateCustomImageFromRequest(prompt);
+    }
+  }
+
+  function postDiceRoll(notation: string) {
+    if (!activeCard) {
+      setRuleWarning("Open a card before rolling dice.");
+      return;
+    }
+    const rolled = rollFromNotation(notation);
+    if (!rolled) {
+      setRuleWarning("Invalid dice notation. Try something like /roll 2d6+3.");
+      return;
+    }
+    const rollChat = activeChat ?? createChatSession(activeCard.id, `${activeCard.name} chat`);
+    if (!activeChat) {
+      setActiveChatIds((current) => ({ ...current, [activeCard.id]: rollChat.id }));
+    }
+    const diceMessage: Message = {
+      id: `dice-${createRuntimeEntityId("run")}`,
+      role: "user",
+      content: formatDiceResult(rolled),
+    };
+    setChatSessions((current) =>
+      upsertChatSession(current, {
+        ...rollChat,
+        messages: [...filterPersistedOpeningMessages(rollChat.messages), diceMessage],
+        updatedAt: new Date().toISOString(),
+      }),
+    );
+    setDraft("");
+    setRuleWarning("");
+  }
+
   async function generateMockTurn() {
     if (!activeCard) {
       setRuleWarning("Open a card before starting the runtime.");
@@ -1454,6 +1519,13 @@ export function App() {
       setRuleWarning("Runtime is shut down. Start the runtime before generating another turn.");
       return;
     }
+
+    const parsedCommand = parseSlashCommand(draft.trim());
+    if (parsedCommand) {
+      await runSlashCommand(parsedCommand.command.name, parsedCommand.args);
+      return;
+    }
+
     const visibleUserAction = draft.trim();
     const generationAction = visibleUserAction || randomOpeningAction;
 
@@ -1777,12 +1849,15 @@ export function App() {
     setMapArtifact(null);
   }
 
-  async function generateCustomImageFromRequest() {
-    if (!activeCard || !photoSpecDraft.trim()) {
+  async function generateCustomImageFromRequest(specOverride?: string) {
+    const userInput = (specOverride ?? photoSpecDraft).trim();
+    if (!activeCard || !userInput) {
       return;
     }
+    if (specOverride !== undefined) {
+      setPhotoSpecDraft(userInput);
+    }
 
-    const userInput = photoSpecDraft.trim();
     const prompt = buildCustomImagePrompt(userInput);
     setPhotoPrompt(prompt);
     setIsGeneratingPhoto(true);
@@ -2705,6 +2780,28 @@ function RuntimeSection(props: {
               placeholder="Type what you want to say or do..."
             />
           </label>
+          {(() => {
+            const slashMatches = matchSlashCommands(props.draft);
+            if (slashMatches.length === 0) {
+              return null;
+            }
+            return (
+              <ul className="slash-command-menu" role="listbox" aria-label="Slash commands">
+                {slashMatches.map((command) => (
+                  <li key={command.name}>
+                    <button
+                      type="button"
+                      className="slash-command-option"
+                      onClick={() => props.setDraft(`/${command.name} `)}
+                    >
+                      <span className="slash-command-name">/{command.name}</span>
+                      <span className="slash-command-summary">{command.summary}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            );
+          })()}
           <div className="composer-actions">
             <button
               className="secondary-button compact-button"
@@ -5894,6 +5991,12 @@ function parseRuntimeSettings(value?: Record<string, unknown>): RuntimeSettings 
     banEmojis: typeof value?.banEmojis === "boolean" ? value.banEmojis : defaultRuntimeSettings.banEmojis,
     promptDebugLogs:
       typeof value?.promptDebugLogs === "boolean" ? value.promptDebugLogs : defaultRuntimeSettings.promptDebugLogs,
+    diceRollsEnabled:
+      typeof value?.diceRollsEnabled === "boolean" ? value.diceRollsEnabled : defaultRuntimeSettings.diceRollsEnabled,
+    onboardingCompleted:
+      typeof value?.onboardingCompleted === "boolean"
+        ? value.onboardingCompleted
+        : defaultRuntimeSettings.onboardingCompleted,
     impersonationPrompt:
       typeof value?.impersonationPrompt === "string"
         ? value.impersonationPrompt

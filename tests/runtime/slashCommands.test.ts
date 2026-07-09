@@ -8,7 +8,7 @@ import {
 describe("SLASH_COMMANDS", () => {
   it("registers the expected commands", () => {
     const names = SLASH_COMMANDS.map((command) => command.name);
-    expect(names).toEqual(["roll", "lore", "mem", "img", "branch"]);
+    expect(names).toEqual(["roll", "img", "branch"]);
   });
 });
 
@@ -45,13 +45,7 @@ describe("parseSlashCommand", () => {
 
 describe("matchSlashCommands", () => {
   it("lists every command for a bare slash", () => {
-    expect(matchSlashCommands("/").map((command) => command.name)).toEqual([
-      "roll",
-      "lore",
-      "mem",
-      "img",
-      "branch",
-    ]);
+    expect(matchSlashCommands("/").map((command) => command.name)).toEqual(["roll", "img", "branch"]);
   });
 
   it("filters by prefix", () => {

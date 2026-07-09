@@ -32,18 +32,6 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     argHint: "NdM+K (defaults to 1d20)",
   },
   {
-    name: "lore",
-    summary: "Search the lorebook for matching entries",
-    usage: "/lore market district",
-    argHint: "keywords to search",
-  },
-  {
-    name: "mem",
-    summary: "Add a note to persistent memory",
-    usage: "/mem the innkeeper owes a favor",
-    argHint: "what to remember",
-  },
-  {
     name: "img",
     summary: "Generate an image from a prompt",
     usage: "/img a storm over the harbor",
@@ -52,8 +40,8 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   {
     name: "branch",
     summary: "Branch the conversation from here",
-    usage: "/branch alternate ending",
-    argHint: "optional branch name",
+    usage: "/branch",
+    argHint: "no arguments needed",
   },
 ];
 

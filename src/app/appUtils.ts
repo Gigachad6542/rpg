@@ -78,7 +78,16 @@ export function getPayloadString(value: unknown): string {
 }
 
 export function getPayloadNumber(value: unknown, fallback: number, min: number, max: number): number {
-  return toBoundedNumber(typeof value === "number" || typeof value === "string" ? value : "", fallback, min, max);
+  // An absent or blank payload field must fall back, not clamp: toBoundedNumber
+  // parses "" as 0, which imported lore entries with probability 0 (never
+  // triggered), scan depth 1, and token budget 100.
+  if (typeof value === "number") {
+    return toBoundedNumber(value, fallback, min, max);
+  }
+  if (typeof value === "string" && value.trim()) {
+    return toBoundedNumber(value.trim(), fallback, min, max);
+  }
+  return fallback;
 }
 
 export function getPayloadBoolean(value: unknown, fallback: boolean): boolean {

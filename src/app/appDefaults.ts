@@ -268,7 +268,6 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   promptDebugLogs: false,
   diceRollsEnabled: false,
   onboardingCompleted: false,
-  impersonationPrompt: "",
   accentColor: "",
 };
 

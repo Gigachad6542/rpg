@@ -52,6 +52,22 @@ export type RuntimeCard = {
 
 export type PlayerRule = PlayerRuleDefinition;
 
+/**
+ * A saved profile for the player's side of a scene. Replaces the single
+ * `impersonationPrompt` string that RuntimeSettings used to carry.
+ */
+export type Persona = {
+  id: string;
+  name: string;
+  /** The impersonation/persona prompt the card should account for. */
+  description: string;
+  /** Persona avatar embedded as a `data:image/png;base64,...` URL. */
+  avatarDataUrl?: string;
+  /** Lorebooks that only fire while this persona is active. */
+  lorebooks: Lorebook[];
+  isDefault: boolean;
+};
+
 export type Lorebook = {
   id: string;
   name: string;
@@ -184,7 +200,6 @@ export type RuntimeSettings = {
   promptDebugLogs: boolean;
   diceRollsEnabled: boolean;
   onboardingCompleted: boolean;
-  impersonationPrompt: string;
   accentColor: string;
 };
 
@@ -222,6 +237,8 @@ export type AppRuntimeSnapshot = LocalRuntimeSnapshot<RuntimeCard, Message, Prom
   providerSettings: ProviderSettings;
   imageProviderSettings: ImageProviderSettings;
   runtimeSettings: RuntimeSettings;
+  personas: Persona[];
+  activePersonaId: string;
   generatedMaps: GeneratedMapArtifact[];
   chatSessions: ChatSession[];
   activeChatIds: Record<string, string>;

@@ -232,10 +232,6 @@ export function parseRuntimeSettings(value?: Record<string, unknown>): RuntimeSe
       typeof value?.onboardingCompleted === "boolean"
         ? value.onboardingCompleted
         : defaultRuntimeSettings.onboardingCompleted,
-    impersonationPrompt:
-      typeof value?.impersonationPrompt === "string"
-        ? value.impersonationPrompt
-        : defaultRuntimeSettings.impersonationPrompt,
     accentColor:
       typeof value?.accentColor === "string" && /^#[0-9a-fA-F]{6}$/.test(value.accentColor)
         ? value.accentColor

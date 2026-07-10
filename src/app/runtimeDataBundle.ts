@@ -6,6 +6,7 @@ import {
   sanitizePromptRunsForExport,
   type LocalRuntimeSnapshot,
 } from "./localRuntimeStore";
+import { sanitizePersistedPersonas } from "./personas";
 import type { RuntimeRepositoryStoreStatus } from "./runtimeRepositoryStore";
 
 export const RUNTIME_EXPORT_SCHEMA_VERSION = 1;
@@ -205,6 +206,8 @@ function sanitizeSnapshotForExport(snapshot: RuntimeExportSnapshot): RuntimeExpo
     providerSettings: sanitizePersistedProviderSettings(snapshot.providerSettings),
     imageProviderSettings: sanitizeImageProviderSettingsForExport(snapshot.imageProviderSettings),
     runtimeSettings,
+    personas: sanitizePersistedPersonas(snapshot.personas),
+    activePersonaId: typeof snapshot.activePersonaId === "string" ? snapshot.activePersonaId : undefined,
     generatedMaps: sanitizeGeneratedMaps(snapshot.generatedMaps),
     savedAt: typeof snapshot.savedAt === "string" ? snapshot.savedAt : new Date().toISOString(),
   };

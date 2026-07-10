@@ -1662,13 +1662,15 @@ describe("local-first card runtime UI", () => {
     await waitFor(() => expect(screen.getByText(/Could not read test lorebook/i)).toBeInTheDocument());
   });
 
-  it("persists runtime settings into prompt construction", async () => {
+  it("persists runtime settings and the active persona prompt into prompt construction", async () => {
     await renderApp();
     openBlankRpgCard();
 
     fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
     fireEvent.click(screen.getByLabelText(/Ban emojis/i));
-    fireEvent.change(screen.getByLabelText(/Impersonation prompt/i), {
+
+    const personaEditor = screen.getByRole("region", { name: /Persona editor/i });
+    fireEvent.change(within(personaEditor).getByLabelText(/Persona prompt/i), {
       target: { value: "The user is a cautious cartographer who avoids rash promises." },
     });
 
@@ -1679,6 +1681,42 @@ describe("local-first card runtime UI", () => {
     const promptDebugger = screen.getByLabelText(/Prompt debugger/i);
     expect(promptDebugger).toHaveTextContent(/Do not include emojis/i);
     expect(promptDebugger).toHaveTextContent(/cautious cartographer/i);
+  });
+
+  it("creates a persona, switches to it from the chat header, and fires its lorebook into the prompt", async () => {
+    await renderApp();
+    openBlankRpgCard();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
+    const personaPanel = screen.getByRole("region", { name: /Persona profiles/i });
+    fireEvent.change(within(personaPanel).getByLabelText(/New persona name/i), { target: { value: "Mara" } });
+    fireEvent.click(within(personaPanel).getByRole("button", { name: /Create persona/i }));
+
+    const personaEditor = screen.getByRole("region", { name: /Persona editor/i });
+    fireEvent.change(within(personaEditor).getByLabelText(/Chub lorebook JSON/i), {
+      target: {
+        value: JSON.stringify({
+          name: "Mara history",
+          entries: [{ keys: ["coast"], content: "Mara grew up on the storm coast." }],
+        }),
+      },
+    });
+    fireEvent.click(within(personaEditor).getByRole("button", { name: /Attach lorebook/i }));
+    expect(within(personaEditor).getByRole("status", { name: /Persona status/i })).toHaveTextContent(
+      /Attached Mara history to Mara/i,
+    );
+
+    // Creating a persona makes it active, so the chat header quick-switch shows it.
+    fireEvent.click(screen.getByRole("button", { name: /^Runtime$/i }));
+    expect(screen.getByLabelText(/Active persona/i)).toHaveDisplayValue("Mara");
+
+    fireEvent.change(screen.getByLabelText(/Message input/i), { target: { value: "I remember the coast." } });
+
+    fireEvent.click(screen.getByRole("button", { name: /^Cards$/i }));
+    openCardEditorTab(/rules/i);
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Prompt debugger/i)).toHaveTextContent(/Mara grew up on the storm coast/i),
+    );
   });
 
   it("creates and edits richer character card definition fields", async () => {

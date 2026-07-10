@@ -2,9 +2,10 @@
 import { type ReactNode } from "react";
 import { formatStoryEntitiesForKnowledgeBoundary } from "../runtime/hiddenContinuity";
 import { buildSceneText, orderByRelevance, selectPresentNames } from "../runtime/relevanceScoring";
-import type { LorebookEntry, Message, RuntimeCard, RuntimeSettings, TurnPromptRequest } from "./runtimeTypes";
+import type { LorebookEntry, Message, Persona, RuntimeCard, RuntimeSettings, TurnPromptRequest } from "./runtimeTypes";
 import { titleCase } from "./appUtils";
 import { randomOpeningAction } from "./appDefaults";
+import { formatPersonaPrompt } from "./personas";
 
 export function formatDetailedCharacterDefinition(card: RuntimeCard): string {
   return [
@@ -50,7 +51,8 @@ export function renderNarrativeMarkup(text: string): ReactNode[] {
   return nodes;
 }
 
-export function buildResponseContract(settings: RuntimeSettings): string {
+export function buildResponseContract(settings: RuntimeSettings, activePersona: Persona | null = null): string {
+  const personaPrompt = formatPersonaPrompt(activePersona);
   return [
     "Write the in-card response.",
     "Player agency is absolute: narrate only actions, words, and decisions the player explicitly stated. You may expand and vividly describe what the player declared, but never invent new actions, dialogue, emotions, or inner thoughts for the player character.",
@@ -59,8 +61,8 @@ export function buildResponseContract(settings: RuntimeSettings): string {
     "Do not show raw Markdown fences in the main prose. If useful, put Date, Time, Location, Weather, Health, Inventory, Quest, or Status as a short `status` fenced block at the very end.",
     "When this turn changed durable state, append a fenced ```json block at the very end (after the status block) containing one object with any of these keys: memory_updates (array of {label, detail}), character_knowledge_updates (array of {subject, knows, does_not_know}), rpg_state_updates ({location, health_delta, inventory_add, inventory_remove, quest_updates, world_flags}), image_prompt_opportunity, continuity_warnings. The app strips this block from the visible reply and validates every proposal before saving; omit the block when nothing durable changed.",
     settings.banEmojis ? "Do not include emojis or emoticons in the response." : "",
-    settings.impersonationPrompt.trim()
-      ? `Account for this user impersonation/persona prompt without speaking as the user:\n${settings.impersonationPrompt.trim()}`
+    personaPrompt
+      ? `Account for this user impersonation/persona prompt without speaking as the user:\n${personaPrompt}`
       : "",
   ]
     .filter(Boolean)
@@ -73,6 +75,7 @@ export function buildTurnPromptRequest(
   messages: Message[],
   draft: string,
   runtimeSettings: RuntimeSettings,
+  activePersona: Persona | null = null,
   overrides: Partial<TurnPromptRequest> = {},
 ): TurnPromptRequest {
   const sceneText = buildSceneText([
@@ -138,7 +141,7 @@ export function buildTurnPromptRequest(
       formatStoryEntitiesForKnowledgeBoundary(card.storyEntities, presentEntityNames),
     ].filter(Boolean).join("\n\n"),
     tokenBudget: { maxInputTokens: 6_000, reservedOutputTokens: 900 },
-    responseContract: buildResponseContract(runtimeSettings),
+    responseContract: buildResponseContract(runtimeSettings, activePersona),
     preferStreaming: runtimeSettings.textStreaming,
     ...overrides,
   };

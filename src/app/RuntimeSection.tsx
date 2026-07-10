@@ -30,6 +30,7 @@ import type {
   GeneratedMapArtifact,
   MediaPreviewArtifact,
   Message,
+  Persona,
   PromptRun,
   RuntimeCard,
 } from "./runtimeTypes";
@@ -47,6 +48,9 @@ export function RuntimeSection(props: {
   branchChat: () => void;
   deleteChat: () => void;
   isDeleteChatPending: boolean;
+  personas: Persona[];
+  activePersonaId: string;
+  selectPersona: (personaId: string) => void;
   messages: Message[];
   editMessage: (messageId: string, content: string) => void;
   regenerateLastReply: () => Promise<void>;
@@ -139,6 +143,20 @@ export function RuntimeSection(props: {
               {props.cardChats.map((chat) => (
                 <option value={chat.id} key={chat.id}>
                   {chat.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field chat-select">
+            <span>Persona</span>
+            <select
+              aria-label="Active persona"
+              value={props.activePersonaId}
+              onChange={(event) => props.selectPersona(event.target.value)}
+            >
+              {props.personas.map((persona) => (
+                <option value={persona.id} key={persona.id}>
+                  {persona.name}
                 </option>
               ))}
             </select>

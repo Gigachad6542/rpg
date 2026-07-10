@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Download, History, Layers3, RotateCcw, Settings2, ShieldCheck, Upload } from "lucide-react";
+import type { Persona } from "./runtimeTypes";
+import { PersonasPanel } from "./PersonasPanel";
 
 export type RuntimeSettingsView = {
   textStreaming: boolean;
@@ -7,7 +9,6 @@ export type RuntimeSettingsView = {
   promptDebugLogs: boolean;
   diceRollsEnabled: boolean;
   onboardingCompleted: boolean;
-  impersonationPrompt: string;
   accentColor: string;
 };
 
@@ -28,6 +29,13 @@ const ACCENT_PRESETS: Array<{ label: string; value: string }> = [
 export function SettingsSection(props: {
   runtimeSettings: RuntimeSettingsView;
   setRuntimeSettings: (settings: RuntimeSettingsView) => void;
+  personas: Persona[];
+  activePersonaId: string;
+  selectPersona: (personaId: string) => void;
+  addPersona: (name: string) => void;
+  editPersona: (personaId: string, changes: Partial<Persona>) => void;
+  removePersona: (personaId: string) => void;
+  makePersonaDefault: (personaId: string) => void;
   promptPreview: string;
   dataManagementStatus: string;
   exportRuntimeData: () => void;
@@ -102,20 +110,6 @@ export function SettingsSection(props: {
           />
           <span>Prompt debug logs</span>
         </label>
-        <label className="field">
-          <span>Impersonation prompt</span>
-          <textarea
-            value={props.runtimeSettings.impersonationPrompt}
-            onChange={(event) =>
-              props.setRuntimeSettings({
-                ...props.runtimeSettings,
-                impersonationPrompt: event.target.value,
-              })
-            }
-            rows={8}
-            placeholder="Describe the user's persona, point of view, boundaries, or roleplay voice the card should account for."
-          />
-        </label>
         <div className="field">
           <span>Accent color</span>
           <div className="accent-swatches">
@@ -153,6 +147,15 @@ export function SettingsSection(props: {
           </div>
         </div>
       </section>
+      <PersonasPanel
+        personas={props.personas}
+        activePersonaId={props.activePersonaId}
+        selectPersona={props.selectPersona}
+        addPersona={props.addPersona}
+        editPersona={props.editPersona}
+        removePersona={props.removePersona}
+        makePersonaDefault={props.makePersonaDefault}
+      />
       <section className="panel" aria-label="Settings prompt preview">
         <div className="section-title">
           <Layers3 size={17} />

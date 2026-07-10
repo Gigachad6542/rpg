@@ -97,6 +97,7 @@ import type {
   MediaPreviewArtifact,
   Message,
   NewLorebookEntry,
+  Persona,
   PromptRun,
   ProviderSettings,
   RpgCardState,
@@ -142,7 +143,6 @@ import {
   createInitialLorebooks,
   createInitialStoryEntities,
   describeHiddenContinuityChanges,
-  ensureLorebooks,
   normalizeRuntimeCards,
   toHiddenContinuityCard,
 } from "./cardNormalization";
@@ -182,15 +182,35 @@ import {
 } from "./appDefaults";
 
 
+import {
+  collectActiveLorebooks,
+  createPersona,
+  deletePersona,
+  getActivePersona,
+  parseActivePersonaId,
+  parsePersonas,
+  setDefaultPersona,
+  updatePersona,
+} from "./personas";
 import { NoActiveCardRuntimePanel, RuntimeSection } from "./RuntimeSection";
 import { CardsSection } from "./CardsSection";
 import { GlobalLorebooksSection } from "./GlobalLorebooksSection";
 import { ProvidersSection } from "./ProvidersSection";
 import { MediaPreviewDialog, MemoryDrawer } from "./Overlays";
 
+/** Pre-persona snapshots kept the impersonation prompt on runtimeSettings; parsePersonas migrates it. */
+function readLegacyImpersonationPrompt(runtimeSettings: Record<string, unknown> | undefined): string {
+  const legacy = runtimeSettings?.impersonationPrompt;
+  return typeof legacy === "string" ? legacy : "";
+}
+
 export function App() {
   const [initialSnapshot] = useState(() => loadLocalRuntimeSnapshot<RuntimeCard, Message, PromptRun, ChatSession>());
   const initialRuntimeSettings = parseRuntimeSettings(initialSnapshot?.runtimeSettings);
+  const initialPersonas = parsePersonas(
+    initialSnapshot?.personas,
+    readLegacyImpersonationPrompt(initialSnapshot?.runtimeSettings),
+  );
   const normalizedInitialCards = normalizeRuntimeCards(initialSnapshot?.cards ?? initialCards);
   const initialActiveCardId = getStartupActiveCardId(initialSnapshot, normalizedInitialCards);
   const initialChatSessions = parseChatSessions(
@@ -256,6 +276,10 @@ export function App() {
   const [comfyUiCheckpointModels, setComfyUiCheckpointModels] = useState<string[]>([]);
   const [imageProviderStatus, setImageProviderStatus] = useState("ComfyUI image model check has not run yet.");
   const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettings>(() => initialRuntimeSettings);
+  const [personas, setPersonas] = useState<Persona[]>(() => initialPersonas);
+  const [activePersonaId, setActivePersonaId] = useState(() =>
+    parseActivePersonaId(initialSnapshot?.activePersonaId, initialPersonas),
+  );
   const [sessionApiKey, setSessionApiKey] = useState("");
   const [imageSessionApiKey, setImageSessionApiKey] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -281,6 +305,7 @@ export function App() {
   });
 
   const activeCard = cards.find((card) => card.id === activeCardId) ?? null;
+  const activePersona = getActivePersona(personas, activePersonaId);
   const activeChat = activeCard ? getActiveChatForCard(activeCard.id, chatSessions, activeChatIds) : undefined;
   const messages = useMemo(() => filterPersistedOpeningMessages(activeChat?.messages ?? []), [activeChat?.messages]);
   const visibleMessages = messages.filter((message) => message.role !== "system");
@@ -290,7 +315,7 @@ export function App() {
         return [];
       }
       return selectActiveLorebookEntries({
-        lorebooks: ensureLorebooks(activeCard),
+        lorebooks: collectActiveLorebooks(activeCard, activePersona),
         messages,
         draft,
         context: activeCard.rpg
@@ -303,7 +328,7 @@ export function App() {
           : undefined,
       });
     },
-    [activeCard, messages, draft],
+    [activeCard, activePersona, messages, draft],
   );
 
   // The prompt preview recompiles the full token-budgeted prompt, which is
@@ -320,11 +345,18 @@ export function App() {
         return emptyCompiledPrompt;
       }
       return compileTurnPrompt({
-        ...buildTurnPromptRequest(activeCard, deferredLorebookEntries, messages, deferredDraft, runtimeSettings),
+        ...buildTurnPromptRequest(
+          activeCard,
+          deferredLorebookEntries,
+          messages,
+          deferredDraft,
+          runtimeSettings,
+          activePersona,
+        ),
         includeLayerLabels: true,
       });
     },
-    [activeCard, deferredLorebookEntries, deferredDraft, messages, runtimeSettings],
+    [activeCard, activePersona, deferredLorebookEntries, deferredDraft, messages, runtimeSettings],
   );
   const compiledPrompt = compiledPromptResult.prompt;
   const currentSnapshot = useMemo<AppRuntimeSnapshot>(
@@ -341,16 +373,20 @@ export function App() {
       providerSettings,
       imageProviderSettings,
       runtimeSettings,
+      personas,
+      activePersonaId,
       generatedMaps,
       savedAt: new Date().toISOString(),
     }),
     [
       activeCardId,
+      activePersonaId,
       cards,
       chatSessions,
       generatedMaps,
       imageProviderSettings,
       messages,
+      personas,
       promptRuns,
       activeChatIds,
       providerKeyStatus,
@@ -605,11 +641,14 @@ export function App() {
     setChatSessions(hydratedChatSessions);
     setActiveChatIds(parseActiveChatIds(snapshot.activeChatIds, normalizedCards, hydratedChatSessions, hydratedActiveCardId));
     const hydratedRuntimeSettings = parseRuntimeSettings(snapshot.runtimeSettings);
+    const hydratedPersonas = parsePersonas(snapshot.personas, readLegacyImpersonationPrompt(snapshot.runtimeSettings));
     setPromptRuns(applyPromptDebugRetention(snapshot.promptRuns as PromptRun[], hydratedRuntimeSettings));
     setProviderKeyStatus(snapshot.providerKeyStatus);
     setProviderSettings(parseProviderSettings(snapshot.providerSettings));
     setImageProviderSettings(parseImageProviderSettings(snapshot.imageProviderSettings));
     setRuntimeSettings(hydratedRuntimeSettings);
+    setPersonas(hydratedPersonas);
+    setActivePersonaId(parseActivePersonaId(snapshot.activePersonaId, hydratedPersonas));
     const hydratedMaps = parseGeneratedMaps(snapshot.generatedMaps);
     setGeneratedMaps(hydratedMaps);
     setMapArtifact(hydratedActiveCardId ? findGeneratedMapForChat(hydratedMaps, hydratedActiveCardId, undefined, "map") : null);
@@ -1262,18 +1301,26 @@ export function App() {
         ),
       };
       const pipelineResult = await runTurnPipeline({
-        ...buildTurnPromptRequest(continuityCard, activeLorebookEntries, chatMessages, generationAction, runtimeSettings, {
-          latestUserMessage: hiddenLatestUserMessage,
-          promptRunId: runId,
-          metadata: {
-            cardKind: activeCard.kind,
-            includedLoreEntryIds: activeLorebookEntries.map((entry) => entry.id),
-            providerMode: providerSettings.mode,
-            textStreaming: runtimeSettings.textStreaming,
-            chatId: chat.id,
-            hiddenContinuityPass: true,
+        ...buildTurnPromptRequest(
+          continuityCard,
+          activeLorebookEntries,
+          chatMessages,
+          generationAction,
+          runtimeSettings,
+          activePersona,
+          {
+            latestUserMessage: hiddenLatestUserMessage,
+            promptRunId: runId,
+            metadata: {
+              cardKind: activeCard.kind,
+              includedLoreEntryIds: activeLorebookEntries.map((entry) => entry.id),
+              providerMode: providerSettings.mode,
+              textStreaming: runtimeSettings.textStreaming,
+              chatId: chat.id,
+              hiddenContinuityPass: true,
+            },
           },
-        }),
+        ),
         modelAdapter: provider,
         model,
         temperature: 0.6,
@@ -1985,6 +2032,26 @@ export function App() {
     setOnboardingDismissed(true);
   }
 
+  function addPersona(name: string) {
+    const persona = createPersona(name);
+    setPersonas((current) => [...current, persona]);
+    setActivePersonaId(persona.id);
+  }
+
+  function editPersona(personaId: string, changes: Partial<Persona>) {
+    setPersonas((current) => updatePersona(current, personaId, changes));
+  }
+
+  function removePersona(personaId: string) {
+    const remaining = deletePersona(personas, personaId);
+    setPersonas(remaining);
+    setActivePersonaId(parseActivePersonaId(activePersonaId, remaining));
+  }
+
+  function makePersonaDefault(personaId: string) {
+    setPersonas((current) => setDefaultPersona(current, personaId));
+  }
+
   function restoreRuntimeFromPoint(pointId: string) {
     const point = findRestorePoint(restorePoints, pointId);
     if (!point) {
@@ -2004,6 +2071,9 @@ export function App() {
     setProviderSettings(snapshot.providerSettings);
     setImageProviderSettings(snapshot.imageProviderSettings);
     setRuntimeSettings(snapshot.runtimeSettings);
+    const restoredPersonas = parsePersonas(snapshot.personas);
+    setPersonas(restoredPersonas);
+    setActivePersonaId(parseActivePersonaId(snapshot.activePersonaId, restoredPersonas));
     setGeneratedMaps(snapshot.generatedMaps);
     setRestoreStatus(`Restored "${point.label}" from ${formatRestorePointTime(point.createdAt)}.`);
   }
@@ -2181,6 +2251,9 @@ export function App() {
               branchChat={branchActiveChat}
               deleteChat={deleteActiveChat}
               isDeleteChatPending={pendingDeleteChatId === activeChat?.id}
+              personas={personas}
+              activePersonaId={activePersonaId}
+              selectPersona={setActivePersonaId}
               messages={visibleMessages}
               editMessage={editMessageContent}
               regenerateLastReply={regenerateLastReply}
@@ -2289,6 +2362,13 @@ export function App() {
           <SettingsSection
             runtimeSettings={runtimeSettings}
             setRuntimeSettings={setRuntimeSettings}
+            personas={personas}
+            activePersonaId={activePersonaId}
+            selectPersona={setActivePersonaId}
+            addPersona={addPersona}
+            editPersona={editPersona}
+            removePersona={removePersona}
+            makePersonaDefault={makePersonaDefault}
             promptPreview={compiledPrompt}
             dataManagementStatus={dataManagementStatus}
             exportRuntimeData={exportRuntimeData}

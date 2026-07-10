@@ -18,6 +18,7 @@ import {
   sanitizePromptRunsForPersistence,
   type LocalRuntimeSnapshot,
 } from "./localRuntimeStore";
+import { sanitizePersistedPersonas } from "./personas";
 import { TauriRuntimeRepositoryStore, type TauriInvoke } from "./tauriRuntimeRepositoryClient";
 
 export const RUNTIME_CHAT_ID = "chat_local_cards_runtime";
@@ -196,6 +197,8 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
       providerSettings: sanitizePersistedProviderSettings(snapshotMeta.providerSettings),
       imageProviderSettings: sanitizePersistedImageProviderSettings(snapshotMeta.imageProviderSettings),
       runtimeSettings,
+      personas: sanitizePersistedPersonas(snapshotMeta.personas),
+      activePersonaId: typeof snapshotMeta.activePersonaId === "string" ? snapshotMeta.activePersonaId : undefined,
       generatedMaps: runtimeRowsAreAuthoritative
         ? mapImagePromptRunsToGeneratedMaps(generatedMapRows, snapshotMeta)
         : getArray(snapshotMeta.generatedMaps),
@@ -236,6 +239,8 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
           providerSettings: sanitizePersistedProviderSettings(snapshot.providerSettings),
           imageProviderSettings: sanitizePersistedImageProviderSettings(snapshot.imageProviderSettings),
           runtimeSettings,
+          personas: sanitizePersistedPersonas(snapshot.personas),
+          activePersonaId: snapshot.activePersonaId,
           generatedMaps: getArray(snapshot.generatedMaps),
           savedAt: snapshot.savedAt,
         },

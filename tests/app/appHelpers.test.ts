@@ -11,7 +11,6 @@ const runtimeSettings = {
   promptDebugLogs: false,
   diceRollsEnabled: false,
   onboardingCompleted: false,
-  impersonationPrompt: "",
   accentColor: "",
 };
 
@@ -202,7 +201,6 @@ describe("App pure helper coverage", () => {
       promptDebugLogs: false,
       diceRollsEnabled: false,
       onboardingCompleted: false,
-      impersonationPrompt: "Do not write as the user.",
       accentColor: "",
     });
     expect(plannerPrompt).toContain("about 200 feet above ground");
@@ -430,9 +428,9 @@ describe("App pure helper coverage", () => {
     expect(imageSettings.steps).toBe(28);
     expect(helpers.toLocalImageQualityDimension("bad")).toBe(1024);
     expect(helpers.toLocalImageQualityDimension(4096)).toBe(2048);
-    expect(helpers.parseRuntimeSettings({ textStreaming: false, banEmojis: true, promptDebugLogs: true, impersonationPrompt: "custom" })).toMatchObject({
+    expect(helpers.parseRuntimeSettings({ textStreaming: false, banEmojis: true, promptDebugLogs: true })).toMatchObject({
       banEmojis: true,
-      impersonationPrompt: "custom",
+      promptDebugLogs: true,
     });
     const promptRuns = [{ id: "run", compiledPrompt: "secret prompt" }];
     expect(helpers.applyPromptDebugRetention(promptRuns as any, { ...runtimeSettings, promptDebugLogs: true })).toBe(promptRuns);

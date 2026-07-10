@@ -1,4 +1,5 @@
 import { parseSecretReference } from "../security/keyStorage";
+import { sanitizePersistedPersonas } from "./personas";
 
 export const RUNTIME_STORAGE_KEY = "local-cards-runtime:v2";
 const MAX_GENERATED_MEDIA_ARTIFACTS = 80;
@@ -19,6 +20,8 @@ export interface LocalRuntimeSnapshot<Card, Message, PromptRun, ChatSession = un
   providerSettings?: Record<string, unknown>;
   imageProviderSettings?: Record<string, unknown>;
   runtimeSettings?: Record<string, unknown>;
+  personas?: unknown[];
+  activePersonaId?: string;
   generatedMaps?: unknown[];
   savedAt: string;
 }
@@ -64,6 +67,8 @@ export function loadLocalRuntimeSnapshot<Card, Message, PromptRun, ChatSession =
       providerSettings: sanitizePersistedProviderSettings(parsed.providerSettings),
       imageProviderSettings: sanitizePersistedImageProviderSettings(parsed.imageProviderSettings),
       runtimeSettings: sanitizePersistedRuntimeSettings(parsed.runtimeSettings),
+      personas: sanitizePersistedPersonas(parsed.personas),
+      activePersonaId: typeof parsed.activePersonaId === "string" ? parsed.activePersonaId : undefined,
       generatedMaps: sanitizeGeneratedMaps(parsed.generatedMaps),
       savedAt: typeof parsed.savedAt === "string" ? parsed.savedAt : new Date().toISOString(),
     };
@@ -109,6 +114,8 @@ function toPersistedLocalRuntimeSnapshot<Card, Message, PromptRun, ChatSession>(
     providerSettings: sanitizePersistedProviderSettings(snapshot.providerSettings),
     imageProviderSettings: sanitizePersistedImageProviderSettings(snapshot.imageProviderSettings),
     runtimeSettings,
+    personas: sanitizePersistedPersonas(snapshot.personas),
+    activePersonaId: typeof snapshot.activePersonaId === "string" ? snapshot.activePersonaId : undefined,
     generatedMaps: sanitizeGeneratedMaps(snapshot.generatedMaps),
   };
 }
@@ -277,6 +284,12 @@ export function sanitizePersistedRuntimeSettings(value: unknown): Record<string,
       sanitized[key] = field;
     }
   }
+  if (typeof value.accentColor === "string" && /^#[0-9a-fA-F]{6}$/.test(value.accentColor)) {
+    sanitized.accentColor = value.accentColor;
+  }
+  // Legacy carrier: pre-persona snapshots stored the impersonation prompt here.
+  // parsePersonas() migrates it into a default persona, after which it stops
+  // being written and drains out of the stored snapshot on the next save.
   if (typeof value.impersonationPrompt === "string") {
     sanitized.impersonationPrompt = value.impersonationPrompt;
   }

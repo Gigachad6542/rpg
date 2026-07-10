@@ -2321,3 +2321,116 @@ input[type="search"] {
   grid-template-columns: auto minmax(0, 1fr);
   min-width: 0;
 }
+
+/* --- Universal card import --- */
+.card-import {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.section-subtitle {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.card-import .import-hint,
+.import-hint {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.card-import-status {
+  align-items: flex-start;
+  display: flex;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.card-import-divider {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  margin: 14px 0;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.card-import-divider::before,
+.card-import-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.card-import-meta {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+.import-meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.import-meta-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tag-pill {
+  padding: 2px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.field-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.alt-greetings {
+  display: grid;
+  gap: 8px;
+}
+
+.alt-greeting {
+  display: grid;
+  gap: 6px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.alt-greeting p {
+  font-size: 12px;
+  line-height: 1.4;
+}

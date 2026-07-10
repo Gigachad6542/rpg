@@ -108,6 +108,70 @@ export function InstructionsPanel(props: {
           />
         </label>
       </div>
+      <ImportedMetadataBlock activeCard={props.activeCard} updateActiveCard={props.updateActiveCard} />
+    </section>
+  );
+}
+
+function ImportedMetadataBlock(props: {
+  activeCard: RuntimeCard;
+  updateActiveCard: (patch: Partial<RuntimeCard>) => void;
+}) {
+  const { creator, characterVersion, creatorNotes, importSource } = props.activeCard;
+  const tags = props.activeCard.tags ?? [];
+  const alternateGreetings = props.activeCard.alternateGreetings ?? [];
+  const hasMetadata =
+    Boolean(creator || characterVersion || creatorNotes || importSource) ||
+    tags.length > 0 ||
+    alternateGreetings.length > 0;
+  if (!hasMetadata) {
+    return null;
+  }
+
+  return (
+    <section className="card-import-meta" aria-label="Imported card metadata">
+      <div className="section-subtitle">
+        <strong>Imported metadata</strong>
+        {importSource ? <span className="tag-pill">{importSource}</span> : null}
+      </div>
+      {creator || characterVersion ? (
+        <p className="import-meta-line">
+          {creator ? <span>Creator: {creator}</span> : null}
+          {characterVersion ? <span>Version: {characterVersion}</span> : null}
+        </p>
+      ) : null}
+      {tags.length > 0 ? (
+        <div className="import-meta-tags">
+          {tags.map((tag) => (
+            <span className="tag-pill" key={tag}>
+              {tag}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {creatorNotes ? (
+        <label className="field">
+          <span>Creator notes</span>
+          <textarea value={creatorNotes} rows={3} readOnly />
+        </label>
+      ) : null}
+      {alternateGreetings.length > 0 ? (
+        <div className="alt-greetings">
+          <span className="field-label">Alternate greetings ({alternateGreetings.length})</span>
+          {alternateGreetings.map((greeting, index) => (
+            <article className="alt-greeting" key={`${index}-${greeting.slice(0, 16)}`}>
+              <p>{greeting.length > 240 ? `${greeting.slice(0, 240)}...` : greeting}</p>
+              <button
+                type="button"
+                className="secondary-button compact-button"
+                onClick={() => props.updateActiveCard({ greeting })}
+              >
+                Use as greeting
+              </button>
+            </article>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }

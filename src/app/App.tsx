@@ -170,6 +170,7 @@ import {
   upsertGeneratedMaps,
 } from "./generatedImages";
 import { buildTurnPromptRequest, isTauriRuntime } from "./turnPromptBuilders";
+import type { ImportedCard } from "./cardImport";
 import {
   characterPortraitNegativePrompt,
   customImageNegativePrompt,
@@ -733,6 +734,18 @@ export function App() {
     setNewCard(defaultNewCard);
     setPendingDeleteCardId(null);
     return true;
+  }
+
+  function importCard(result: ImportedCard) {
+    const [card] = normalizeRuntimeCards([result.card]);
+    setCards((current) => [...current, card]);
+    const chat = createChatSession(card.id, `${card.name} chat`);
+    setChatSessions((current) => [...current, chat]);
+    setActiveChatIds((current) => ({ ...current, [card.id]: chat.id }));
+    setActiveCardId(card.id);
+    setCardTab("chat");
+    setPendingDeleteCardId(null);
+    setSection("runtime");
   }
 
   function updateActiveCard(patch: Partial<RuntimeCard>) {
@@ -2226,6 +2239,7 @@ export function App() {
             setNewCard={setNewCard}
             newCardError={newCardError}
             createCard={createCard}
+            onImportCard={importCard}
             cardTab={cardTab}
             setCardTab={setCardTab}
             compiledPrompt={compiledPrompt}

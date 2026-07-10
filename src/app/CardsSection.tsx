@@ -15,6 +15,8 @@ import { defaultNewCard } from "./appDefaults";
 import { formatTabLabel, renderTabIcon } from "./RuntimeSection";
 import { InstructionsPanel, LorebooksPanel, RulesPanel } from "./CardEditorPanels";
 import { RpgStatePanel } from "./RpgStatePanel";
+import { CardImportPanel } from "./CardImportPanel";
+import type { ImportedCard } from "./cardImport";
 
 export function CardsSection(props: {
   cards: RuntimeCard[];
@@ -28,6 +30,7 @@ export function CardsSection(props: {
   setNewCard: (card: typeof defaultNewCard) => void;
   newCardError: string | null;
   createCard: () => boolean;
+  onImportCard: (result: ImportedCard) => void;
   cardTab: CardTab;
   setCardTab: (tab: CardTab) => void;
   compiledPrompt: string;
@@ -122,6 +125,10 @@ export function CardsSection(props: {
         <div className="section-title">
           <Plus size={17} />
           <h3>Create Card</h3>
+        </div>
+        <CardImportPanel onImportCard={props.onImportCard} />
+        <div className="card-import-divider" role="separator">
+          <span>or build from scratch</span>
         </div>
         {!isCreatingCard ? (
           <button className="primary-button full-width" type="button" onClick={() => setIsCreatingCard(true)}>

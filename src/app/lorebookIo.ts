@@ -52,11 +52,27 @@ export function buildChubLorebookPayload(lorebook: Lorebook, card: RuntimeCard) 
 
 export function parseChubLorebookPayload(rawJson: string): Lorebook {
   const payload = parseJsonRecordOrThrow(rawJson, "Chub lorebook JSON is invalid.");
+  return mapChubLorebookPayload(payload);
+}
+
+/**
+ * Maps an already-parsed Chub / Tavern `character_book` record into a runtime Lorebook.
+ * Shared by standalone lorebook import and embedded character-card import.
+ */
+export function mapChubLorebookPayload(
+  payload: Record<string, unknown>,
+  options: { id?: string; name?: string } = {},
+): Lorebook {
   const entries = Array.isArray(payload.entries) ? payload.entries : [];
-  const name = getPayloadString(payload.name) || getPayloadString(payload.title) || "Imported Chub Lorebook";
+  const name =
+    options.name ||
+    getPayloadString(payload.name) ||
+    getPayloadString(payload.title) ||
+    "Imported Chub Lorebook";
+  const idBase = options.id ?? `lore_import_${Date.now()}`;
 
   return {
-    id: `lore_import_${Date.now()}`,
+    id: idBase,
     name,
     enabled: getPayloadBoolean(payload.enabled, true),
     scanDepth: getPayloadNumber(payload.scan_depth ?? payload.scanDepth, 4, 1, 30),
@@ -65,7 +81,7 @@ export function parseChubLorebookPayload(rawJson: string): Lorebook {
     entries: entries
       .filter(isRecord)
       .map((entry, index): LorebookEntry => ({
-        id: `lore_entry_import_${Date.now()}_${index}`,
+        id: `${idBase}_entry_${index}`,
         title: getPayloadString(entry.name) || getPayloadString(entry.title) || getPayloadString(entry.comment) || "Imported entry",
         keys: getPayloadStringArray(entry.keys),
         secondaryKeys: getPayloadStringArray(entry.secondary_keys ?? entry.secondaryKeys),

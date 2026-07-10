@@ -17,6 +17,9 @@ export type CardTab = "chat" | "instructions" | "rules" | "lorebooks" | "rpg" | 
 export type TextProviderMode = "mock" | "openai-compatible";
 export type ImageProviderMode = "prompt-only" | "comfyui";
 
+/** Where an imported card originated, for provenance and round-tripping. */
+export type CardImportSource = "manual" | "tavern-png" | "tavern-json" | "chub";
+
 export type RuntimeCard = {
   id: string;
   name: string;
@@ -36,6 +39,15 @@ export type RuntimeCard = {
   storyEntities: StoryEntity[];
   mapEnabled: boolean;
   rpg?: RpgCardState;
+  /** Tavern/Chub character-card metadata, populated on import. All optional for back-compat. */
+  alternateGreetings?: string[];
+  creatorNotes?: string;
+  tags?: string[];
+  creator?: string;
+  characterVersion?: string;
+  /** Card avatar embedded as a `data:image/png;base64,...` URL. */
+  avatarDataUrl?: string;
+  importSource?: CardImportSource;
 };
 
 export type PlayerRule = PlayerRuleDefinition;

@@ -39,6 +39,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Version sync
+        run: pnpm verify:version
+
       - name: Install Playwright Chromium
         run: pnpm e2e:install
 
@@ -55,7 +58,7 @@ jobs:
           }
           $files | Get-FileHash -Algorithm SHA256 |
             ForEach-Object { "$($_.Hash)  $(Split-Path -Leaf $_.Path)" } |
-            Set-Content -Path "$bundleRoot/SHA256SUMS.txt" -Encoding utf8
+            Set-Content -Path "$bundleRoot/SHA256SUMS-windows.txt" -Encoding utf8
 
       - name: Upload Windows desktop artifacts
         uses: actions/upload-artifact@v4
@@ -64,7 +67,7 @@ jobs:
           path: |
             src-tauri/target/release/bundle/**/*.msi
             src-tauri/target/release/bundle/**/*.exe
-            src-tauri/target/release/bundle/SHA256SUMS.txt
+            src-tauri/target/release/bundle/SHA256SUMS-windows.txt
           if-no-files-found: error
           retention-days: 30
 
@@ -76,7 +79,7 @@ jobs:
         run: |
           $bundleRoot = "src-tauri/target/release/bundle"
           $artifacts = Get-ChildItem -Path $bundleRoot -Recurse -File -Include *.msi,*.exe
-          $checksum = Join-Path $bundleRoot "SHA256SUMS.txt"
+          $checksum = Join-Path $bundleRoot "SHA256SUMS-windows.txt"
           $releaseFiles = @($artifacts | ForEach-Object { $_.FullName }) + @($checksum)
           $title = "Local-First AI RPG Runtime $env:GITHUB_REF_NAME"
           gh release create $env:GITHUB_REF_NAME $releaseFiles --generate-notes --title $title
@@ -114,6 +117,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Version sync
+        run: pnpm verify:version
+
       - name: Install Playwright Chromium
         run: pnpm e2e:install
 
@@ -129,7 +135,7 @@ jobs:
             echo "No macOS .dmg artifacts found under $bundle_root" >&2
             exit 1
           fi
-          ( cd "$bundle_root/dmg" && shasum -a 256 *.dmg > SHA256SUMS.txt )
+          ( cd "$bundle_root/dmg" && shasum -a 256 *.dmg > SHA256SUMS-macos.txt )
 
       - name: Upload macOS desktop artifacts
         uses: actions/upload-artifact@v4
@@ -137,7 +143,7 @@ jobs:
           name: local-first-ai-rpg-runtime-macos
           path: |
             src-tauri/target/release/bundle/dmg/*.dmg
-            src-tauri/target/release/bundle/dmg/SHA256SUMS.txt
+            src-tauri/target/release/bundle/dmg/SHA256SUMS-macos.txt
           if-no-files-found: error
           retention-days: 30
 
@@ -148,7 +154,7 @@ jobs:
         run: |
           bundle_root="src-tauri/target/release/bundle"
           shopt -s nullglob
-          files=("$bundle_root"/dmg/*.dmg "$bundle_root/dmg/SHA256SUMS.txt")
+          files=("$bundle_root"/dmg/*.dmg "$bundle_root/dmg/SHA256SUMS-macos.txt")
           title="Local-First AI RPG Runtime ${GITHUB_REF_NAME}"
           gh release create "$GITHUB_REF_NAME" "${files[@]}" --generate-notes --title "$title" \
             || gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber

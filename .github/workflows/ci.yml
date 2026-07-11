@@ -36,6 +36,9 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm e2e:install
 
+      - name: Version sync
+        run: pnpm verify:version
+
       - name: Typecheck
         run: pnpm typecheck
 

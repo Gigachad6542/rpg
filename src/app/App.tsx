@@ -33,7 +33,7 @@ import {
   type StoryEntity,
 } from "../runtime/hiddenContinuity";
 import { detectKnowledgeLeaks, describeKnowledgeLeaks } from "../runtime/knowledgeLeakDetector";
-import { selectActiveLorebookEntries } from "../runtime/loreTriggerEngine";
+import { selectActiveLorebookEntries, validateLoreKeys } from "../runtime/loreTriggerEngine";
 import { formatDiceResult, rollFromNotation } from "../runtime/diceEngine";
 import { parseSlashCommand } from "../runtime/slashCommands";
 import {
@@ -169,7 +169,7 @@ import {
   upsertGeneratedMap,
   upsertGeneratedMaps,
 } from "./generatedImages";
-import { buildTurnPromptRequest, isTauriRuntime } from "./turnPromptBuilders";
+import { buildTurnPromptRequest, formatDetailedCharacterDefinition, isTauriRuntime } from "./turnPromptBuilders";
 import type { ImportedCard } from "./cardImport";
 import {
   characterPortraitNegativePrompt,
@@ -326,6 +326,11 @@ export function App() {
               worldFlags: activeCard.rpg.flags,
             }
           : undefined,
+        sources: {
+          cardDefinition: formatDetailedCharacterDefinition(activeCard),
+          personaDescription: activePersona?.description,
+          memoryEntries: activeCard.memory.map((entry) => `${entry.label}: ${entry.detail}`),
+        },
       });
     },
     [activeCard, activePersona, messages, draft],
@@ -1042,13 +1047,21 @@ export function App() {
       setLorebookEntryError("Enter lorebook entry content before adding an entry.");
       return false;
     }
+
+    const keys = parseList(entry.keys);
+    const secondaryKeys = parseList(entry.secondaryKeys);
+    const keyError = validateLoreKeys([...keys, ...secondaryKeys], entry.matchMode);
+    if (keyError) {
+      setLorebookEntryError(keyError);
+      return false;
+    }
     setLorebookEntryError(null);
 
     const nextEntry: LorebookEntry = {
       id: `lore_entry_${Date.now()}`,
       title: entry.title.trim() || "Untitled lore entry",
-      keys: parseList(entry.keys),
-      secondaryKeys: parseList(entry.secondaryKeys),
+      keys,
+      secondaryKeys,
       content: entry.content.trim(),
       insertionOrder: toBoundedNumber(entry.insertionOrder, 100, 0, 10_000),
       priority: toBoundedNumber(entry.priority, 0, -100, 100),
@@ -1057,6 +1070,8 @@ export function App() {
       probability: toBoundedNumber(entry.probability, 100, 0, 100),
       caseSensitive: entry.caseSensitive,
       wholeWord: entry.wholeWord,
+      matchMode: entry.matchMode,
+      scanScopes: entry.scanScopes,
     };
 
     setCards((current) =>

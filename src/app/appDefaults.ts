@@ -1,4 +1,5 @@
 // Default runtime constants and seed data extracted from App.tsx.
+import { DEFAULT_LORE_SCAN_SCOPES } from "../runtime/loreTriggerEngine";
 import { type CompiledPrompt } from "../runtime/promptCompiler";
 import { qwen37MaxReferencePreset, recommendedLocalImageProvider } from "../providers/modelPresets";
 import type {
@@ -77,6 +78,8 @@ export const defaultNewLorebookEntry: NewLorebookEntry = {
   probability: "100",
   caseSensitive: false,
   wholeWord: false,
+  matchMode: "literal",
+  scanScopes: [...DEFAULT_LORE_SCAN_SCOPES],
 };
 
 export const defaultNewPlayerRule: NewPlayerRule = {

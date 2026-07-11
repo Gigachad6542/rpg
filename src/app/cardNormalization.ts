@@ -5,6 +5,7 @@ import {
   type StoryEntity,
   type StoryEntityKind,
 } from "../runtime/hiddenContinuity";
+import { parseLoreMatchMode, parseLoreScanScopes } from "../runtime/loreTriggerEngine";
 import { type PlayerRuleEnforcement } from "../runtime/playerRuleEngine";
 import type { CardKind, Lorebook, LorebookEntry, PlayerRule, RuntimeCard } from "./runtimeTypes";
 import { isRecord } from "./appUtils";
@@ -250,6 +251,8 @@ export function normalizeCardLorebooks(card: RuntimeCard): Lorebook[] {
             caseSensitive: entry.caseSensitive ?? false,
             wholeWord: entry.wholeWord ?? false,
             probability: entry.probability ?? 100,
+            matchMode: parseLoreMatchMode(entry.matchMode),
+            scanScopes: parseLoreScanScopes(entry.scanScopes),
           }))
         : [],
     }));

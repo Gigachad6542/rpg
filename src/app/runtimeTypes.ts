@@ -5,6 +5,7 @@
 // share one definition instead of a single 7k-line file owning everything.
 
 import type { StoryEntity } from "../runtime/hiddenContinuity";
+import type { LoreMatchMode, LoreScanScope } from "../runtime/loreTriggerEngine";
 import type { PlayerRuleDefinition } from "../runtime/playerRuleEngine";
 import type { RunTurnPipelineRequest } from "../runtime/turnPipeline";
 import type { SecretReference } from "../security/keyStorage";
@@ -78,6 +79,8 @@ export type Lorebook = {
   entries: LorebookEntry[];
 };
 
+export type { LoreMatchMode, LoreScanScope };
+
 export type LorebookEntry = {
   id: string;
   title: string;
@@ -91,6 +94,10 @@ export type LorebookEntry = {
   probability: number;
   caseSensitive: boolean;
   wholeWord: boolean;
+  /** Absent means `literal`, the only mode that existed before match modes. */
+  matchMode?: LoreMatchMode;
+  /** Absent or empty means `DEFAULT_LORE_SCAN_SCOPES`. */
+  scanScopes?: LoreScanScope[];
 };
 
 export type NewLorebookEntry = {
@@ -104,6 +111,8 @@ export type NewLorebookEntry = {
   probability: string;
   caseSensitive: boolean;
   wholeWord: boolean;
+  matchMode: LoreMatchMode;
+  scanScopes: LoreScanScope[];
 };
 
 export type NewPlayerRule = {

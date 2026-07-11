@@ -1,11 +1,36 @@
 import { useEffect, useState } from "react";
 import { BookOpen, CheckCircle2, ClipboardList, Download, Layers3, Plus, Search } from "lucide-react";
+import { LORE_SCAN_SCOPES, getLoreScanScopes } from "../runtime/loreTriggerEngine";
 import { type CompiledPrompt } from "../runtime/promptCompiler";
-import type { Lorebook, LorebookEntry, NewLorebookEntry, NewPlayerRule, PlayerRule, RuntimeCard } from "./runtimeTypes";
+import type {
+  Lorebook,
+  LorebookEntry,
+  LoreMatchMode,
+  LoreScanScope,
+  NewLorebookEntry,
+  NewPlayerRule,
+  PlayerRule,
+  RuntimeCard,
+} from "./runtimeTypes";
 import { toBoundedNumber } from "./appUtils";
 import { createCustomPlayerRule, filterLorebookEntries, formatEnforcementLabel, getEnabledPlayerRules } from "./cardNormalization";
 import { defaultNewLorebookEntry, defaultNewPlayerRule } from "./appDefaults";
 import { exportLorebookAsChubJson } from "./lorebookIo";
+
+const KEY_PLACEHOLDERS: Record<LoreMatchMode, string> = {
+  literal: "comma or newline separated",
+  wildcard: "silver *, gate?",
+  regex: "\\bsilver\\s+gates?\\b",
+};
+
+const SCOPE_LABELS: Record<LoreScanScope, string> = {
+  history: "Chat history",
+  draft: "Current message",
+  card: "Card definition",
+  persona: "Active persona",
+  memory: "Card memory",
+  rpg: "RPG state",
+};
 
 export function InstructionsPanel(props: {
   activeCard: RuntimeCard;
@@ -458,7 +483,7 @@ export function LorebooksPanel(props: {
             <input
               value={entryDraft.keys}
               onChange={(event) => setEntryDraft({ ...entryDraft, keys: event.target.value })}
-              placeholder="comma or newline separated"
+              placeholder={KEY_PLACEHOLDERS[entryDraft.matchMode]}
             />
           </label>
           <label className="field">
@@ -470,6 +495,56 @@ export function LorebooksPanel(props: {
             />
           </label>
         </div>
+        <label className="field">
+          <span>Key matching</span>
+          <select
+            value={entryDraft.matchMode}
+            onChange={(event) => setEntryDraft({ ...entryDraft, matchMode: event.target.value as LoreMatchMode })}
+          >
+            <option value="literal">Literal text</option>
+            <option value="wildcard">Wildcard (* and ?)</option>
+            <option value="regex">Regular expression</option>
+          </select>
+        </label>
+        <div className="instruction-grid compact-fields">
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={entryDraft.caseSensitive}
+              onChange={(event) => setEntryDraft({ ...entryDraft, caseSensitive: event.target.checked })}
+            />
+            <span>Case sensitive</span>
+          </label>
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={entryDraft.wholeWord}
+              disabled={entryDraft.matchMode === "regex"}
+              onChange={(event) => setEntryDraft({ ...entryDraft, wholeWord: event.target.checked })}
+            />
+            <span>Whole word</span>
+          </label>
+        </div>
+        <fieldset className="lore-scope-fieldset">
+          <legend>Scan scopes</legend>
+          {LORE_SCAN_SCOPES.map((scope) => (
+            <label className="toggle-row" key={scope}>
+              <input
+                type="checkbox"
+                checked={entryDraft.scanScopes.includes(scope)}
+                onChange={(event) =>
+                  setEntryDraft({
+                    ...entryDraft,
+                    scanScopes: event.target.checked
+                      ? LORE_SCAN_SCOPES.filter((item) => item === scope || entryDraft.scanScopes.includes(item))
+                      : entryDraft.scanScopes.filter((item) => item !== scope),
+                  })
+                }
+              />
+              <span>{SCOPE_LABELS[scope]}</span>
+            </label>
+          ))}
+        </fieldset>
         <div className="instruction-grid compact-fields">
           <label className="field">
             <span>Insertion order</span>
@@ -540,6 +615,10 @@ export function LorebooksPanel(props: {
               <span>order {entry.insertionOrder}</span>
               <span>priority {entry.priority}</span>
               <span>{entry.probability}%</span>
+              {entry.matchMode && entry.matchMode !== "literal" ? <span>{entry.matchMode}</span> : null}
+              {entry.caseSensitive ? <span>case-sensitive</span> : null}
+              {entry.wholeWord ? <span>whole-word</span> : null}
+              <span>{getLoreScanScopes(entry).map((scope) => SCOPE_LABELS[scope]).join(", ")}</span>
               {props.activeLorebookEntries.some((activeEntry) => activeEntry.id === entry.id) ? (
                 <span className="flag-on">
                   <CheckCircle2 size={14} />

@@ -1,4 +1,5 @@
 // Chub lorebook import/export helpers extracted from App.tsx.
+import { parseLoreMatchMode, parseLoreScanScopes } from "../runtime/loreTriggerEngine";
 import type { Lorebook, LorebookEntry, RuntimeCard } from "./runtimeTypes";
 import {
   downloadJson,
@@ -43,6 +44,10 @@ export function buildChubLorebookPayload(lorebook: Lorebook, card: RuntimeCard) 
       insertion_order: entry.insertionOrder,
       priority: entry.priority,
       probability: entry.probability,
+      case_sensitive: entry.caseSensitive,
+      whole_word: entry.wholeWord,
+      match_mode: entry.matchMode ?? "literal",
+      ...(entry.scanScopes && entry.scanScopes.length > 0 ? { scan_scopes: entry.scanScopes } : {}),
       extensions: {
         source_entry_id: entry.id,
       },
@@ -93,6 +98,8 @@ export function mapChubLorebookPayload(
         probability: getPayloadNumber(entry.probability, 100, 0, 100),
         caseSensitive: getPayloadBoolean(entry.case_sensitive ?? entry.caseSensitive, false),
         wholeWord: getPayloadBoolean(entry.whole_word ?? entry.wholeWord, false),
+        matchMode: parseLoreMatchMode(entry.match_mode ?? entry.matchMode),
+        scanScopes: parseLoreScanScopes(entry.scan_scopes ?? entry.scanScopes),
       }))
       .filter((entry) => entry.content.trim().length > 0),
   };

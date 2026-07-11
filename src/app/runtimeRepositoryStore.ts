@@ -8,6 +8,7 @@ import { ModelProviderConfigRepository } from "../db/repositories/modelProviderC
 import { MessageRepository, type MessageRecord } from "../db/repositories/messages";
 import { PromptRunRepository, type PromptRunRecord } from "../db/repositories/promptRuns";
 import { RpgStateSnapshotRepository } from "../db/repositories/rpgStateSnapshots";
+import { parseLoreMatchMode, parseLoreScanScopes } from "../runtime/loreTriggerEngine";
 import { runInTransaction } from "../db/transaction";
 import type { SqlDriver } from "../db/types";
 import type { JsonObject } from "../db/repositories/shared";
@@ -348,6 +349,8 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
                 probability: getNumber(entry.triggers.probability, 100),
                 caseSensitive: getBoolean(entry.triggers.caseSensitive, false),
                 wholeWord: getBoolean(entry.triggers.wholeWord, false),
+                matchMode: parseLoreMatchMode(entry.triggers.matchMode),
+                scanScopes: parseLoreScanScopes(entry.triggers.scanScopes),
               })),
             };
           }),
@@ -491,6 +494,7 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
         if (!isRecord(entry) || typeof entry.id !== "string" || typeof entry.content !== "string") {
           continue;
         }
+        const scanScopes = parseLoreScanScopes(entry.scanScopes);
         await this.lorebookEntries.upsert({
           id: entry.id,
           lorebookId: lorebook.id,
@@ -507,6 +511,8 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
             probability: getNumber(entry.probability, 100),
             caseSensitive: getBoolean(entry.caseSensitive, false),
             wholeWord: getBoolean(entry.wholeWord, false),
+            matchMode: parseLoreMatchMode(entry.matchMode),
+            ...(scanScopes ? { scanScopes } : {}),
           },
         });
       }

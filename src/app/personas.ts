@@ -7,6 +7,7 @@ import type { Lorebook, Persona, RuntimeCard } from "./runtimeTypes";
 import { createRuntimeEntityId } from "./chatSessions";
 import { isRecord } from "./appUtils";
 import { normalizeCardLorebooks } from "./cardNormalization";
+import { fitsEmbeddedAvatarBudget } from "./avatarImage";
 
 export const DEFAULT_PERSONA_ID = "persona_default";
 export const DEFAULT_PERSONA_NAME = "Default persona";
@@ -175,7 +176,11 @@ function parsePersonaLorebooks(value: unknown): Lorebook[] {
 }
 
 function isPersonaAvatarDataUrl(value: unknown): value is string {
-  return typeof value === "string" && /^data:image\/(png|jpeg|webp|gif);base64,/.test(value);
+  return (
+    typeof value === "string" &&
+    /^data:image\/(png|jpeg|webp|gif);base64,/.test(value) &&
+    fitsEmbeddedAvatarBudget(value)
+  );
 }
 
 function dedupePersonaIds(personas: Persona[]): Persona[] {

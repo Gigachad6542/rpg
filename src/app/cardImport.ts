@@ -13,9 +13,9 @@ import {
 import { createDefaultCharacterPlayerRules, createInitialStoryEntities, getCleanString } from "./cardNormalization";
 import { mapChubLorebookPayload } from "./lorebookIo";
 import { createRuntimeEntityId } from "./chatSessions";
+import { buildEmbeddableAvatarDataUrl, type EmbeddableAvatarResult } from "./avatarImage";
 
-/** Largest avatar we will embed in the persisted snapshot (bytes of the raw PNG). */
-export const AVATAR_MAX_EMBED_BYTES = 1_500_000;
+export { AVATAR_MAX_EMBED_BYTES } from "./avatarImage";
 
 export interface NormalizedTavernCard {
   spec: "v1" | "chara_card_v2" | "chara_card_v3";
@@ -345,16 +345,35 @@ async function readFileAsBytes(file: File): Promise<Uint8Array> {
   });
 }
 
+async function resolveEmbeddedAvatar(
+  bytes: Uint8Array,
+  options: BuildCardOptions,
+): Promise<EmbeddableAvatarResult | null> {
+  if (options.avatarDataUrl) {
+    return { dataUrl: options.avatarDataUrl, downscaled: false };
+  }
+  // Uint8Array.from re-copies onto a plain ArrayBuffer, which BlobPart requires.
+  return buildEmbeddableAvatarDataUrl(new Blob([Uint8Array.from(bytes)], { type: "image/png" }));
+}
+
+function pushAvatarWarnings(result: ImportedCard, embedded: EmbeddableAvatarResult | null, options: BuildCardOptions): void {
+  if (options.avatarDataUrl) {
+    return;
+  }
+  if (!embedded) {
+    result.warnings.push("Avatar image was too large to embed and was skipped.");
+  } else if (embedded.downscaled) {
+    result.warnings.push("Avatar image was downscaled to fit local storage limits.");
+  }
+}
+
 export async function importCardFromFile(file: File, options: BuildCardOptions = {}): Promise<ImportedCard> {
   const isPng = /\.png$/i.test(file.name) || file.type === "image/png";
   if (isPng) {
     const bytes = await readFileAsBytes(file);
-    const withinBudget = bytes.length <= AVATAR_MAX_EMBED_BYTES;
-    const avatarDataUrl = options.avatarDataUrl ?? (withinBudget ? bytesToPngDataUrl(bytes) : undefined);
-    const result = importCardFromPngBytes(bytes, { ...options, source: "tavern-png", avatarDataUrl });
-    if (!withinBudget && !options.avatarDataUrl) {
-      result.warnings.push("Avatar image was too large to embed and was skipped.");
-    }
+    const embedded = await resolveEmbeddedAvatar(bytes, options);
+    const result = importCardFromPngBytes(bytes, { ...options, source: "tavern-png", avatarDataUrl: embedded?.dataUrl });
+    pushAvatarWarnings(result, embedded, options);
     return result;
   }
   const text = await readFileAsText(file);
@@ -426,11 +445,12 @@ export async function fetchChubCharacterCard(input: string, options: FetchChubOp
   }
 
   const bytes = new Uint8Array(await response.arrayBuffer());
-  const withinBudget = bytes.length <= AVATAR_MAX_EMBED_BYTES;
-  const avatarDataUrl = options.avatarDataUrl ?? (withinBudget ? bytesToPngDataUrl(bytes) : undefined);
-  return importCardFromPngBytes(bytes, {
+  const embedded = await resolveEmbeddedAvatar(bytes, options);
+  const result = importCardFromPngBytes(bytes, {
     cardId: options.cardId,
     source: "chub",
-    avatarDataUrl,
+    avatarDataUrl: embedded?.dataUrl,
   });
+  pushAvatarWarnings(result, embedded, options);
+  return result;
 }

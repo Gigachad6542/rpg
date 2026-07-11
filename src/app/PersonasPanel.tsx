@@ -5,6 +5,7 @@ import { BookOpen, Check, PenLine, Plus, Star, Trash2, Upload, UserRound } from 
 import type { Lorebook, Persona } from "./runtimeTypes";
 import { getErrorMessage } from "./appUtils";
 import { parseChubLorebookPayload } from "./lorebookIo";
+import { buildEmbeddableAvatarDataUrl } from "./avatarImage";
 
 export function PersonasPanel(props: {
   personas: Persona[];
@@ -44,9 +45,17 @@ export function PersonasPanel(props: {
       return;
     }
     try {
-      const dataUrl = await readFileAsDataUrl(file);
-      props.editPersona(editingPersona.id, { avatarDataUrl: dataUrl });
-      setPersonaStatus(`Avatar updated for ${editingPersona.name}.`);
+      const embedded = await buildEmbeddableAvatarDataUrl(file);
+      if (!embedded) {
+        setPersonaStatus("Avatar image is too large to store locally. Choose a smaller image.");
+        return;
+      }
+      props.editPersona(editingPersona.id, { avatarDataUrl: embedded.dataUrl });
+      setPersonaStatus(
+        embedded.downscaled
+          ? `Avatar downscaled to fit storage limits and updated for ${editingPersona.name}.`
+          : `Avatar updated for ${editingPersona.name}.`,
+      );
     } catch (error) {
       setPersonaStatus(getErrorMessage(error));
     } finally {
@@ -276,18 +285,3 @@ export function PersonasPanel(props: {
   );
 }
 
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Could not read that image file."));
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result !== "string") {
-        reject(new Error("Could not read that image file."));
-        return;
-      }
-      resolve(result);
-    };
-    reader.readAsDataURL(file);
-  });
-}

@@ -9,10 +9,14 @@ import { parseLoreMatchMode, parseLoreScanScopes } from "../runtime/loreTriggerE
 import { type PlayerRuleEnforcement } from "../runtime/playerRuleEngine";
 import type { CardKind, Lorebook, LorebookEntry, PlayerRule, RuntimeCard } from "./runtimeTypes";
 import { isRecord } from "./appUtils";
+import { fitsEmbeddedAvatarBudget } from "./avatarImage";
 
 export function normalizeRuntimeCards(cards: RuntimeCard[]): RuntimeCard[] {
   return cards.map((card) => ({
     ...card,
+    // Oversized avatars would make every SQLite save fail; drop them here so
+    // installs that imported one before the budget existed heal on next load.
+    avatarDataUrl: fitsEmbeddedAvatarBudget(card.avatarDataUrl) ? card.avatarDataUrl : undefined,
     characterName: card.characterName ?? card.name ?? "",
     characterDescription: card.characterDescription ?? "",
     scenario: card.scenario ?? "",

@@ -397,4 +397,15 @@ describe("sanitizePersistedPersonas", () => {
     // Assert
     expect(sanitized?.[0].avatarDataUrl).toBe(avatarDataUrl);
   });
+
+  it("drops avatar data urls that exceed the persistence budget", () => {
+    // Arrange: base64 payload large enough that the SQLite text cap would reject the save.
+    const avatarDataUrl = `data:image/png;base64,${"A".repeat(200_000)}`;
+
+    // Act
+    const sanitized = sanitizePersistedPersonas([{ id: "persona_a", name: "A", avatarDataUrl }]);
+
+    // Assert
+    expect(sanitized?.[0].avatarDataUrl).toBeUndefined();
+  });
 });

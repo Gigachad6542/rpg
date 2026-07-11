@@ -5,6 +5,7 @@ import {
   extractPngTextChunks,
   extractTavernJsonFromPng,
   fetchChubCharacterCard,
+  importCardFromFile,
   importCardFromJsonText,
   importCardFromPngBytes,
   parseChubReference,
@@ -207,6 +208,24 @@ describe("parseChubReference", () => {
   it("returns null for junk", () => {
     expect(parseChubReference("")).toBeNull();
     expect(parseChubReference("just-a-word")).toBeNull();
+  });
+});
+
+describe("oversized avatar handling", () => {
+  it("skips avatars whose data url would break persistence", async () => {
+    // ~450KB PNG: base64 data URL far exceeds the persistence budget, and the
+    // JSDOM environment has no canvas, so downscaling is unavailable.
+    const png = makeCardPng({ chara: sampleV2Card(), oversizedpad: "x".repeat(450_000) });
+    const file = {
+      name: "big-card.png",
+      type: "image/png",
+      arrayBuffer: async () => png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength),
+    } as unknown as File;
+
+    const { card, warnings } = await importCardFromFile(file, { cardId: "card_big" });
+    expect(card.id).toBe("card_big");
+    expect(card.avatarDataUrl).toBeUndefined();
+    expect(warnings.some((warning) => /too large to embed/i.test(warning))).toBe(true);
   });
 });
 

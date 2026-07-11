@@ -14,6 +14,9 @@ This folder keeps operational notes and verification evidence for `rpg`.
   closed blockers, remaining launch work, release milestones, and acceptance gates.
 - [macOS install](macos-install.md) covers downloading the CI-built Apple Silicon `.dmg`,
   the unsigned-build Gatekeeper bypass, and building locally on a Mac.
+- [Remediation plan](remediation-plan.md) is the phased response to the July 10, 2026
+  external production-readiness review: data-loss fixes, turn-state integrity,
+  decomposition, test depth, and the Mac release lane.
 
 ## Testing Evidence
 

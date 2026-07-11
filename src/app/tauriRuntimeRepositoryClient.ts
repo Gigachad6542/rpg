@@ -34,6 +34,14 @@ interface SaveRuntimeSnapshotResponse {
   saved: true;
 }
 
+interface BackupRuntimeDatabaseResponse {
+  backedUpTo: string | null;
+}
+
+interface ArchiveRuntimeDatabaseResponse {
+  archivedTo: string | null;
+}
+
 export class TauriRuntimeRepositoryStore implements RuntimeRepository {
   private constructor(
     private readonly invokeImpl: TauriInvoke,
@@ -75,6 +83,31 @@ export class TauriRuntimeRepositoryStore implements RuntimeRepository {
       },
     });
   }
+
+  async backupDatabase(): Promise<string | null> {
+    const response = await this.invokeImpl<BackupRuntimeDatabaseResponse>("backup_runtime_database", {
+      databasePath: this.databasePath,
+    });
+    return response.backedUpTo;
+  }
+}
+
+/**
+ * Archives the desktop database aside (into the backups directory) without
+ * requiring an initialized store — a corrupt database can fail during
+ * initialization, before any store instance exists. No-op outside Tauri.
+ */
+export async function archiveDesktopRuntimeDatabase(
+  options: TauriRuntimeRepositoryOptions = {},
+): Promise<string | null> {
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+    return null;
+  }
+  const invokeImpl = options.invokeImpl ?? invokeTauriCommand;
+  const response = await invokeImpl<ArchiveRuntimeDatabaseResponse>("archive_runtime_database", {
+    databasePath: options.databasePath,
+  });
+  return response.archivedTo;
 }
 
 async function invokeTauriCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {

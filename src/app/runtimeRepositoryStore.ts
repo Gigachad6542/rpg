@@ -87,6 +87,8 @@ export interface RuntimeRepository {
   getStatus(): RuntimeRepositoryStoreStatus;
   loadSnapshot(): Promise<RepositoryRuntimeSnapshot | null>;
   saveSnapshot(snapshot: RepositoryRuntimeSnapshot): Promise<void>;
+  /** Copies the backing database into a rotating backup set; null when the backend has no file to back up. */
+  backupDatabase?(): Promise<string | null>;
 }
 
 export class RuntimeRepositoryStore implements RuntimeRepository {

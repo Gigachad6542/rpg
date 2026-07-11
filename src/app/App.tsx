@@ -75,10 +75,14 @@ import { RuntimeRepositoryStore, type RuntimeRepository, type RepositoryRuntimeS
 import { SettingsSection } from "./SettingsSection";
 import { OnboardingOverlay } from "./OnboardingOverlay";
 import {
+  resolveHydrationFailure,
   shouldPersistFullLocalSnapshot,
   shouldShowOnboarding,
   shouldUseRepositorySnapshot,
+  type HydrationState,
 } from "./startupPersistencePolicy";
+import { HydrationGate } from "./HydrationGate";
+import { archiveDesktopRuntimeDatabase } from "./tauriRuntimeRepositoryClient";
 import {
   applyValidatedTurnEffectsToCard,
   describeValidatedTurnEffects,
@@ -289,7 +293,9 @@ export function App() {
   const [saveStatus, setSaveStatus] = useState(initialSnapshot ? "Loaded local runtime snapshot." : "Ready for local save.");
   const [repositoryStatus, setRepositoryStatus] = useState("Repository store initializing.");
   const [dataManagementStatus, setDataManagementStatus] = useState("Runtime export, import, and diagnostics are ready.");
-  const [repositoryHydrated, setRepositoryHydrated] = useState(false);
+  const [hydration, setHydration] = useState<HydrationState>({ phase: "loading" });
+  const [hydrationAttempt, setHydrationAttempt] = useState(0);
+  const repositoryHydrated = hydration.phase === "ready";
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [restorePoints, setRestorePoints] = useState<RestorePoint<AppRuntimeSnapshot>[]>([]);
   const [restoreStatus, setRestoreStatus] = useState("Restore points capture automatically as you play this session.");
@@ -516,7 +522,7 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false;
-    setRepositoryHydrated(false);
+    setHydration({ phase: "loading" });
 
     void RuntimeRepositoryStore.create()
       .then(async (store) => {
@@ -533,26 +539,67 @@ export function App() {
 
         try {
           const repositorySnapshot = await store.loadSnapshot();
-          if (!cancelled && repositorySnapshot && shouldUseRepositorySnapshot(repositorySnapshot, initialSnapshot)) {
+          if (cancelled) {
+            return;
+          }
+          if (repositorySnapshot && shouldUseRepositorySnapshot(repositorySnapshot, initialSnapshot)) {
             hydrateFromSnapshot(repositorySnapshot);
           }
-        } finally {
-          if (!cancelled) {
-            setRepositoryHydrated(true);
+          // Rotating startup backup must land before autosave can write anything.
+          const backupPath = await (store.backupDatabase?.() ?? Promise.resolve(null)).catch(() => {
+            if (!cancelled) {
+              setSaveStatus("Warning: startup database backup failed; autosave continues.");
+            }
+            return null;
+          });
+          if (cancelled) {
+            return;
           }
+          if (backupPath) {
+            setRepositoryStatus("SQLite repository ready. Startup backup saved.");
+          }
+          setHydration({ phase: "ready" });
+        } catch (error) {
+          if (cancelled) {
+            return;
+          }
+          const message = getErrorMessage(error);
+          setRepositoryStatus(`Repository load failed: ${message}`);
+          setHydration(resolveHydrationFailure({ isDesktopRuntime: isTauriRuntime(), error: message }));
         }
       })
       .catch((error: unknown) => {
-        if (!cancelled) {
-          setRepositoryStatus(`Repository unavailable: ${getErrorMessage(error)}`);
-          setRepositoryHydrated(true);
+        if (cancelled) {
+          return;
         }
+        const message = getErrorMessage(error);
+        setRepositoryStatus(`Repository unavailable: ${message}`);
+        setHydration(resolveHydrationFailure({ isDesktopRuntime: isTauriRuntime(), error: message }));
       });
 
     return () => {
       cancelled = true;
     };
-  }, [initialSnapshot]);
+  }, [initialSnapshot, hydrationAttempt]);
+
+  function retryHydration() {
+    setHydrationAttempt((attempt) => attempt + 1);
+  }
+
+  async function archiveDatabaseAndStartFresh() {
+    try {
+      const archivedTo = await archiveDesktopRuntimeDatabase();
+      setRepositoryStatus(
+        archivedTo ? `Previous database archived to ${archivedTo}.` : "Starting with a fresh database.",
+      );
+      setHydrationAttempt((attempt) => attempt + 1);
+    } catch (error) {
+      setHydration({
+        phase: "failed",
+        error: `Could not archive the current database: ${getErrorMessage(error)}`,
+      });
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -595,7 +642,9 @@ export function App() {
     if (shouldPersistBrowserFallback) {
       saveLocalRuntimeSnapshot(currentSnapshot);
       setSaveStatus("Saved locally in this browser runtime.");
-    } else if (!repositoryHydrated) {
+    } else if (hydration.phase === "failed") {
+      setSaveStatus("Autosave paused: saved data could not be loaded.");
+    } else if (hydration.phase === "loading") {
       setSaveStatus("Waiting for SQLite repository before writing desktop state.");
     }
 
@@ -629,7 +678,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [currentSnapshot, repositoryHydrated]);
+  }, [currentSnapshot, hydration, repositoryHydrated]);
 
   function hydrateFromSnapshot(snapshot: RepositoryRuntimeSnapshot, status = "Loaded repository runtime snapshot.") {
     const normalizedCards = normalizeRuntimeCards(snapshot.cards as RuntimeCard[]);
@@ -2121,6 +2170,11 @@ export function App() {
           : undefined
       }
     >
+      <HydrationGate
+        state={hydration}
+        onRetry={retryHydration}
+        onStartFresh={() => void archiveDatabaseAndStartFresh()}
+      />
       <aside className="sidebar" aria-label="Main navigation">
         <div className="brand-lockup">
           <span className="brand-mark" aria-hidden="true" />

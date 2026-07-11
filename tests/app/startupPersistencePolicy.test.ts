@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  resolveHydrationFailure,
   shouldPersistFullLocalSnapshot,
   shouldShowOnboarding,
   shouldUseRepositorySnapshot,
@@ -34,6 +35,19 @@ const repositorySnapshot: SnapshotCandidate = {
 };
 
 describe("startup persistence policy", () => {
+  it("fails closed on desktop when hydration fails", () => {
+    expect(resolveHydrationFailure({ isDesktopRuntime: true, error: "database is corrupt" })).toEqual({
+      phase: "failed",
+      error: "database is corrupt",
+    });
+  });
+
+  it("fails open in the browser when hydration fails", () => {
+    expect(resolveHydrationFailure({ isDesktopRuntime: false, error: "wasm init failed" })).toEqual({
+      phase: "ready",
+    });
+  });
+
   it("hydrates from SQLite when local fallback is only a newer blank default snapshot", () => {
     expect(shouldUseRepositorySnapshot(repositorySnapshot, blankLocalSnapshot)).toBe(true);
   });

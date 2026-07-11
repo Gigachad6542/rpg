@@ -9,6 +9,8 @@ pub fn run() {
             initialize_runtime_repository,
             load_runtime_snapshot,
             save_runtime_snapshot,
+            backup_runtime_database,
+            archive_runtime_database,
             secure_storage_status,
             store_provider_secret,
             delete_provider_secret,
@@ -61,6 +63,24 @@ fn save_runtime_snapshot(
     snapshot: serde_json::Value,
 ) -> Result<runtime_repository::SaveRuntimeSnapshotResponse, String> {
     runtime_repository::save_runtime_snapshot(app, database_path, snapshot)
+        .map_err(runtime_repository::redact_storage_error)
+}
+
+#[tauri::command]
+fn backup_runtime_database(
+    app: tauri::AppHandle,
+    database_path: Option<String>,
+) -> Result<runtime_repository::BackupRuntimeDatabaseResponse, String> {
+    runtime_repository::backup_runtime_database(app, database_path)
+        .map_err(runtime_repository::redact_storage_error)
+}
+
+#[tauri::command]
+fn archive_runtime_database(
+    app: tauri::AppHandle,
+    database_path: Option<String>,
+) -> Result<runtime_repository::ArchiveRuntimeDatabaseResponse, String> {
+    runtime_repository::archive_runtime_database(app, database_path)
         .map_err(runtime_repository::redact_storage_error)
 }
 

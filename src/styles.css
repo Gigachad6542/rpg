@@ -614,6 +614,44 @@ textarea:focus-visible {
   opacity: 0.75;
 }
 
+.hydration-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, #000 70%, transparent);
+  backdrop-filter: blur(3px);
+}
+
+.hydration-card {
+  width: min(480px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 26px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 6px);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.hydration-error {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, #f43f5e 12%, transparent);
+  border: 1px solid color-mix(in srgb, #f43f5e 35%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.hydration-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .onboarding-overlay {
   position: fixed;
   inset: 0;

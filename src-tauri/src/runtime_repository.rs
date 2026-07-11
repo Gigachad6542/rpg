@@ -22,6 +22,10 @@ const MAX_PROMPT_RUNS: usize = 5_000;
 const MAX_GENERATED_MAPS: usize = 100;
 const MAX_ID_CHARS: usize = 160;
 const MAX_TEXT_CHARS: usize = 200_000;
+const BACKUP_DIR_NAME: &str = "backups";
+const BACKUP_FILE_PREFIX: &str = "runtime-backup-";
+const ARCHIVE_FILE_PREFIX: &str = "runtime-archive-";
+const BACKUP_KEEP_COUNT: usize = 5;
 
 #[derive(Debug)]
 pub(crate) enum RuntimeRepositoryError {
@@ -90,6 +94,118 @@ pub(crate) fn save_runtime_snapshot(
     let path = resolve_database_path(&app, database_path)?;
     save_runtime_snapshot_at_path(&path, snapshot)?;
     Ok(SaveRuntimeSnapshotResponse { saved: true })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BackupRuntimeDatabaseResponse {
+    backed_up_to: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ArchiveRuntimeDatabaseResponse {
+    archived_to: Option<String>,
+}
+
+pub(crate) fn backup_runtime_database(
+    app: AppHandle,
+    database_path: Option<String>,
+) -> RepoResult<BackupRuntimeDatabaseResponse> {
+    let path = resolve_database_path(&app, database_path)?;
+    Ok(BackupRuntimeDatabaseResponse {
+        backed_up_to: backup_database_at_path(&path)?,
+    })
+}
+
+pub(crate) fn archive_runtime_database(
+    app: AppHandle,
+    database_path: Option<String>,
+) -> RepoResult<ArchiveRuntimeDatabaseResponse> {
+    let path = resolve_database_path(&app, database_path)?;
+    Ok(ArchiveRuntimeDatabaseResponse {
+        archived_to: archive_database_at_path(&path)?,
+    })
+}
+
+fn backup_database_at_path(path: &Path) -> RepoResult<Option<String>> {
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let backup_dir = backup_directory_for(path)?;
+    let target = unique_backup_target(&backup_dir, BACKUP_FILE_PREFIX)?;
+    std::fs::copy(path, &target).map_err(|_| RuntimeRepositoryError::Storage)?;
+    prune_backup_files(&backup_dir, BACKUP_KEEP_COUNT)?;
+    Ok(Some(target.to_string_lossy().into_owned()))
+}
+
+fn archive_database_at_path(path: &Path) -> RepoResult<Option<String>> {
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let backup_dir = backup_directory_for(path)?;
+    let target = unique_backup_target(&backup_dir, ARCHIVE_FILE_PREFIX)?;
+    if std::fs::rename(path, &target).is_err() {
+        std::fs::copy(path, &target).map_err(|_| RuntimeRepositoryError::Storage)?;
+        std::fs::remove_file(path).map_err(|_| RuntimeRepositoryError::Storage)?;
+    }
+    Ok(Some(target.to_string_lossy().into_owned()))
+}
+
+fn backup_directory_for(database_path: &Path) -> RepoResult<PathBuf> {
+    let parent = database_path
+        .parent()
+        .ok_or(RuntimeRepositoryError::Storage)?;
+    let backup_dir = parent.join(BACKUP_DIR_NAME);
+    std::fs::create_dir_all(&backup_dir).map_err(|_| RuntimeRepositoryError::Storage)?;
+    Ok(backup_dir)
+}
+
+/// Builds `<prefix><UTC stamp>-<NNNN>.db`. The zero-padded sequence always
+/// advances past the highest existing one for the same stamp (never reusing a
+/// pruned slot), so lexicographic file-name order equals creation order and
+/// pruning can sort by name alone.
+fn unique_backup_target(backup_dir: &Path, prefix: &str) -> RepoResult<PathBuf> {
+    // Colon-free UTC stamp: Windows rejects ':' in file names.
+    let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
+    let base = format!("{prefix}{stamp}-");
+    let next_sequence = std::fs::read_dir(backup_dir)
+        .map_err(|_| RuntimeRepositoryError::Storage)?
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| entry.file_name().to_str().map(String::from))
+        .filter_map(|name| {
+            name.strip_prefix(&base)
+                .and_then(|rest| rest.strip_suffix(".db"))
+                .and_then(|sequence| sequence.parse::<u32>().ok())
+        })
+        .max()
+        .map_or(0, |max| max + 1);
+    if next_sequence > 9_999 {
+        return Err(RuntimeRepositoryError::Storage);
+    }
+    Ok(backup_dir.join(format!("{base}{next_sequence:04}.db")))
+}
+
+fn prune_backup_files(backup_dir: &Path, keep: usize) -> RepoResult<()> {
+    let entries = std::fs::read_dir(backup_dir).map_err(|_| RuntimeRepositoryError::Storage)?;
+    let mut backups: Vec<PathBuf> = entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with(BACKUP_FILE_PREFIX))
+        })
+        .collect();
+    // Newest first: names embed a fixed-width UTC stamp plus sequence, so
+    // descending name order is descending creation order.
+    backups.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+    for stale in backups.iter().skip(keep) {
+        let _ = std::fs::remove_file(stale);
+    }
+    Ok(())
 }
 
 pub(crate) fn redact_storage_error(error: RuntimeRepositoryError) -> String {
@@ -2357,7 +2473,10 @@ mod tests {
             "local-first-ai-rpg-runtime-smoke-{}",
             now_iso().replace([':', '.'], "")
         ));
-        std::env::set_var(APP_DATA_DIR_OVERRIDE_ENV, base.to_string_lossy().to_string());
+        std::env::set_var(
+            APP_DATA_DIR_OVERRIDE_ENV,
+            base.to_string_lossy().to_string(),
+        );
         let resolved = resolve_smoke_app_data_dir_override().unwrap().unwrap();
         assert_eq!(resolved, base);
         let initialized = initialize_smoke_repository_from_env().unwrap().unwrap();
@@ -2369,7 +2488,11 @@ mod tests {
 
         std::env::set_var(
             APP_DATA_DIR_OVERRIDE_ENV,
-            std::env::current_dir().unwrap().join("outside").to_string_lossy().to_string(),
+            std::env::current_dir()
+                .unwrap()
+                .join("outside")
+                .to_string_lossy()
+                .to_string(),
         );
         assert!(resolve_smoke_app_data_dir_override().is_err());
 
@@ -2428,7 +2551,9 @@ mod tests {
         });
         let sanitized = sanitize_snapshot(unsafe_image_settings).unwrap();
         assert_eq!(sanitized["imageProviderSettings"]["mode"], json!("comfyui"));
-        assert!(sanitized["imageProviderSettings"].get("workflowJson").is_none());
+        assert!(sanitized["imageProviderSettings"]
+            .get("workflowJson")
+            .is_none());
         assert!(sanitized["imageProviderSettings"].get("token").is_none());
     }
 
@@ -2585,6 +2710,81 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ))
+    }
+
+    /// Per-test directory so backup/archive tests never share a backups folder.
+    fn temp_workspace_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "local-first-ai-rpg-runtime-ws-{name}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn backup_rotates_and_preserves_the_database() {
+        let workspace = temp_workspace_dir("backup_rotates");
+        let path = workspace.join("runtime.db");
+        initialize_repository_at_path(&path).unwrap();
+
+        for _ in 0..(BACKUP_KEEP_COUNT + 2) {
+            let backed_up_to = backup_database_at_path(&path).unwrap();
+            assert!(backed_up_to.is_some());
+            assert!(PathBuf::from(backed_up_to.unwrap()).is_file());
+        }
+
+        let backup_dir = workspace.join(BACKUP_DIR_NAME);
+        let backup_count = std::fs::read_dir(&backup_dir)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|file_name| file_name.starts_with(BACKUP_FILE_PREFIX))
+            })
+            .count();
+        assert_eq!(backup_count, BACKUP_KEEP_COUNT);
+        assert!(path.is_file());
+        assert!(load_runtime_snapshot_at_path(&path).is_ok());
+
+        let _ = std::fs::remove_dir_all(&workspace);
+    }
+
+    #[test]
+    fn backup_returns_none_when_database_is_missing() {
+        let workspace = temp_workspace_dir("backup_missing");
+        let path = workspace.join("runtime.db");
+
+        assert!(backup_database_at_path(&path).unwrap().is_none());
+
+        let _ = std::fs::remove_dir_all(&workspace);
+    }
+
+    #[test]
+    fn archive_moves_the_database_aside() {
+        let workspace = temp_workspace_dir("archive_moves");
+        let path = workspace.join("runtime.db");
+        initialize_repository_at_path(&path).unwrap();
+
+        let archived_to = archive_database_at_path(&path).unwrap();
+        assert!(archived_to.is_some());
+        let archived_path = PathBuf::from(archived_to.unwrap());
+        assert!(archived_path.is_file());
+        assert!(archived_path
+            .file_name()
+            .and_then(|file_name| file_name.to_str())
+            .is_some_and(|file_name| file_name.starts_with(ARCHIVE_FILE_PREFIX)));
+        assert!(!path.exists());
+
+        // A second archive has nothing left to move.
+        assert!(archive_database_at_path(&path).unwrap().is_none());
+
+        let _ = std::fs::remove_dir_all(&workspace);
     }
 
     fn cleanup(path: &Path) {

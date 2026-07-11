@@ -1,3 +1,27 @@
+export type HydrationState =
+  | { phase: "loading" }
+  | { phase: "ready" }
+  | { phase: "failed"; error: string };
+
+export interface HydrationFailureInput {
+  isDesktopRuntime: boolean;
+  error: string;
+}
+
+/**
+ * Decides what a hydration failure means for the session. On desktop the SQLite
+ * repository is the authoritative store, so a failed load must fail closed:
+ * autosave stays blocked until the user retries or explicitly starts fresh.
+ * In the browser, localStorage is authoritative and was already hydrated
+ * synchronously, so a repository failure degrades to fallback persistence.
+ */
+export function resolveHydrationFailure(input: HydrationFailureInput): HydrationState {
+  if (input.isDesktopRuntime) {
+    return { phase: "failed", error: input.error };
+  }
+  return { phase: "ready" };
+}
+
 export interface SnapshotCandidate {
   savedAt?: string;
   cards?: readonly unknown[];

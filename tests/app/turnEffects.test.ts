@@ -3,10 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 import { createEmptyExtractionResult, type ExtractionResult } from "../../src/runtime/extraction";
 import {
   applyValidatedTurnEffectsToCard,
+  filterHiddenContinuityForPolicy,
   filterValidatedTurnEffectsForPolicy,
   MAX_CARD_MEMORY_ENTRIES,
   type TurnEffectRuntimeCard,
 } from "../../src/app/turnEffects";
+import { createEmptyHiddenContinuityResult } from "../../src/runtime/hiddenContinuity";
 
 describe("validated turn effects", () => {
   it("does not create memory from raw user text when extraction has no memory proposal", () => {
@@ -119,6 +121,76 @@ describe("validated turn effects", () => {
     );
   });
 
+  it("never treats the assistant's own narration as authoritative state evidence", () => {
+    const card = createRpgCard();
+    const extraction: ExtractionResult = {
+      ...createEmptyExtractionResult(),
+      memory_updates: [{ label: "Crown", text: "The player secured the legendary crown." }],
+      rpg_state_updates: {
+        ...createEmptyExtractionResult().rpg_state_updates,
+        health_delta: -2,
+        inventory_add: ["legendary crown"],
+      },
+    };
+
+    const result = filterValidatedTurnEffectsForPolicy(card, extraction, {
+      latestUserAction: "I wait and look around.",
+      assistantMessageText: "A legendary crown appears in your hands and the curse wounds you for 2 health.",
+    });
+
+    expect(result.extraction.memory_updates).toEqual([]);
+    expect(result.extraction.rpg_state_updates.inventory_add).toEqual([]);
+    expect(result.extraction.rpg_state_updates.health_delta).toBe(0);
+    expect(result.proposals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ provenance: "model-narration", applied: false }),
+      ]),
+    );
+  });
+
+  it("gates hidden continuity entities, memory, and knowledge with the same provenance rules", () => {
+    const card = {
+      ...createRpgCard(),
+      summary: "A test world",
+      storyEntities: [],
+    };
+    const invented = {
+      ...createEmptyHiddenContinuityResult(),
+      memoryUpdates: [{ label: "Secret", detail: "Mira knows the treasury password." }],
+      entityUpdates: [
+        {
+          name: "Mira",
+          kind: "character" as const,
+          summary: "A royal spy",
+          knownFacts: ["The treasury password is swordfish."],
+          doesNotKnow: [],
+          notes: [],
+        },
+      ],
+      knowledgeUpdates: [{ subject: "Mira", knows: ["The treasury password is swordfish."], doesNotKnow: [] }],
+    };
+
+    const blocked = filterHiddenContinuityForPolicy(card, invented, {
+      latestUserAction: "I wait quietly.",
+    });
+    expect(blocked.result.memoryUpdates).toEqual([]);
+    expect(blocked.result.entityUpdates).toEqual([]);
+    expect(blocked.result.knowledgeUpdates).toEqual([]);
+    expect(blocked.proposals).toEqual(
+      expect.arrayContaining([expect.objectContaining({ provenance: "model-narration", applied: false })]),
+    );
+
+    const grounded = filterHiddenContinuityForPolicy(card, invented, {
+      latestUserAction: "I tell Mira the treasury password is swordfish.",
+    });
+    expect(grounded.result.entityUpdates).toEqual([
+      expect.objectContaining({ name: "Mira", summary: "", knownFacts: ["The treasury password is swordfish."] }),
+    ]);
+    expect(grounded.result.knowledgeUpdates).toEqual([
+      { subject: "Mira", knows: ["The treasury password is swordfish."], doesNotKnow: [] },
+    ]);
+  });
+
   it("replaces unsafe memory labels even when the memory detail is grounded", () => {
     const card = createRpgCard();
     const extraction: ExtractionResult = {
@@ -132,7 +204,7 @@ describe("validated turn effects", () => {
     };
 
     const result = filterValidatedTurnEffectsForPolicy(card, extraction, {
-      latestUserAction: "I inspect the dust on the floor.",
+      latestUserAction: "I note that the dust shows old footprints leading deeper into the hall.",
       assistantMessageText: "The dust shows old footprints leading deeper into the hall.",
     });
     const next = applyValidatedTurnEffectsToCard(card, result.extraction, {
@@ -282,7 +354,8 @@ describe("validated turn effects", () => {
     };
 
     const result = filterValidatedTurnEffectsForPolicy(card, extraction, {
-      latestUserAction: "I walk to the cellar gate, use the old torch, take the brass key, and open the gate.",
+      latestUserAction:
+        "I walk to the cellar gate, use the old torch, take the brass key, open the gate, lose 2 health from the effort, and note that the dust shows old footprints leading deeper into the hall. Quest: Open the cellar gate.",
       assistantMessageText:
         "At the Cellar Gate, the old torch gutters out as you take the brass key. The gate opens, but the effort costs you stamina. The dust shows old footprints leading deeper into the hall. Quest: Open the cellar gate.",
     });

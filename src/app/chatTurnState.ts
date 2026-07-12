@@ -18,6 +18,8 @@ export interface SwitchChatMessageVariantResult {
   reason?: string;
 }
 
+export type ChatTurnMutationResult = SwitchChatMessageVariantResult;
+
 export interface RecordRegeneratedChatVariantInput {
   chat: ChatSession;
   card: RuntimeCard;
@@ -156,7 +158,14 @@ export function forkChatForMessageEdit(
       return message;
     }
     if (target.role === "assistant") {
-      const { variants: _variants, activeVariantIndex: _activeVariantIndex, ...withoutVariants } = message;
+      const {
+        variants: _variants,
+        activeVariantIndex: _activeVariantIndex,
+        promptRunId: _promptRunId,
+        variantRunIds: _variantRunIds,
+        undoneVariantIndices: _undoneVariantIndices,
+        ...withoutVariants
+      } = message;
       return { ...withoutVariants, content: trimmed };
     }
     return { ...message, content: trimmed };
@@ -228,6 +237,63 @@ export function switchChatMessageVariant(
           ? { ...candidate, content: message.variants?.[nextIndex] ?? candidate.content, activeVariantIndex: nextIndex }
           : candidate,
       ),
+      updatedAt: new Date().toISOString(),
+    },
+  };
+}
+
+export function undoChatTurnEffects(
+  chat: ChatSession,
+  card: RuntimeCard,
+  messageId: string,
+): ChatTurnMutationResult {
+  const messageIndex = chat.messages.findIndex((message) => message.id === messageId);
+  if (messageIndex < 0) {
+    return { chat, changed: false, reason: "That message is no longer available." };
+  }
+  if (chat.messages.slice(messageIndex + 1).some((message) => message.role === "assistant")) {
+    return {
+      chat,
+      changed: false,
+      reason: "Cannot undo an earlier turn while dependent downstream turns remain.",
+    };
+  }
+  const message = chat.messages[messageIndex];
+  const lineage = readChatTurnLineage(chat, card);
+  const commit = lineage.ledger[messageId];
+  if (!commit || commit.variants.length === 0) {
+    return { chat, changed: false, reason: "This turn has no applied state effects to undo." };
+  }
+  const activeVariantIndex = message.activeVariantIndex ?? commit.variants[commit.variants.length - 1].variantIndex;
+  const remainingVariants = commit.variants.filter((variant) => variant.variantIndex !== activeVariantIndex);
+  if (remainingVariants.length === commit.variants.length) {
+    return { chat, changed: false, reason: "The active variant has no applied state effects to undo." };
+  }
+
+  const ledger = { ...lineage.ledger };
+  if (remainingVariants.length === 0) {
+    delete ledger[messageId];
+  } else {
+    ledger[messageId] = { ...commit, variants: remainingVariants };
+  }
+  return {
+    changed: true,
+    chat: {
+      ...chat,
+      messages: chat.messages.map((candidate) =>
+        candidate.id === messageId
+          ? {
+              ...candidate,
+              undoneVariantIndices: [
+                ...new Set([...(candidate.undoneVariantIndices ?? []), activeVariantIndex]),
+              ],
+            }
+          : candidate,
+      ),
+      turnLineage: {
+        baseState: lineage.baseState,
+        ledger,
+      },
       updatedAt: new Date().toISOString(),
     },
   };

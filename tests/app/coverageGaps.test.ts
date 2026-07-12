@@ -465,7 +465,8 @@ describe("app helper coverage gap characterization", () => {
     ]);
 
     const filtered = filterValidatedTurnEffectsForPolicy(createRpgCard(), extraction, {
-      latestUserAction: "I rest, find the brass key, and find relic while the gate is open.",
+      latestUserAction:
+        "I rest, find the brass key, find relic while the gate is open, and record a stable memory without a label.",
       assistantMessageText:
         "The gate is open. You find the brass key and find relic. A stable memory without a label.",
     });

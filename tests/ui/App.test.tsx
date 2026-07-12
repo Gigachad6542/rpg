@@ -1770,6 +1770,23 @@ describe("local-first card runtime UI", () => {
     expect(screen.getByDisplayValue(/brass key/i)).toBeInTheDocument();
   });
 
+  it("shows provenance for turn state changes and can undo the active variant", async () => {
+    await renderApp();
+
+    sendRuntimeMessage("I head to the cellar and take the brass key.");
+
+    const summary = await screen.findByText(/State changes \(.*applied/i);
+    fireEvent.click(summary);
+    expect(screen.getAllByText(/player action/i).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: /Undo state changes/i }));
+
+    expect(screen.getByText("State changes undone.")).toBeInTheDocument();
+    expect(screen.getByText(/State changes undone for this response variant/i)).toBeInTheDocument();
+    openCardEditorTab(/rpg/i);
+    expect(screen.getAllByDisplayValue("Unmapped starting area").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByDisplayValue(/brass key/i)).not.toBeInTheDocument();
+  });
+
   it("surfaces a missing session key before using a real BYOK provider", async () => {
     await renderApp();
 

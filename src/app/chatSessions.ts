@@ -115,11 +115,21 @@ export function sanitizeMessages(value: unknown): Message[] {
         variants && typeof message.activeVariantIndex === "number"
           ? Math.min(Math.max(Math.trunc(message.activeVariantIndex), 0), variants.length - 1)
           : undefined;
+      const variantRunIds = Array.isArray(message.variantRunIds)
+        ? message.variantRunIds.filter((value): value is string => typeof value === "string")
+        : undefined;
+      const undoneVariantIndices = Array.isArray(message.undoneVariantIndices)
+        ? message.undoneVariantIndices
+            .filter((value): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0)
+        : undefined;
       return {
         id: message.id,
         role: message.role,
         content: message.content,
         ...(variants && variants.length > 1 ? { variants, activeVariantIndex } : {}),
+        ...(typeof message.promptRunId === "string" ? { promptRunId: message.promptRunId } : {}),
+        ...(variantRunIds && variantRunIds.length > 0 ? { variantRunIds } : {}),
+        ...(undoneVariantIndices && undoneVariantIndices.length > 0 ? { undoneVariantIndices } : {}),
       };
     })
     .filter((message): message is Message => Boolean(message));

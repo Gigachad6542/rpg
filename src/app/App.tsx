@@ -82,7 +82,7 @@ import {
 import { HydrationGate } from "./HydrationGate";
 import { archiveDesktopRuntimeDatabase } from "./tauriRuntimeRepositoryClient";
 import {
-  describeValidatedTurnEffects,
+  filterHiddenContinuityForPolicy,
   filterValidatedTurnEffectsForPolicy,
 } from "./turnEffects";
 
@@ -141,6 +141,7 @@ import {
   recordChatTurnVariant,
   recordRegeneratedChatVariant,
   switchChatMessageVariant,
+  undoChatTurnEffects,
 } from "./chatTurnState";
 import {
   buildImagePromptRequest,
@@ -154,7 +155,6 @@ import {
   createEmptyLorebook,
   createInitialLorebooks,
   createInitialStoryEntities,
-  describeHiddenContinuityChanges,
   normalizeRuntimeCards,
   toHiddenContinuityCard,
 } from "./cardNormalization";
@@ -1231,6 +1231,21 @@ export function App() {
     setRuleWarning(null);
   }
 
+  function undoTurnEffects(messageId: string) {
+    if (!activeCard || !activeChat) {
+      return;
+    }
+    const result = undoChatTurnEffects(activeChat, activeCard, messageId);
+    if (!result.changed) {
+      setRuleWarning(result.reason ?? "Those state changes could not be undone.");
+      return;
+    }
+    const nextCard = deriveCardForChat(activeCard, result.chat);
+    setChatSessions((current) => upsertChatSession(current, result.chat));
+    setCards((current) => current.map((card) => (card.id === activeCard.id ? nextCard : card)));
+    setRuleWarning("State changes undone for this response variant.");
+  }
+
   async function regenerateLastReply() {
     if (!activeCard || !activeChat || isGenerating || !runtimeRunning) {
       return;
@@ -1257,11 +1272,18 @@ export function App() {
       lastAssistant.variants && lastAssistant.variants.length > 0
         ? lastAssistant.variants
         : [lastAssistant.content];
+    const previousVariantRunIds = previousVariants.map(
+      (_, index) =>
+        lastAssistant.variantRunIds?.[index] ??
+        (previousVariants.length === 1 ? lastAssistant.promptRunId ?? "" : ""),
+    );
     const regenerationCard = deriveCardForRegeneration(activeCard, activeChat, lastAssistant.id);
     await generateMockTurn({
       actionOverride: action,
       baseMessages,
       previousVariants,
+      previousVariantRunIds,
+      previousUndoneVariantIndices: lastAssistant.undoneVariantIndices,
       cardOverride: regenerationCard,
       replacedAssistantMessageId: lastAssistant.id,
     });
@@ -1333,6 +1355,8 @@ export function App() {
     actionOverride?: string;
     baseMessages?: Message[];
     previousVariants?: string[];
+    previousVariantRunIds?: string[];
+    previousUndoneVariantIndices?: number[];
     cardOverride?: RuntimeCard;
     replacedAssistantMessageId?: string;
   }) {
@@ -1408,7 +1432,7 @@ export function App() {
       });
       const provider = createTextProvider(providerSettings, sessionApiKey, turnCard, generationAction, turnLorebookEntries.length);
       const model = providerSettings.mode === "mock" ? "mock-narrator" : providerSettings.model;
-      const hiddenContinuity = await runHiddenContinuityPassSafely({
+      const hiddenContinuityResult = await runHiddenContinuityPassSafely({
         modelAdapter: provider,
         model,
         card: toHiddenContinuityCard(turnCard),
@@ -1417,6 +1441,10 @@ export function App() {
         activeLoreCount: turnLorebookEntries.length,
         pendingReviewProposals: pendingReviewRef.current[turnCard.id] ?? [],
       });
+      const hiddenPolicyResult = filterHiddenContinuityForPolicy(turnCard, hiddenContinuityResult, {
+        latestUserAction: generationAction,
+      });
+      const hiddenContinuity = hiddenPolicyResult.result;
       const continuityCard = applyHiddenContinuityToCard(turnCard, hiddenContinuity);
       const hiddenLatestUserMessage: Message = {
         ...userMessage,
@@ -1475,13 +1503,14 @@ export function App() {
         .slice(-8);
       const warnings = [
         ...hiddenContinuity.warnings.map((warning) => `Hidden continuity: ${warning}`),
+        ...hiddenPolicyResult.warnings,
         ...pipelineResult.warnings.map((warning) => warning.message),
         ...policyResult.warnings,
       ];
-      const stateChanges = [
-        ...describeHiddenContinuityChanges(hiddenContinuity),
-        ...describeValidatedTurnEffects(policyResult.extraction),
-      ];
+      const stateProposals = [...hiddenPolicyResult.proposals, ...policyResult.proposals];
+      const stateChanges = stateProposals
+        .filter((proposal) => proposal.applied)
+        .map((proposal) => `[${proposal.provenance}] ${proposal.summary}`);
       const assistantContent = stripTrailingCallToAction(pipelineResult.assistantMessageText);
       const assistantVariants = options?.previousVariants
         ? [...options.previousVariants, assistantContent]
@@ -1490,8 +1519,16 @@ export function App() {
         id: `assistant-${runId}`,
         role: "assistant",
         content: assistantContent,
+        promptRunId: runId,
         ...(assistantVariants && assistantVariants.length > 1
-          ? { variants: assistantVariants, activeVariantIndex: assistantVariants.length - 1 }
+          ? {
+              variants: assistantVariants,
+              activeVariantIndex: assistantVariants.length - 1,
+              variantRunIds: [...(options?.previousVariantRunIds ?? []), runId],
+              ...(options?.previousUndoneVariantIndices?.length
+                ? { undoneVariantIndices: [...options.previousUndoneVariantIndices] }
+                : {}),
+            }
           : {}),
       };
       const variantIndex = assistantVariants ? assistantVariants.length - 1 : 0;
@@ -1554,6 +1591,7 @@ export function App() {
           includedLoreEntryIds: [...pipelineResult.promptRun.includedLoreEntryIds],
           warnings: turnWarnings,
           stateChanges,
+          stateProposals,
           usage: pipelineResult.promptRun.usage,
         },
       ]);
@@ -2400,6 +2438,7 @@ export function App() {
               editMessage={editMessageContent}
               regenerateLastReply={regenerateLastReply}
               swipeMessageVariant={swipeMessageVariant}
+              undoTurnEffects={undoTurnEffects}
               draft={draft}
               setDraft={setDraft}
               sendMessage={generateMockTurn}

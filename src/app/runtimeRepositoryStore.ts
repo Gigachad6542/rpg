@@ -52,6 +52,7 @@ type RuntimePromptRunRecord = Record<string, unknown> & {
   includedLoreEntryIds: string[];
   warnings: string[];
   stateChanges: string[];
+  stateProposals?: unknown[];
   usage?: {
     inputTokens: number;
     outputTokens: number;
@@ -291,6 +292,7 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
         stateChanges: {
           changes: run.stateChanges,
           warnings: run.warnings,
+          proposals: run.stateProposals ?? [],
         },
         request: {
           cardId: run.cardId,
@@ -601,6 +603,9 @@ function mapPromptRunRecord(run: PromptRunRecord): RuntimePromptRunRecord {
     includedLoreEntryIds: run.includedLoreEntryIds,
     warnings: getStringArray(run.stateChanges.warnings),
     stateChanges: getStringArray(run.stateChanges.changes),
+    ...(getArray(run.stateChanges.proposals).length > 0
+      ? { stateProposals: getArray(run.stateChanges.proposals) }
+      : {}),
     usage: readUsage(run.modelSettings.usage),
   };
 }

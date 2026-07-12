@@ -1,18 +1,17 @@
 // Fingerprint of the committed conversation, used to decide when to capture an
 // in-app restore point.
 //
-// The signature changes when a message is added, edited, or regenerated (the
-// variant list's *contents* change), but NOT when the player merely swipes
-// between existing variants. Swiping only moves the active index and mirrors an
-// existing variant into `content`, so keying on it would thrash the small
-// restore-point ring buffer with states the player can already reach by swiping
-// back. Editing rewrites the active variant's text in `variants[]`, so that is
-// captured; regeneration appends a variant, so that is captured too.
+// The signature changes when a message is added, edited, regenerated, swiped to
+// another state-bearing variant, or has its effects undone. Variant selection
+// used to be ignored when it changed text only; it now changes authoritative
+// RPG/memory/entity state and therefore needs its own restore point.
 
 export interface RestoreSignatureMessage {
   id: string;
   content: string;
   variants?: readonly string[];
+  activeVariantIndex?: number;
+  undoneVariantIndices?: readonly number[];
 }
 
 export interface RestoreSignatureSession {
@@ -22,9 +21,7 @@ export interface RestoreSignatureSession {
 
 /**
  * Derives a compact, order-sensitive fingerprint of every session's messages
- * and their alternate generations. Two conversations that differ only by which
- * variant is currently active produce the same signature; any change to message
- * identity, ordering, or variant/content text changes it.
+ * and their alternate generations/state selections.
  */
 export function conversationRestoreSignature(
   sessions: readonly RestoreSignatureSession[],
@@ -53,6 +50,10 @@ export function conversationRestoreSignature(
         }
       } else {
         mix(message.content);
+      }
+      mix(`active:${message.activeVariantIndex ?? "default"}`);
+      for (const index of [...(message.undoneVariantIndices ?? [])].sort((a, b) => a - b)) {
+        mix(`undone:${index}`);
       }
     }
   }

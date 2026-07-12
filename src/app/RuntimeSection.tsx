@@ -37,6 +37,7 @@ import type {
 import { customImagePresetPrompt } from "./appDefaults";
 import { toGeneratedImageSrc } from "./generatedImages";
 import { MessageContent } from "./ChatMessage";
+import { TurnDeltaPanel } from "./TurnDeltaPanel";
 import { StoryCharactersPanel } from "./StoryCharactersPanel";
 
 export function RuntimeSection(props: {
@@ -55,6 +56,7 @@ export function RuntimeSection(props: {
   editMessage: (messageId: string, content: string) => void;
   regenerateLastReply: () => Promise<void>;
   swipeMessageVariant: (messageId: string, direction: -1 | 1) => void;
+  undoTurnEffects: (messageId: string) => void;
   draft: string;
   setDraft: (draft: string) => void;
   sendMessage: () => Promise<void>;
@@ -308,6 +310,27 @@ export function RuntimeSection(props: {
               ) : (
                 <MessageContent message={message} />
               )}
+              {message.role === "assistant" ? (() => {
+                const activeVariantIndex = message.activeVariantIndex ?? Math.max((message.variants?.length ?? 1) - 1, 0);
+                const runId = message.variantRunIds?.[activeVariantIndex] || message.promptRunId;
+                const run = runId ? props.promptRuns.find((candidate) => candidate.id === runId) : undefined;
+                if (!run) {
+                  return null;
+                }
+                const commit = props.activeChat?.turnLineage?.ledger[message.id];
+                const canUndo = Boolean(
+                  commit?.variants.some((variant) => variant.variantIndex === activeVariantIndex),
+                );
+                const undone = message.undoneVariantIndices?.includes(activeVariantIndex) ?? false;
+                return (
+                  <TurnDeltaPanel
+                    run={run}
+                    onUndo={() => props.undoTurnEffects(message.id)}
+                    canUndo={canUndo}
+                    undone={undone}
+                  />
+                );
+              })() : null}
             </article>
           ))}
           {props.runtimeRunning && props.isGenerating && props.streamingReply.trim() ? (

@@ -823,6 +823,15 @@ fn load_normalized_prompt_runs(conn: &Connection) -> RepoResult<Vec<Value>> {
             "stateChanges".to_string(),
             string_array_at(&state_changes, "changes"),
         );
+        if matches!(state_changes.get("proposals"), Some(Value::Array(_))) {
+            object.insert(
+                "stateProposals".to_string(),
+                state_changes
+                    .get("proposals")
+                    .cloned()
+                    .unwrap_or_else(|| json!([])),
+            );
+        }
         if let Some(usage) = read_usage(model_settings.get("usage")) {
             object.insert("usage".to_string(), usage);
         }
@@ -1409,6 +1418,7 @@ fn save_prompt_runs(tx: &Transaction<'_>, snapshot: &Value) -> RepoResult<()> {
         let state_changes = json!({
             "changes": string_array_at(run, "stateChanges"),
             "warnings": string_array_at(run, "warnings"),
+            "proposals": run.get("stateProposals").cloned().unwrap_or_else(|| json!([])),
         });
         let request = json!({
             "cardId": string_at(run, "cardId", ""),
@@ -2503,6 +2513,10 @@ mod tests {
             json!("assistant-run_001")
         );
         assert_eq!(loaded["promptRuns"][0]["id"], json!("run_001"));
+        assert_eq!(
+            loaded["promptRuns"][0]["stateProposals"][0]["provenance"],
+            json!("player-action")
+        );
         assert_eq!(loaded["generatedMaps"][0]["id"], json!("map-1"));
         assert_eq!(loaded["generatedMaps"][0]["chatId"], json!("chat-card"));
         cleanup(&path);
@@ -2738,6 +2752,14 @@ mod tests {
                     "includedLoreEntryIds": ["lore-gate"],
                     "warnings": [],
                     "stateChanges": ["Location -> Cellar"],
+                    "stateProposals": [
+                        {
+                            "kind": "location",
+                            "summary": "Location -> Cellar",
+                            "provenance": "player-action",
+                            "applied": true
+                        }
+                    ],
                     "usage": { "inputTokens": 20, "outputTokens": 8, "totalTokens": 28 }
                 }
             ],

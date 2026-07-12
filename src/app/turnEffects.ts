@@ -1,4 +1,8 @@
 import type { ExtractionResult } from "../runtime/extraction";
+import type {
+  HiddenContinuityResult,
+  StoryEntity,
+} from "../runtime/hiddenContinuity";
 
 export interface TurnEffectMemoryEntry {
   id: string;
@@ -24,6 +28,11 @@ export interface TurnEffectRuntimeCard {
   rpg?: TurnEffectRpgState;
 }
 
+export interface HiddenTurnEffectRuntimeCard extends TurnEffectRuntimeCard {
+  summary?: string;
+  storyEntities?: StoryEntity[];
+}
+
 export interface TurnEffectOptions {
   now?: () => string;
   randomId?: () => string;
@@ -32,11 +41,29 @@ export interface TurnEffectOptions {
 export interface TurnEffectPolicyContext {
   latestUserAction?: string;
   assistantMessageText?: string;
+  toolResultText?: string;
+}
+
+export type TurnEffectProvenance = "player-action" | "pre-turn-state" | "tool-result" | "model-narration";
+
+export interface TurnEffectProposal {
+  kind: "memory" | "entity" | "knowledge" | "location" | "health" | "inventory" | "quest" | "flag";
+  summary: string;
+  provenance: TurnEffectProvenance;
+  applied: boolean;
+  reason?: string;
 }
 
 export interface TurnEffectPolicyResult {
   extraction: ExtractionResult;
   warnings: string[];
+  proposals: TurnEffectProposal[];
+}
+
+export interface HiddenContinuityPolicyResult {
+  result: HiddenContinuityResult;
+  warnings: string[];
+  proposals: TurnEffectProposal[];
 }
 
 export const MAX_CARD_MEMORY_ENTRIES = 120;
@@ -89,11 +116,16 @@ export function filterValidatedTurnEffectsForPolicy<Card extends TurnEffectRunti
   extraction: ExtractionResult,
   context: TurnEffectPolicyContext = {},
 ): TurnEffectPolicyResult {
-  const sourceText = `${context.latestUserAction ?? ""}\n${context.assistantMessageText ?? ""}`;
+  // Only player input and deterministic tool results can authorize a new
+  // mutation. Assistant narration is retained in the context solely so a
+  // rejected proposal can be labelled `model-narration`; it is never evidence
+  // for its own state change.
+  const sourceText = `${context.latestUserAction ?? ""}\n${context.toolResultText ?? ""}`;
+  const durableEvidence = `${sourceText}\n${buildPreTurnEvidence(card)}`;
   const warnings: string[] = [];
   const characterKnowledgeUpdates = filterCharacterKnowledgeUpdates(
     extraction.character_knowledge_updates,
-    sourceText,
+    durableEvidence,
     warnings,
   );
   const memoryUpdates = extraction.memory_updates.flatMap((update) => {
@@ -105,7 +137,7 @@ export function filterValidatedTurnEffectsForPolicy<Card extends TurnEffectRunti
       warnings.push("Blocked unsafe memory proposal from model output.");
       return [];
     }
-    if (!isGroundedInSource(detail, sourceText)) {
+    if (!isGroundedInSource(detail, durableEvidence)) {
       warnings.push("Blocked ungrounded memory proposal from model output.");
       return [];
     }
@@ -113,13 +145,15 @@ export function filterValidatedTurnEffectsForPolicy<Card extends TurnEffectRunti
   });
 
   if (!card.rpg || card.kind !== "rpg") {
+    const filteredExtraction = {
+      ...extraction,
+      memory_updates: memoryUpdates,
+      character_knowledge_updates: characterKnowledgeUpdates,
+    };
     return {
-      extraction: {
-        ...extraction,
-        memory_updates: memoryUpdates,
-        character_knowledge_updates: characterKnowledgeUpdates,
-      },
+      extraction: filteredExtraction,
       warnings,
+      proposals: buildTurnEffectProposals(card, extraction, filteredExtraction, context),
     };
   }
 
@@ -131,21 +165,144 @@ export function filterValidatedTurnEffectsForPolicy<Card extends TurnEffectRunti
   const questUpdates = filterQuestUpdates(updates.quest_updates, sourceText, warnings);
   const worldFlags = filterWorldFlags(updates.world_flags, sourceText, warnings);
 
+  const filteredExtraction: ExtractionResult = {
+    ...extraction,
+    memory_updates: memoryUpdates,
+    character_knowledge_updates: characterKnowledgeUpdates,
+    rpg_state_updates: {
+      location,
+      health_delta: healthDelta,
+      inventory_add: inventoryAdd,
+      inventory_remove: inventoryRemove,
+      quest_updates: questUpdates,
+      world_flags: worldFlags,
+    },
+  };
   return {
-    extraction: {
-      ...extraction,
-      memory_updates: memoryUpdates,
-      character_knowledge_updates: characterKnowledgeUpdates,
-      rpg_state_updates: {
-        location,
-        health_delta: healthDelta,
-        inventory_add: inventoryAdd,
-        inventory_remove: inventoryRemove,
-        quest_updates: questUpdates,
-        world_flags: worldFlags,
-      },
+    extraction: filteredExtraction,
+    warnings,
+    proposals: buildTurnEffectProposals(card, extraction, filteredExtraction, context),
+  };
+}
+
+export function filterHiddenContinuityForPolicy<Card extends HiddenTurnEffectRuntimeCard>(
+  card: Card,
+  result: HiddenContinuityResult,
+  context: TurnEffectPolicyContext = {},
+): HiddenContinuityPolicyResult {
+  const warnings: string[] = [];
+  const proposals: TurnEffectProposal[] = [];
+  const preTurnEvidence = buildPreTurnEvidence(card);
+
+  const memoryUpdates = result.memoryUpdates.flatMap((update) => {
+    const provenance = classifyProvenance(update.detail, context, preTurnEvidence, true);
+    const unsafe = looksLikeInstructionAttack(update.detail);
+    const applied = provenance !== "model-narration" && !unsafe;
+    proposals.push({
+      kind: "memory",
+      summary: `Memory: ${update.detail}`,
+      provenance,
+      applied,
+      ...(!applied ? { reason: unsafe ? "Unsafe instruction-like memory." : "No authoritative evidence." } : {}),
+    });
+    if (unsafe) {
+      warnings.push("Blocked unsafe hidden-continuity memory proposal.");
+      return [];
+    }
+    if (!applied) {
+      warnings.push("Blocked ungrounded hidden-continuity memory proposal.");
+      return [];
+    }
+    return [update];
+  });
+
+  const entityUpdates = result.entityUpdates.flatMap((update) => {
+    const entityProvenance = classifyProvenance(update.name, context, preTurnEvidence, true);
+    if (entityProvenance === "model-narration") {
+      proposals.push({
+        kind: "entity",
+        summary: `Entity: ${update.name}`,
+        provenance: entityProvenance,
+        applied: false,
+        reason: "Entity is absent from player input and pre-turn state.",
+      });
+      warnings.push(`Blocked ungrounded hidden-continuity entity: ${update.name}.`);
+      return [];
+    }
+
+    const summaryProvenance = update.summary
+      ? classifyProvenance(update.summary, context, preTurnEvidence, true)
+      : entityProvenance;
+    const knownFacts = filterHiddenFacts(update.knownFacts, update.name, context, preTurnEvidence, proposals, warnings);
+    const doesNotKnow = filterHiddenFacts(
+      update.doesNotKnow,
+      update.name,
+      context,
+      preTurnEvidence,
+      proposals,
+      warnings,
+    );
+    proposals.push({
+      kind: "entity",
+      summary: `Entity: ${update.name}`,
+      provenance: entityProvenance,
+      applied: true,
+    });
+    if (update.summary && summaryProvenance === "model-narration") {
+      proposals.push({
+        kind: "entity",
+        summary: `Entity summary: ${update.summary}`,
+        provenance: summaryProvenance,
+        applied: false,
+        reason: "Summary exists only in model output.",
+      });
+      warnings.push(`Blocked ungrounded hidden-continuity summary for ${update.name}.`);
+    }
+    return [{
+      ...update,
+      summary: summaryProvenance === "model-narration" ? "" : update.summary,
+      knownFacts,
+      doesNotKnow,
+    }];
+  });
+
+  const knowledgeUpdates = result.knowledgeUpdates.flatMap((update) => {
+    const subjectProvenance = classifyProvenance(update.subject, context, preTurnEvidence, true);
+    if (subjectProvenance === "model-narration") {
+      proposals.push({
+        kind: "knowledge",
+        summary: `Knowledge subject: ${update.subject}`,
+        provenance: subjectProvenance,
+        applied: false,
+        reason: "Subject is absent from player input and pre-turn state.",
+      });
+      warnings.push(`Blocked ungrounded hidden-continuity knowledge subject: ${update.subject}.`);
+      return [];
+    }
+    const knows = filterHiddenFacts(update.knows, update.subject, context, preTurnEvidence, proposals, warnings);
+    const doesNotKnow = filterHiddenFacts(
+      update.doesNotKnow,
+      update.subject,
+      context,
+      preTurnEvidence,
+      proposals,
+      warnings,
+    );
+    if (knows.length === 0 && doesNotKnow.length === 0) {
+      return [];
+    }
+    return [{ ...update, knows, doesNotKnow }];
+  });
+
+  return {
+    result: {
+      ...result,
+      memoryUpdates,
+      entityUpdates,
+      knowledgeUpdates,
     },
     warnings,
+    proposals,
   };
 }
 
@@ -226,7 +383,11 @@ function filterHealthDelta(delta: number, sourceText: string, warnings: string[]
       warnings.push(`Blocked oversized health delta: ${String(delta)}.`);
       return 0;
     }
-    return delta;
+    if (/\b(hurt|injur|damage|wound|bleed|burn|poison|lose|lost|cost|hit|health)\w*\b/i.test(sourceText)) {
+      return delta;
+    }
+    warnings.push(`Blocked health delta without authoritative injury evidence: ${String(delta)}.`);
+    return 0;
   }
   if (/\b(heal|rest|bandage|potion|recover|restore|treat)\b/i.test(sourceText)) {
     if (delta > 5) {
@@ -432,6 +593,203 @@ function applyHealthDelta(health: string, delta: number): string {
   return `${nextCurrent}/${max}`;
 }
 
+function buildTurnEffectProposals<Card extends TurnEffectRuntimeCard>(
+  card: Card,
+  proposed: ExtractionResult,
+  filtered: ExtractionResult,
+  context: TurnEffectPolicyContext,
+): TurnEffectProposal[] {
+  const proposals: TurnEffectProposal[] = [];
+  const preTurnEvidence = buildPreTurnEvidence(card);
+
+  for (const update of proposed.memory_updates) {
+    const detail = firstString(update, ["detail", "text", "summary", "content"]);
+    if (!detail) {
+      continue;
+    }
+    proposals.push({
+      kind: "memory",
+      summary: `Memory: ${detail}`,
+      provenance: classifyProvenance(detail, context, preTurnEvidence, true),
+      applied: filtered.memory_updates.some((candidate) =>
+        normalizeText(firstString(candidate, ["detail", "text", "summary", "content"]) ?? "") === normalizeText(detail)),
+    });
+  }
+  for (const update of proposed.character_knowledge_updates) {
+    const subject = firstString(update, ["subject", "name", "character", "character_name", "entity"]);
+    if (!subject) {
+      continue;
+    }
+    const facts = [
+      ...readStringList(update, ["knows", "known_facts", "knownFacts", "learned", "now_knows", "nowKnows"]),
+      ...readStringList(update, ["does_not_know", "doesNotKnow", "no_longer_knows", "noLongerKnows", "forgets"]),
+    ];
+    for (const fact of facts) {
+      const applied = filtered.character_knowledge_updates.some((candidate) =>
+        normalizeText(firstString(candidate, ["subject", "name", "character", "character_name", "entity"]) ?? "") ===
+          normalizeText(subject) &&
+        [...readStringList(candidate, ["knows", "known_facts", "knownFacts"]),
+          ...readStringList(candidate, ["does_not_know", "doesNotKnow"])].some(
+            (candidateFact) => normalizeText(candidateFact) === normalizeText(fact),
+          ),
+      );
+      proposals.push({
+        kind: "knowledge",
+        summary: `${subject}: ${fact}`,
+        provenance: classifyProvenance(fact, context, preTurnEvidence, true),
+        applied,
+      });
+    }
+  }
+
+  const proposedRpg = proposed.rpg_state_updates;
+  const filteredRpg = filtered.rpg_state_updates;
+  if (proposedRpg.location) {
+    proposals.push({
+      kind: "location",
+      summary: `Location -> ${proposedRpg.location}`,
+      provenance: classifyProvenance(proposedRpg.location, context, preTurnEvidence, false),
+      applied: normalizeText(filteredRpg.location ?? "") === normalizeText(proposedRpg.location),
+    });
+  }
+  if (proposedRpg.health_delta !== 0) {
+    proposals.push({
+      kind: "health",
+      summary: `Health ${proposedRpg.health_delta > 0 ? "+" : ""}${proposedRpg.health_delta}`,
+      provenance: classifyHealthProvenance(proposedRpg.health_delta, context),
+      applied: filteredRpg.health_delta === proposedRpg.health_delta,
+    });
+  }
+  for (const item of proposedRpg.inventory_add) {
+    proposals.push({
+      kind: "inventory",
+      summary: `Inventory + ${item}`,
+      provenance: classifyProvenance(item, context, preTurnEvidence, false),
+      applied: includesNormalized(filteredRpg.inventory_add, item),
+    });
+  }
+  for (const item of proposedRpg.inventory_remove) {
+    proposals.push({
+      kind: "inventory",
+      summary: `Inventory - ${item}`,
+      provenance: classifyProvenance(item, context, preTurnEvidence, false),
+      applied: includesNormalized(filteredRpg.inventory_remove, item),
+    });
+  }
+  for (const update of proposedRpg.quest_updates) {
+    const label = toQuestLabel(update);
+    if (!label) {
+      continue;
+    }
+    proposals.push({
+      kind: "quest",
+      summary: `Quest: ${label}`,
+      provenance: classifyProvenance(label, context, preTurnEvidence, false),
+      applied: filteredRpg.quest_updates.some((candidate) => normalizeText(toQuestLabel(candidate) ?? "") === normalizeText(label)),
+    });
+  }
+  for (const [key, value] of Object.entries(proposedRpg.world_flags)) {
+    proposals.push({
+      kind: "flag",
+      summary: `Flag ${key}=${String(value)}`,
+      provenance: classifyProvenance(key.replace(/[_-]+/g, " "), context, preTurnEvidence, false),
+      applied:
+        Object.prototype.hasOwnProperty.call(filteredRpg.world_flags, key) &&
+        filteredRpg.world_flags[key] === value,
+    });
+  }
+
+  return proposals;
+}
+
+function filterHiddenFacts(
+  facts: readonly string[],
+  subject: string,
+  context: TurnEffectPolicyContext,
+  preTurnEvidence: string,
+  proposals: TurnEffectProposal[],
+  warnings: string[],
+): string[] {
+  return facts.filter((fact) => {
+    const provenance = classifyProvenance(fact, context, preTurnEvidence, true);
+    const applied = provenance !== "model-narration";
+    proposals.push({
+      kind: "knowledge",
+      summary: `${subject}: ${fact}`,
+      provenance,
+      applied,
+      ...(!applied ? { reason: "Fact exists only in model output." } : {}),
+    });
+    if (!applied) {
+      warnings.push(`Blocked ungrounded hidden-continuity fact for ${subject}: ${fact}.`);
+    }
+    return applied;
+  });
+}
+
+function classifyProvenance(
+  value: string,
+  context: TurnEffectPolicyContext,
+  preTurnEvidence: string,
+  allowPreTurn: boolean,
+): TurnEffectProvenance {
+  if (isGroundedInSource(value, context.latestUserAction ?? "")) {
+    return "player-action";
+  }
+  if (isGroundedInSource(value, context.toolResultText ?? "")) {
+    return "tool-result";
+  }
+  if (allowPreTurn && isGroundedInSource(value, preTurnEvidence)) {
+    return "pre-turn-state";
+  }
+  return "model-narration";
+}
+
+function classifyHealthProvenance(delta: number, context: TurnEffectPolicyContext): TurnEffectProvenance {
+  const pattern = delta < 0
+    ? /\b(hurt|injur|damage|wound|bleed|burn|poison|lose|lost|cost|hit|health)\w*\b/i
+    : /\b(heal|rest|bandage|potion|recover|restore|treat)\w*\b/i;
+  if (pattern.test(context.latestUserAction ?? "")) {
+    return "player-action";
+  }
+  if (pattern.test(context.toolResultText ?? "")) {
+    return "tool-result";
+  }
+  return "model-narration";
+}
+
+function buildPreTurnEvidence(card: HiddenTurnEffectRuntimeCard): string {
+  const storyEntities = (card.storyEntities ?? []).flatMap((entity) => [
+    entity.name,
+    entity.summary,
+    ...entity.knownFacts,
+    ...entity.doesNotKnow,
+    ...entity.notes,
+  ]);
+  const rpg = card.rpg
+    ? [
+        card.rpg.location,
+        card.rpg.health,
+        ...card.rpg.inventory,
+        ...card.rpg.quests,
+        ...Object.keys(card.rpg.flags),
+        ...card.rpg.knownPlaces,
+      ]
+    : [];
+  return [
+    card.name,
+    card.summary ?? "",
+    ...card.memory.flatMap((entry) => [entry.label, entry.detail]),
+    ...storyEntities,
+    ...rpg,
+  ].filter(Boolean).join("\n");
+}
+
+function includesNormalized(values: readonly string[], expected: string): boolean {
+  const normalizedExpected = normalizeText(expected);
+  return values.some((value) => normalizeText(value) === normalizedExpected);
+}
+
 function normalizeUniqueList(values: readonly string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }
@@ -448,14 +806,14 @@ function isGroundedInSource(value: string, sourceText: string): boolean {
   if (!normalizedValue || !normalizedSource) {
     return false;
   }
-  if (normalizedSource.includes(normalizedValue)) {
-    return true;
-  }
-
   const valueTokens = meaningfulTokens(value);
   if (valueTokens.length === 0) {
     return false;
   }
+  if (normalizedSource.includes(normalizedValue)) {
+    return true;
+  }
+
   const sourceTokens = new Set(meaningfulTokens(sourceText));
   const matched = valueTokens.filter((token) => sourceTokens.has(token)).length;
   return matched / valueTokens.length >= 0.75;

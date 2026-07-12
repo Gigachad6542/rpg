@@ -52,7 +52,7 @@ describe("TurnDeltaPanel", () => {
   });
 
   it("marks an undone turn and does not offer a second undo", () => {
-    render(<TurnDeltaPanel run={promptRun({ stateEffectsUndone: true })} onUndo={vi.fn()} />);
+    render(<TurnDeltaPanel run={promptRun()} onUndo={vi.fn()} undone />);
     expect(screen.getByText(/State changes undone/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Undo state changes/i })).not.toBeInTheDocument();
   });

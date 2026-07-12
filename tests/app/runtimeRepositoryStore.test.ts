@@ -206,6 +206,14 @@ describe("runtime repository store", () => {
           includedLoreEntryIds: ["lore-gate"],
           warnings: [],
           stateChanges: ["Location -> Cellar"],
+          stateProposals: [
+            {
+              kind: "location",
+              summary: "Location -> Cellar",
+              provenance: "player-action",
+              applied: true,
+            },
+          ],
           usage: {
             inputTokens: 20,
             outputTokens: 8,
@@ -302,6 +310,13 @@ describe("runtime repository store", () => {
       compiledPrompt: "",
       includedLoreEntryIds: ["lore-gate"],
       stateChanges: ["Location -> Cellar"],
+      stateProposals: [
+        {
+          kind: "location",
+          provenance: "player-action",
+          applied: true,
+        },
+      ],
       usage: {
         totalTokens: 28,
       },

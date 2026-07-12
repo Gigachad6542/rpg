@@ -11,6 +11,7 @@ import type { RunTurnPipelineRequest } from "../runtime/turnPipeline";
 import type { RuntimeTurnLineage } from "../runtime/runtimeTurnLineage";
 import type { SecretReference } from "../security/keyStorage";
 import type { LocalRuntimeSnapshot } from "./localRuntimeStore";
+import type { TurnEffectProposal } from "./turnEffects";
 
 export type Theme = "light" | "dark";
 export type MainSection = "runtime" | "cards" | "lorebooks" | "providers" | "settings";
@@ -144,6 +145,11 @@ export type Message = {
   /** Alternate generations for this message; content mirrors variants[activeVariantIndex]. */
   variants?: string[];
   activeVariantIndex?: number;
+  /** Prompt-run IDs parallel to variants, or the sole generation for this message. */
+  promptRunId?: string;
+  variantRunIds?: string[];
+  /** Variant indices whose state effects were explicitly undone in this branch. */
+  undoneVariantIndices?: number[];
 };
 
 export type ChatSession = {
@@ -172,6 +178,7 @@ export type PromptRun = {
   includedLoreEntryIds: string[];
   warnings: string[];
   stateChanges: string[];
+  stateProposals?: TurnEffectProposal[];
   usage?: {
     inputTokens: number;
     outputTokens: number;

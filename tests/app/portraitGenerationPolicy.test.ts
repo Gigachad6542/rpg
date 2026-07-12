@@ -17,6 +17,7 @@ const rook: StoryEntity = {
   summary: "A harbor scout.",
   knownFacts: [],
   doesNotKnow: [],
+  notes: [],
 };
 
 function message(id: string, role: Message["role"], content: string): Message {

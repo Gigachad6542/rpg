@@ -126,6 +126,10 @@ export function parseImageProviderSettings(value?: Record<string, unknown>): Ima
     : defaultImageProviderSettings.model;
   return normalizeImageProviderQualitySettings({
     mode,
+    portraitGenerationMode:
+      value?.portraitGenerationMode === "auto" || value?.portraitGenerationMode === "off"
+        ? value.portraitGenerationMode
+        : "confirm-first",
     providerId: "comfyui",
     displayName: "ComfyUI local API",
     endpoint: typeof value?.endpoint === "string" ? value.endpoint : defaultImageProviderSettings.endpoint,

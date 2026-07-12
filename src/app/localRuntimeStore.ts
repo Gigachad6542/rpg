@@ -207,7 +207,6 @@ export function sanitizePersistedProviderSettings(value: unknown): Record<string
       sanitized[key] = field;
     }
   }
-
   const reference = value.secretReference;
   const secretReference = parseSecretReference(reference);
   if (secretReference) {
@@ -228,6 +227,13 @@ export function sanitizePersistedImageProviderSettings(value: unknown): Record<s
     if (typeof field === "string") {
       sanitized[key] = field;
     }
+  }
+  if (
+    value.portraitGenerationMode === "auto" ||
+    value.portraitGenerationMode === "confirm-first" ||
+    value.portraitGenerationMode === "off"
+  ) {
+    sanitized.portraitGenerationMode = value.portraitGenerationMode;
   }
   if (typeof value.workflowJson === "string" && !containsSensitiveWorkflowContent(value.workflowJson)) {
     sanitized.workflowJson = value.workflowJson;

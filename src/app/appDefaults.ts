@@ -229,6 +229,7 @@ export const localImageMinimumPollTimeoutMs = 120_000;
 
 export const defaultImageProviderSettings: ImageProviderSettings = {
   mode: "comfyui",
+  portraitGenerationMode: "confirm-first",
   providerId: recommendedLocalImageProvider.providerId,
   displayName: "ComfyUI local API",
   endpoint: recommendedLocalImageProvider.endpoint,

@@ -1682,6 +1682,11 @@ fn sanitize_image_provider_settings(value: Option<&Value>) -> RepoResult<Option<
             output.insert(key.to_string(), json!(field));
         }
     }
+    if let Some(mode @ ("auto" | "confirm-first" | "off")) =
+        input.get("portraitGenerationMode").and_then(Value::as_str)
+    {
+        output.insert("portraitGenerationMode".to_string(), json!(mode));
+    }
     if let Some(workflow_json) = input.get("workflowJson").and_then(Value::as_str) {
         if !workflow_json_contains_sensitive_content(workflow_json) {
             output.insert("workflowJson".to_string(), json!(workflow_json));
@@ -3039,6 +3044,7 @@ mod tests {
         let mut safe_image_settings = fixture_snapshot("card");
         safe_image_settings["imageProviderSettings"] = json!({
             "mode": "comfyui",
+            "portraitGenerationMode": "confirm-first",
             "providerId": "comfyui",
             "displayName": "ComfyUI local API",
             "endpoint": "http://127.0.0.1:8188",
@@ -3052,6 +3058,10 @@ mod tests {
         });
         let sanitized = sanitize_snapshot(safe_image_settings).unwrap();
         assert_eq!(sanitized["imageProviderSettings"]["mode"], json!("comfyui"));
+        assert_eq!(
+            sanitized["imageProviderSettings"]["portraitGenerationMode"],
+            json!("confirm-first")
+        );
         assert_eq!(sanitized["imageProviderSettings"]["workflowJson"], json!("{\"1\":{\"class_type\":\"CheckpointLoaderSimple\",\"inputs\":{\"ckpt_name\":\"FLUX.1-schnell\"}}}"));
         assert!(sanitized["imageProviderSettings"].get("apiKey").is_none());
         assert!(sanitized["imageProviderSettings"].get("ignored").is_none());
@@ -3059,11 +3069,15 @@ mod tests {
         let mut unsafe_image_settings = fixture_snapshot("card");
         unsafe_image_settings["imageProviderSettings"] = json!({
             "mode": "comfyui",
+            "portraitGenerationMode": "untrusted",
             "workflowJson": "{\"1\":{\"inputs\":{\"apiKey\":\"workflow-secret\"}}}",
             "token": "raw-token"
         });
         let sanitized = sanitize_snapshot(unsafe_image_settings).unwrap();
         assert_eq!(sanitized["imageProviderSettings"]["mode"], json!("comfyui"));
+        assert!(sanitized["imageProviderSettings"]
+            .get("portraitGenerationMode")
+            .is_none());
         assert!(sanitized["imageProviderSettings"]
             .get("workflowJson")
             .is_none());

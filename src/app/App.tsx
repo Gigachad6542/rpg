@@ -176,9 +176,9 @@ import {
   findCharacterPortraitForEntity,
   findCharacterPortraitsForCard,
   findGeneratedMapForChat,
-  hasGeneratedCharacterPortraitForEntity,
   parseGeneratedMaps,
-  shouldAutoGenerateCharacterPortrait,
+  shouldPrepareCharacterPortrait,
+  shouldRunCharacterPortraitGeneration,
   upsertGeneratedMap,
   upsertGeneratedMaps,
 } from "./generatedImages";
@@ -1583,7 +1583,7 @@ export function App() {
 
       setChatSessions((current) => upsertChatSession(current, nextChat));
       setCards((current) => current.map((card) => (card.id === activeCard.id ? nextActiveCard : card)));
-      void generateMissingCharacterPortraits(nextActiveCard, chat.id);
+      void generateMissingCharacterPortraits(nextActiveCard, chat.id, nextMessages);
       setPromptRuns((current) => [
         ...current,
         {
@@ -1911,37 +1911,51 @@ export function App() {
     }
   }
 
-  async function generateMissingCharacterPortraits(card: RuntimeCard, chatId: string) {
+  async function generateMissingCharacterPortraits(
+    card: RuntimeCard,
+    chatId: string,
+    visibleMessages: readonly Message[],
+  ) {
+    const portraitMode = imageProviderSettings.portraitGenerationMode;
     const missingPortraits = card.storyEntities
-      .filter(shouldAutoGenerateCharacterPortrait)
-      .filter((entity) => !hasGeneratedCharacterPortraitForEntity(generatedMaps, card.id, entity));
+      .filter((entity) => shouldPrepareCharacterPortrait(entity, visibleMessages, portraitMode))
+      .filter((entity) => {
+        const existing = findCharacterPortraitForEntity(generatedMaps, card.id, entity);
+        return !existing || (portraitMode === "auto" && existing.status !== "generated");
+      });
     if (missingPortraits.length === 0) {
       return;
     }
 
-    const baseArtifacts = missingPortraits.map((entity): GeneratedMapArtifact => ({
-      id: createRuntimeEntityId("portrait"),
-      imageKind: "character",
-      cardId: card.id,
-      chatId,
-      subjectId: entity.id,
-      subjectName: entity.name,
-      prompt: buildCharacterPortraitPrompt(card, entity),
-      negativePrompt: characterPortraitNegativePrompt,
-      provider: imageProviderSettings.mode === "comfyui" ? "comfyui" : "prompt-only",
-      model: imageProviderSettings.model,
-      status: "prompt-only",
-      error: isComfyUiImageProviderReady(imageProviderSettings, imageProviderStatus, comfyUiCheckpointModels)
-        ? undefined
-        : imageProviderSettings.mode === "comfyui"
-          ? "ComfyUI is not ready yet; portrait prompt saved."
-          : undefined,
-      userInput: entity.name,
-      createdAt: new Date().toISOString(),
-    }));
+    const baseArtifacts = missingPortraits.map((entity): GeneratedMapArtifact => {
+      const existing = findCharacterPortraitForEntity(generatedMaps, card.id, entity);
+      return {
+        id: existing?.id ?? createRuntimeEntityId("portrait"),
+        imageKind: "character",
+        cardId: card.id,
+        chatId,
+        subjectId: entity.id,
+        subjectName: entity.name,
+        prompt: existing?.prompt || buildCharacterPortraitPrompt(card, entity),
+        negativePrompt: existing?.negativePrompt || characterPortraitNegativePrompt,
+        provider: imageProviderSettings.mode === "comfyui" ? "comfyui" : "prompt-only",
+        model: imageProviderSettings.model,
+        status: "prompt-only",
+        error: isComfyUiImageProviderReady(imageProviderSettings, imageProviderStatus, comfyUiCheckpointModels)
+          ? undefined
+          : imageProviderSettings.mode === "comfyui"
+            ? "ComfyUI is not ready yet; portrait prompt saved."
+            : undefined,
+        userInput: entity.name,
+        createdAt: existing?.createdAt ?? new Date().toISOString(),
+      };
+    });
     setGeneratedMaps((current) => upsertGeneratedMaps(current, baseArtifacts));
 
-    if (!isComfyUiImageProviderReady(imageProviderSettings, imageProviderStatus, comfyUiCheckpointModels)) {
+    if (
+      !shouldRunCharacterPortraitGeneration(portraitMode) ||
+      !isComfyUiImageProviderReady(imageProviderSettings, imageProviderStatus, comfyUiCheckpointModels)
+    ) {
       return;
     }
 
@@ -2081,7 +2095,7 @@ export function App() {
         `${sourceLabel} ready: ${models.length} image model${models.length === 1 ? "" : "s"} visible. Selected ${imageProviderSettings.model}.`,
       );
       if (activeCard && activeChat) {
-        void generateMissingCharacterPortraits(activeCard, activeChat.id);
+        void generateMissingCharacterPortraits(activeCard, activeChat.id, activeChat.messages);
       }
       return;
     }
@@ -2099,7 +2113,7 @@ export function App() {
       `${sourceLabel} ready: selected installed image model ${installedModel} because the saved model was not visible to ComfyUI.`,
     );
     if (activeCard && activeChat) {
-      void generateMissingCharacterPortraits(activeCard, activeChat.id);
+      void generateMissingCharacterPortraits(activeCard, activeChat.id, activeChat.messages);
     }
   }
 

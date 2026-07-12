@@ -3,6 +3,8 @@ import type {
   GeneratedImageKind,
   GeneratedMapArtifact,
   ImageProviderSettings,
+  Message,
+  PortraitGenerationMode,
   RuntimeCard,
 } from "./runtimeTypes";
 import { type StoryEntity } from "../runtime/hiddenContinuity";
@@ -181,6 +183,38 @@ export function hasGeneratedCharacterPortraitForEntity(
 
 export function shouldAutoGenerateCharacterPortrait(entity: StoryEntity): boolean {
   return (entity.kind === "player" || entity.kind === "character") && !isDefaultPlayerStoryEntity(entity);
+}
+
+export function entityAppearsInVisibleMessages(
+  entity: StoryEntity,
+  messages: readonly Message[],
+): boolean {
+  const name = entity.name.trim();
+  if (!name) {
+    return false;
+  }
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+  const visibleName = new RegExp(`(^|[^A-Za-z0-9])${escapedName}(?=$|[^A-Za-z0-9])`, "i");
+  return messages.some(
+    (message) =>
+      (message.role === "user" || message.role === "assistant") && visibleName.test(message.content),
+  );
+}
+
+export function shouldPrepareCharacterPortrait(
+  entity: StoryEntity,
+  visibleMessages: readonly Message[],
+  mode: PortraitGenerationMode,
+): boolean {
+  return (
+    mode !== "off" &&
+    shouldAutoGenerateCharacterPortrait(entity) &&
+    entityAppearsInVisibleMessages(entity, visibleMessages)
+  );
+}
+
+export function shouldRunCharacterPortraitGeneration(mode: PortraitGenerationMode): boolean {
+  return mode === "auto";
 }
 
 export function buildCharacterPortraitPrompt(card: RuntimeCard, entity: StoryEntity): string {

@@ -131,6 +131,25 @@ export function ProvidersSection(props: {
           </select>
         </label>
         <label className="field">
+          <span>Character portrait generation</span>
+          <select
+            value={props.imageProviderSettings.portraitGenerationMode}
+            onChange={(event) =>
+              props.setImageProviderSettings({
+                ...props.imageProviderSettings,
+                portraitGenerationMode: event.target.value as ImageProviderSettings["portraitGenerationMode"],
+              })
+            }
+          >
+            <option value="confirm-first">Confirm first</option>
+            <option value="auto">Automatic</option>
+            <option value="off">Off</option>
+          </select>
+          <p className="field-help">
+            Portraits are considered only after the character appears in player-visible text. Confirm first saves an editable prompt without calling the image provider.
+          </p>
+        </label>
+        <label className="field">
           <span>Base URL</span>
           <input
             value={props.providerSettings.baseUrl}

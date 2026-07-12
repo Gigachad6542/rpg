@@ -19,6 +19,7 @@ export type CardKind = "character" | "rpg";
 export type CardTab = "chat" | "instructions" | "rules" | "lorebooks" | "rpg" | "map";
 export type TextProviderMode = "mock" | "openai-compatible";
 export type ImageProviderMode = "prompt-only" | "comfyui";
+export type PortraitGenerationMode = "auto" | "confirm-first" | "off";
 
 /** Where an imported card originated, for provenance and round-tripping. */
 export type CardImportSource = "manual" | "tavern-png" | "tavern-json" | "chub";
@@ -198,6 +199,7 @@ export type ProviderSettings = {
 
 export type ImageProviderSettings = {
   mode: ImageProviderMode;
+  portraitGenerationMode: PortraitGenerationMode;
   providerId: string;
   displayName: string;
   endpoint: string;

@@ -1,3 +1,5 @@
+import { sanitizeCredentialFreeUrl } from "./urlSafety";
+
 export type SecureStorageKind = "os-keychain" | "tauri-stronghold" | "external-vault" | "memory-only";
 
 export interface SecretReference {
@@ -205,7 +207,7 @@ function validateStorageKey(storageKey: string, providerId: string, secretName: 
 }
 
 function sanitizeProviderBaseUrl(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  return sanitizeCredentialFreeUrl(value);
 }
 
 function looksLikeRawSecret(value: string): boolean {

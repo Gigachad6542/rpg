@@ -1,4 +1,5 @@
 import { parseSecretReference } from "../security/keyStorage";
+import { sanitizeCredentialFreeUrl } from "../security/urlSafety";
 import { sanitizePersistedPersonas } from "./personas";
 
 export const RUNTIME_STORAGE_KEY = "local-cards-runtime:v2";
@@ -201,11 +202,15 @@ export function sanitizePersistedProviderSettings(value: unknown): Record<string
   }
 
   const sanitized: Record<string, unknown> = {};
-  for (const key of ["mode", "providerId", "displayName", "baseUrl", "model"]) {
+  for (const key of ["mode", "providerId", "displayName", "model"]) {
     const field = value[key];
     if (typeof field === "string") {
       sanitized[key] = field;
     }
+  }
+  const baseUrl = sanitizeCredentialFreeUrl(value.baseUrl);
+  if (baseUrl) {
+    sanitized.baseUrl = baseUrl;
   }
   const reference = value.secretReference;
   const secretReference = parseSecretReference(reference);
@@ -222,11 +227,15 @@ export function sanitizePersistedImageProviderSettings(value: unknown): Record<s
   }
 
   const sanitized: Record<string, unknown> = {};
-  for (const key of ["mode", "providerId", "displayName", "endpoint", "model", "samplerName", "scheduler"]) {
+  for (const key of ["mode", "providerId", "displayName", "model", "samplerName", "scheduler"]) {
     const field = value[key];
     if (typeof field === "string") {
       sanitized[key] = field;
     }
+  }
+  const endpoint = sanitizeCredentialFreeUrl(value.endpoint);
+  if (endpoint) {
+    sanitized.endpoint = endpoint;
   }
   if (
     value.portraitGenerationMode === "auto" ||

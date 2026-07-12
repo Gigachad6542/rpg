@@ -166,6 +166,19 @@ export type ChatSession = {
   turnLineage?: RuntimeTurnLineage;
 };
 
+export type ModelCallRecord = {
+  phase: "hidden-continuity" | "visible-response";
+  provider: string;
+  model: string;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
+  durationMs: number;
+  status: "success" | "error";
+};
+
 export type PromptRun = {
   id: string;
   cardId: string;
@@ -185,6 +198,8 @@ export type PromptRun = {
     outputTokens: number;
     totalTokens: number;
   };
+  /** The intentional hidden-continuity and visible-response calls for this turn. */
+  modelCalls?: ModelCallRecord[];
   blockedReason?: string;
 };
 

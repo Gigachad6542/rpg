@@ -66,6 +66,11 @@ export function ProvidersSection(props: {
           Recommended: <strong>Qwen3.7-Max</strong> using model id <code className="inline-code">qwen3.7-max</code>.
           Stored desktop keys are used through the local backend; React keeps only a secret reference.
         </p>
+        <p className="field-help">
+          Each completed turn intentionally makes two sequential text-model calls: continuity preparation, then the
+          visible response. Expand the model-call summary under a turn to see each call&apos;s input, output, total token
+          usage, latency, and status.
+        </p>
         <label className="field">
           <span>Runtime mode</span>
           <select

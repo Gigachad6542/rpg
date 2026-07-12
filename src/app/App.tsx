@@ -64,6 +64,10 @@ import {
   validatePlayerAction as validatePlayerActionWithRules,
 } from "../runtime/playerRuleEngine";
 import { ComfyUIImageProvider, fetchComfyUIImageModels } from "../providers/comfyUIProvider";
+import type {
+  TextGenerationResponse,
+  TextModelAdapter,
+} from "../providers/TextModelAdapter";
 import {
   requireSecureKeyStorage,
   type KeyStorage,
@@ -108,6 +112,7 @@ import type {
   MediaPreviewArtifact,
   MemoryEntry,
   Message,
+  ModelCallRecord,
   NewLorebookEntry,
   Persona,
   PromptRun,
@@ -1563,8 +1568,12 @@ export function App() {
       }
       const provider = createTextProvider(providerSettings, sessionApiKey, turnCard, generationAction, turnLorebookEntries.length);
       const model = providerSettings.mode === "mock" ? "mock-narrator" : providerSettings.model;
+      let hiddenCallOutcome: TextModelCallOutcome | undefined;
+      const hiddenCallStartedAt = readMonotonicMilliseconds();
       const hiddenContinuityResult = await runHiddenContinuityPassSafely({
-        modelAdapter: provider,
+        modelAdapter: createModelCallCaptureAdapter(provider, (outcome) => {
+          hiddenCallOutcome = outcome;
+        }),
         model,
         card: toHiddenContinuityCard(turnCard),
         messages: chatMessages,
@@ -1572,6 +1581,13 @@ export function App() {
         activeLoreCount: turnLorebookEntries.length,
         pendingReviewProposals: pendingReviewRef.current[turnCard.id] ?? [],
         signal: abortController.signal,
+      });
+      const hiddenModelCall = toModelCallRecord({
+        phase: "hidden-continuity",
+        fallbackProvider: provider.id,
+        fallbackModel: model,
+        durationMs: elapsedMilliseconds(hiddenCallStartedAt),
+        outcome: hiddenCallOutcome,
       });
       const hiddenPolicyResult = filterHiddenContinuityForPolicy(turnCard, hiddenContinuityResult, {
         latestUserAction: generationAction,
@@ -1586,6 +1602,7 @@ export function App() {
           toHiddenContinuityCard(continuityCard),
         ),
       };
+      const visibleCallStartedAt = readMonotonicMilliseconds();
       const pipelineResult = await runTurnPipeline({
         ...buildTurnPromptRequest(
           continuityCard,
@@ -1613,6 +1630,14 @@ export function App() {
         signal: abortController.signal,
         onStreamText: (text) => setStreamingReply(text),
       });
+      const visibleModelCall: ModelCallRecord = {
+        phase: "visible-response",
+        provider: pipelineResult.promptRun.providerId,
+        model: pipelineResult.promptRun.model,
+        usage: { ...pipelineResult.promptRun.usage },
+        durationMs: elapsedMilliseconds(visibleCallStartedAt),
+        status: pipelineResult.promptRun.finishReason === "error" ? "error" : "success",
+      };
       const statusBlockLocation = deriveStatusBlockLocationProposal(
         pipelineResult.assistantMessageText,
         pipelineResult.stateProposals.extraction.rpg_state_updates.location,
@@ -1729,6 +1754,7 @@ export function App() {
           stateChanges,
           stateProposals,
           usage: pipelineResult.promptRun.usage,
+          modelCalls: [hiddenModelCall, visibleModelCall],
         },
       ]);
       setDraft("");
@@ -2786,4 +2812,59 @@ export function App() {
       ) : null}
     </main>
   );
+}
+
+type TextModelCallOutcome =
+  | { response: TextGenerationResponse }
+  | { error: unknown };
+
+function createModelCallCaptureAdapter(
+  adapter: TextModelAdapter,
+  capture: (outcome: TextModelCallOutcome) => void,
+): TextModelAdapter {
+  return {
+    id: adapter.id,
+    displayName: adapter.displayName,
+    listModels: () => adapter.listModels(),
+    async generateText(request) {
+      try {
+        const response = await adapter.generateText(request);
+        capture({ response });
+        return response;
+      } catch (error) {
+        capture({ error });
+        throw error;
+      }
+    },
+  };
+}
+
+function toModelCallRecord(input: {
+  phase: ModelCallRecord["phase"];
+  fallbackProvider: string;
+  fallbackModel: string;
+  durationMs: number;
+  outcome?: TextModelCallOutcome;
+}): ModelCallRecord {
+  const response = input.outcome && "response" in input.outcome
+    ? input.outcome.response
+    : undefined;
+  return {
+    phase: input.phase,
+    provider: response?.providerId ?? input.fallbackProvider,
+    model: response?.model ?? input.fallbackModel,
+    usage: response
+      ? { ...response.usage }
+      : { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    durationMs: input.durationMs,
+    status: response && response.finishReason !== "error" ? "success" : "error",
+  };
+}
+
+function readMonotonicMilliseconds(): number {
+  return typeof performance === "undefined" ? Date.now() : performance.now();
+}
+
+function elapsedMilliseconds(startedAt: number): number {
+  return Math.max(0, Math.round(readMonotonicMilliseconds() - startedAt));
 }

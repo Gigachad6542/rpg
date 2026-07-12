@@ -21,6 +21,7 @@ import {
 } from "./localRuntimeStore";
 import { sanitizePersistedPersonas } from "./personas";
 import { TauriRuntimeRepositoryStore, type TauriInvoke } from "./tauriRuntimeRepositoryClient";
+import type { ModelCallRecord } from "./runtimeTypes";
 
 export const RUNTIME_CHAT_ID = "chat_local_cards_runtime";
 export const RUNTIME_BRANCH_ID = "branch_local_cards_runtime";
@@ -58,6 +59,7 @@ type RuntimePromptRunRecord = Record<string, unknown> & {
     outputTokens: number;
     totalTokens: number;
   };
+  modelCalls?: ModelCallRecord[];
 };
 
 type RuntimeChatSessionRecord = Record<string, unknown> & {
@@ -302,6 +304,7 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
         modelSettings: {
           tokenEstimate: run.tokenEstimate,
           usage: run.usage,
+          modelCalls: run.modelCalls,
         },
       });
       existingPromptRuns.add(run.id);
@@ -590,6 +593,7 @@ function stripRuntimeMessageMetadata(message: RuntimeMessageRecord): RuntimeMess
 }
 
 function mapPromptRunRecord(run: PromptRunRecord): RuntimePromptRunRecord {
+  const modelCalls = readModelCalls(run.modelSettings.modelCalls);
   return {
     id: run.id,
     cardId: getString(run.request.cardId, ""),
@@ -607,6 +611,7 @@ function mapPromptRunRecord(run: PromptRunRecord): RuntimePromptRunRecord {
       ? { stateProposals: getArray(run.stateChanges.proposals) }
       : {}),
     usage: readUsage(run.modelSettings.usage),
+    ...(modelCalls ? { modelCalls } : {}),
   };
 }
 
@@ -783,6 +788,52 @@ function readUsage(value: unknown): RuntimePromptRunRecord["usage"] | undefined 
     outputTokens,
     totalTokens,
   };
+}
+
+function readModelCalls(value: unknown): ModelCallRecord[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const modelCalls = value.flatMap((item): ModelCallRecord[] => {
+    if (!isRecord(item)) {
+      return [];
+    }
+    const phase = item.phase;
+    const status = item.status;
+    const provider = item.provider;
+    const model = item.model;
+    const durationMs = item.durationMs;
+    const usage = readModelCallUsage(item.usage);
+    if (
+      (phase !== "hidden-continuity" && phase !== "visible-response") ||
+      (status !== "success" && status !== "error") ||
+      typeof provider !== "string" ||
+      typeof model !== "string" ||
+      typeof durationMs !== "number" ||
+      !Number.isFinite(durationMs) ||
+      durationMs < 0 ||
+      !usage
+    ) {
+      return [];
+    }
+    return [{ phase, provider, model, usage, durationMs, status }];
+  });
+
+  return modelCalls.length > 0 ? modelCalls.slice(0, 2) : undefined;
+}
+
+function readModelCallUsage(value: unknown): ModelCallRecord["usage"] | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const inputTokens = getNumber(value.inputTokens, -1);
+  const outputTokens = getNumber(value.outputTokens, -1);
+  const totalTokens = getNumber(value.totalTokens, -1);
+  if (inputTokens < 0 || outputTokens < 0 || totalTokens < 0) {
+    return undefined;
+  }
+  return { inputTokens, outputTokens, totalTokens };
 }
 
 function getString(value: unknown, fallback: string): string {

@@ -7,6 +7,10 @@ import {
   type LocalRuntimeSnapshot,
 } from "./localRuntimeStore";
 import { sanitizePersistedPersonas } from "./personas";
+import {
+  assertRuntimeImportByteLimit,
+  validateRuntimeImportSnapshot,
+} from "./runtimeImportValidation";
 import type { RuntimeRepositoryStoreStatus } from "./runtimeRepositoryStore";
 
 export const RUNTIME_EXPORT_SCHEMA_VERSION = 1;
@@ -107,6 +111,7 @@ export function buildVersionedRuntimeExport(
 }
 
 export function parseVersionedRuntimeExport(rawJson: string): RuntimeExportSnapshot {
+  assertRuntimeImportByteLimit(rawJson);
   const payload = parseJsonRecord(rawJson, "Runtime export JSON is invalid.");
   if (payload.schema !== "rpg.runtime.export" || typeof payload.version !== "number") {
     throw new Error("Runtime export JSON is invalid.");
@@ -118,18 +123,9 @@ export function parseVersionedRuntimeExport(rawJson: string): RuntimeExportSnaps
     throw new Error("Runtime export JSON is invalid.");
   }
 
-  const snapshot = payload.snapshot as Partial<RuntimeExportSnapshot>;
-  if (
-    snapshot.version !== 2 ||
-    !Array.isArray(snapshot.cards) ||
-    !Array.isArray(snapshot.messages) ||
-    !Array.isArray(snapshot.promptRuns) ||
-    typeof snapshot.activeCardId !== "string"
-  ) {
-    throw new Error("Runtime export JSON is invalid.");
-  }
-
-  return sanitizeSnapshotForExport(snapshot as RuntimeExportSnapshot);
+  return sanitizeSnapshotForExport(validateRuntimeImportSnapshot(payload.snapshot), {
+    stripGeneratedImageUrls: true,
+  });
 }
 
 export function buildRuntimeDiagnostics(input: RuntimeDiagnosticsInput): RuntimeDiagnostics {
@@ -190,8 +186,12 @@ export function buildRuntimeDiagnostics(input: RuntimeDiagnosticsInput): Runtime
   };
 }
 
-function sanitizeSnapshotForExport(snapshot: RuntimeExportSnapshot): RuntimeExportSnapshot {
+function sanitizeSnapshotForExport(
+  snapshot: RuntimeExportSnapshot,
+  options: { stripGeneratedImageUrls?: boolean } = {},
+): RuntimeExportSnapshot {
   const runtimeSettings = sanitizePersistedRuntimeSettings(snapshot.runtimeSettings);
+  const generatedMaps = sanitizeGeneratedMaps(snapshot.generatedMaps);
   return {
     ...snapshot,
     version: 2,
@@ -208,9 +208,20 @@ function sanitizeSnapshotForExport(snapshot: RuntimeExportSnapshot): RuntimeExpo
     runtimeSettings,
     personas: sanitizePersistedPersonas(snapshot.personas),
     activePersonaId: typeof snapshot.activePersonaId === "string" ? snapshot.activePersonaId : undefined,
-    generatedMaps: sanitizeGeneratedMaps(snapshot.generatedMaps),
+    generatedMaps: options.stripGeneratedImageUrls ? stripGeneratedImageUrls(generatedMaps) : generatedMaps,
     savedAt: typeof snapshot.savedAt === "string" ? snapshot.savedAt : new Date().toISOString(),
   };
+}
+
+function stripGeneratedImageUrls(artifacts: unknown[]): unknown[] {
+  return artifacts.map((artifact) => {
+    if (!isRecord(artifact) || !("imageUrl" in artifact)) {
+      return artifact;
+    }
+    const sanitized = { ...artifact };
+    delete sanitized.imageUrl;
+    return sanitized;
+  });
 }
 
 function countLorebooks(cards: Array<Record<string, unknown>>): { lorebooks: number; entries: number } {

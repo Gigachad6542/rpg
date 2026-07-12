@@ -933,6 +933,15 @@ fn load_normalized_prompt_runs(conn: &Connection) -> RepoResult<Vec<Value>> {
         if let Some(usage) = read_usage(model_settings.get("usage")) {
             object.insert("usage".to_string(), usage);
         }
+        if matches!(model_settings.get("modelCalls"), Some(Value::Array(_))) {
+            object.insert(
+                "modelCalls".to_string(),
+                model_settings
+                    .get("modelCalls")
+                    .cloned()
+                    .unwrap_or_else(|| json!([])),
+            );
+        }
         prompt_runs.push(Value::Object(object));
     }
     Ok(prompt_runs)
@@ -1526,6 +1535,7 @@ fn save_prompt_runs(tx: &Transaction<'_>, snapshot: &Value) -> RepoResult<()> {
         let model_settings = json!({
             "tokenEstimate": number_at(run, "tokenEstimate", 0.0),
             "usage": run.get("usage").cloned().unwrap_or(Value::Null),
+            "modelCalls": run.get("modelCalls").filter(|value| value.is_array()).cloned().unwrap_or_else(|| json!([])),
         });
         tx.execute(
             "INSERT INTO prompt_runs (id, chat_id, message_id, provider, model, temperature, token_budget, compiled_prompt, included_memory_ids_json, included_lore_entry_ids_json, included_state_snapshot_id, response_text, extraction_json, state_changes_json, request_json, model_settings_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
@@ -3010,6 +3020,14 @@ mod tests {
         );
         assert_eq!(loaded["promptRuns"][0]["id"], json!("run_001"));
         assert_eq!(
+            loaded["promptRuns"][0]["modelCalls"][0]["phase"],
+            json!("hidden-continuity")
+        );
+        assert_eq!(
+            loaded["promptRuns"][0]["modelCalls"][1]["usage"]["totalTokens"],
+            json!(28)
+        );
+        assert_eq!(
             loaded["promptRuns"][0]["stateProposals"][0]["provenance"],
             json!("player-action")
         );
@@ -3265,7 +3283,25 @@ mod tests {
                             "applied": true
                         }
                     ],
-                    "usage": { "inputTokens": 20, "outputTokens": 8, "totalTokens": 28 }
+                    "usage": { "inputTokens": 20, "outputTokens": 8, "totalTokens": 28 },
+                    "modelCalls": [
+                        {
+                            "phase": "hidden-continuity",
+                            "provider": "mock",
+                            "model": "mock-narrator",
+                            "usage": { "inputTokens": 8, "outputTokens": 2, "totalTokens": 10 },
+                            "durationMs": 12,
+                            "status": "success"
+                        },
+                        {
+                            "phase": "visible-response",
+                            "provider": "mock",
+                            "model": "mock-narrator",
+                            "usage": { "inputTokens": 20, "outputTokens": 8, "totalTokens": 28 },
+                            "durationMs": 34,
+                            "status": "success"
+                        }
+                    ]
                 }
             ],
             "providerKeyStatus": "Stored OS keychain reference active.",

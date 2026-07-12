@@ -2637,17 +2637,62 @@ input[type="search"] {
   font-size: 12px;
   line-height: 1.4;
 }
-.turn-delta-panel {
+
+.turn-metadata-panels {
+  display: grid;
+  gap: 0.35rem;
   margin-top: 0.65rem;
   border-top: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
   padding-top: 0.55rem;
   font-size: 0.78rem;
 }
 
+.model-call-panel summary,
 .turn-delta-panel summary {
   cursor: pointer;
   color: var(--muted);
   font-weight: 650;
+}
+
+.model-call-list {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.55rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.model-call-list li {
+  display: grid;
+  gap: 0.15rem;
+  border-left: 2px solid var(--border);
+  padding-left: 0.55rem;
+  color: var(--muted);
+}
+
+.model-call-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: var(--text);
+}
+
+.model-call-status {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.model-call-status.success {
+  color: var(--accent-strong);
+}
+
+.model-call-status.error {
+  color: var(--danger);
+}
+
+.turn-delta-panel {
+  margin-top: 0.2rem;
 }
 
 .turn-delta-list {

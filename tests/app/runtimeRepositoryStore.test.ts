@@ -219,6 +219,24 @@ describe("runtime repository store", () => {
             outputTokens: 8,
             totalTokens: 28,
           },
+          modelCalls: [
+            {
+              phase: "hidden-continuity",
+              provider: "mock",
+              model: "mock-narrator",
+              usage: { inputTokens: 8, outputTokens: 2, totalTokens: 10 },
+              durationMs: 12,
+              status: "success",
+            },
+            {
+              phase: "visible-response",
+              provider: "mock",
+              model: "mock-narrator",
+              usage: { inputTokens: 20, outputTokens: 8, totalTokens: 28 },
+              durationMs: 34,
+              status: "success",
+            },
+          ],
         },
       ],
       providerKeyStatus: "Mock provider active; no API key needed.",
@@ -320,6 +338,10 @@ describe("runtime repository store", () => {
       usage: {
         totalTokens: 28,
       },
+      modelCalls: [
+        { phase: "hidden-continuity", usage: { totalTokens: 10 } },
+        { phase: "visible-response", usage: { totalTokens: 28 } },
+      ],
     });
     await expect(new PromptRunRepository(driver).getById("run_001")).resolves.toMatchObject({
       compiledPrompt: "",

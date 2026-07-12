@@ -24,6 +24,18 @@ describe("runtime import security boundaries", () => {
     ["chat session", (snapshot: RuntimeExportSnapshot) => {
       snapshot.chatSessions![0].messages = "not-an-array";
     }],
+    ["prompt-run model call", (snapshot: RuntimeExportSnapshot) => {
+      snapshot.promptRuns[0].modelCalls = [
+        {
+          phase: "hidden-continuity",
+          provider: "mock",
+          model: "mock-narrator",
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          durationMs: -1,
+          status: "success",
+        },
+      ];
+    }],
   ])("rejects a malformed nested %s shape", (_label, corrupt) => {
     const bundle = createValidBundle();
     corrupt(bundle.snapshot);
@@ -54,7 +66,7 @@ describe("runtime import security boundaries", () => {
 
   it("rejects runtime imports larger than the desktop 10 MB snapshot limit by UTF-8 byte length", () => {
     const bundle = createValidBundle();
-    bundle.snapshot.cards[0].summary = "😀".repeat(Math.ceil(MAX_RUNTIME_IMPORT_BYTES / 4) + 1);
+    bundle.snapshot.cards[0].summary = "\u{1F600}".repeat(Math.ceil(MAX_RUNTIME_IMPORT_BYTES / 4) + 1);
     const rawJson = JSON.stringify(bundle);
 
     expect(new TextEncoder().encode(rawJson).byteLength).toBeGreaterThan(MAX_RUNTIME_IMPORT_BYTES);

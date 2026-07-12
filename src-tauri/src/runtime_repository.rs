@@ -28,6 +28,10 @@ const BACKUP_DIR_NAME: &str = "backups";
 const BACKUP_FILE_PREFIX: &str = "runtime-backup-";
 const ARCHIVE_FILE_PREFIX: &str = "runtime-archive-";
 const BACKUP_KEEP_COUNT: usize = 5;
+/// Shown on the recovery gate when a persisted snapshot row exists but its
+/// payload cannot be read; deliberately leaks no storage internals.
+const CORRUPT_SNAPSHOT_MESSAGE: &str =
+    "Saved data is present but could not be read. Retry, or archive it and start fresh.";
 
 #[derive(Debug)]
 pub(crate) enum RuntimeRepositoryError {
@@ -499,13 +503,24 @@ fn load_runtime_snapshot_at_path(path: &Path) -> RepoResult<Option<Value>> {
         return Ok(None);
     };
 
-    let profile = parse_json(&profile_json, json!({}));
+    // The snapshot row exists, so this is an established install, not a fresh
+    // database. If its payload cannot be parsed into a usable snapshot, fail
+    // closed (Err) instead of reporting an empty snapshot (Ok(None)): otherwise
+    // desktop hydration would treat the corruption as a new install and autosave
+    // would overwrite the real (but unreadable) row with starter state, when it
+    // must route the user to the recovery gate instead.
+    let profile: Value = serde_json::from_str(&profile_json)
+        .map_err(|_| RuntimeRepositoryError::Validation(CORRUPT_SNAPSHOT_MESSAGE.to_string()))?;
     let mut snapshot = profile.get("snapshot").cloned().unwrap_or(Value::Null);
     let Some(object) = snapshot.as_object_mut() else {
-        return Ok(None);
+        return Err(RuntimeRepositoryError::Validation(
+            CORRUPT_SNAPSHOT_MESSAGE.to_string(),
+        ));
     };
     if !matches!(object.get("cards"), Some(Value::Array(_))) {
-        return Ok(None);
+        return Err(RuntimeRepositoryError::Validation(
+            CORRUPT_SNAPSHOT_MESSAGE.to_string(),
+        ));
     }
 
     let runtime_branch_id = conn
@@ -2848,6 +2863,62 @@ mod tests {
         .unwrap();
         let loaded = load_runtime_snapshot_at_path(&path).unwrap().unwrap();
         assert_eq!(string_at(&loaded, "activeCardId", ""), "legacy-card");
+        cleanup(&path);
+    }
+
+    #[test]
+    fn present_but_unparseable_snapshot_fails_closed_instead_of_reporting_empty() {
+        let path = temp_db_path("present_but_unparseable_snapshot_fails_closed");
+        initialize_repository_at_path(&path).unwrap();
+        let conn = Connection::open(&path).unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, name, description, profile_json, source, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                RUNTIME_SNAPSHOT_CHARACTER_ID,
+                "Local Cards runtime snapshot",
+                "corrupt",
+                "{ this is not valid json",
+                "runtime-snapshot",
+                now_iso(),
+                now_iso(),
+            ],
+        )
+        .unwrap();
+        drop(conn);
+
+        // A present-but-corrupt row must surface as an error (→ recovery gate),
+        // never as Ok(None), which would let autosave overwrite the real row.
+        assert!(matches!(
+            load_runtime_snapshot_at_path(&path),
+            Err(RuntimeRepositoryError::Validation(_))
+        ));
+        cleanup(&path);
+    }
+
+    #[test]
+    fn present_snapshot_missing_cards_array_fails_closed() {
+        let path = temp_db_path("present_snapshot_missing_cards_array_fails_closed");
+        initialize_repository_at_path(&path).unwrap();
+        let conn = Connection::open(&path).unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, name, description, profile_json, source, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                RUNTIME_SNAPSHOT_CHARACTER_ID,
+                "Local Cards runtime snapshot",
+                "corrupt",
+                json_string(&json!({ "snapshot": { "theme": "dark" } })),
+                "runtime-snapshot",
+                now_iso(),
+                now_iso(),
+            ],
+        )
+        .unwrap();
+        drop(conn);
+
+        assert!(matches!(
+            load_runtime_snapshot_at_path(&path),
+            Err(RuntimeRepositoryError::Validation(_))
+        ));
         cleanup(&path);
     }
 

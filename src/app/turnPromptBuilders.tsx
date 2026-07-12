@@ -51,8 +51,7 @@ export function renderNarrativeMarkup(text: string): ReactNode[] {
   return nodes;
 }
 
-export function buildResponseContract(settings: RuntimeSettings, activePersona: Persona | null = null): string {
-  const personaPrompt = formatPersonaPrompt(activePersona);
+export function buildResponseContract(settings: RuntimeSettings): string {
   return [
     "Write the in-card response.",
     "Player agency is absolute: narrate only actions, words, and decisions the player explicitly stated. You may expand and vividly describe what the player declared, but never invent new actions, dialogue, emotions, or inner thoughts for the player character.",
@@ -61,9 +60,6 @@ export function buildResponseContract(settings: RuntimeSettings, activePersona: 
     "Do not show raw Markdown fences in the main prose. If useful, put Date, Time, Location, Weather, Health, Inventory, Quest, or Status as a short `status` fenced block at the very end.",
     "When this turn changed durable state, append a fenced ```json block at the very end (after the status block) containing one object with any of these keys: memory_updates (array of {label, detail}), character_knowledge_updates (array of {subject, knows, does_not_know}), rpg_state_updates ({location, health_delta, inventory_add, inventory_remove, quest_updates, world_flags}), image_prompt_opportunity, continuity_warnings. The app strips this block from the visible reply and validates every proposal before saving; omit the block when nothing durable changed.",
     settings.banEmojis ? "Do not include emojis or emoticons in the response." : "",
-    personaPrompt
-      ? `Account for this user impersonation/persona prompt without speaking as the user:\n${personaPrompt}`
-      : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -107,6 +103,7 @@ export function buildTurnPromptRequest(
       summary: card.summary,
       systemPrompt: card.systemPrompt,
       characterDefinition: formatDetailedCharacterDefinition(card),
+      userPersona: formatPersonaPrompt(activePersona),
       preHistoryInstructions: card.preHistoryInstructions,
       postHistoryInstructions: card.postHistoryInstructions,
     },
@@ -141,7 +138,7 @@ export function buildTurnPromptRequest(
       formatStoryEntitiesForKnowledgeBoundary(card.storyEntities, presentEntityNames),
     ].filter(Boolean).join("\n\n"),
     tokenBudget: { maxInputTokens: 6_000, reservedOutputTokens: 900 },
-    responseContract: buildResponseContract(runtimeSettings, activePersona),
+    responseContract: buildResponseContract(runtimeSettings),
     preferStreaming: runtimeSettings.textStreaming,
     ...overrides,
   };

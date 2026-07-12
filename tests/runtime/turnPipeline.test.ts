@@ -49,7 +49,8 @@ class ExtractionStreamingTextAdapter extends RecordingTextAdapter {
     this.requests.push(request);
     const chunks = [
       "The gate opens.",
-      "\n\n```",
+      "\n\n`",
+      "``",
       "json\n",
       JSON.stringify({
         extraction: {

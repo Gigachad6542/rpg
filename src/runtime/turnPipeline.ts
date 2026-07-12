@@ -241,8 +241,9 @@ export async function runTurnPipeline(request: RunTurnPipelineRequest): Promise<
   const includedLayerIds = compiledPrompt.includedLayers.map((layer) => layer.id);
   const includedLayerIdSet = new Set(includedLayerIds);
 
-  const generationRequest = {
+  const generationRequest: TextGenerationRequest = {
     model: request.model,
+    systemPrompt: buildTrustedSystemPrompt(request),
     prompt: compiledPrompt.prompt,
     temperature: request.temperature,
     maxOutputTokens: request.maxOutputTokens,
@@ -257,7 +258,7 @@ export async function runTurnPipeline(request: RunTurnPipelineRequest): Promise<
   };
   const generationResponse =
     request.preferStreaming && request.modelAdapter.streamText
-      ? await collectStreamedText(request, generationRequest, compiledPrompt)
+      ? await collectStreamedText(request, generationRequest)
       : await request.modelAdapter.generateText(generationRequest);
 
   if (generationResponse.finishReason !== "stop") {
@@ -363,19 +364,25 @@ export function compileTurnPrompt(request: Omit<RunTurnPipelineRequest, "modelAd
 async function collectStreamedText(
   request: RunTurnPipelineRequest,
   generationRequest: TextGenerationRequest,
-  compiledPrompt: CompiledPrompt,
 ): Promise<TextGenerationResponse> {
   let text = "";
   let chunkCount = 0;
+  let lastVisibleText = "";
   for await (const chunk of request.modelAdapter.streamText?.(generationRequest) ?? []) {
     text += chunk.text;
     chunkCount = Math.max(chunkCount, chunk.index + 1);
     if (chunk.text.length > 0) {
-      await request.onStreamText?.(text);
+      const visibleText = getVisibleStreamingText(text);
+      if (visibleText.length > 0 && visibleText !== lastVisibleText) {
+        lastVisibleText = visibleText;
+        await request.onStreamText?.(visibleText);
+      }
     }
   }
 
-  const inputTokens = compiledPrompt.tokenEstimate;
+  const inputTokens = estimateTextTokens(
+    [generationRequest.systemPrompt, generationRequest.prompt].filter(isNonEmptyString).join("\n\n"),
+  );
   const outputTokens = estimateTextTokens(text);
   return {
     providerId: request.modelAdapter.id,
@@ -392,6 +399,63 @@ async function collectStreamedText(
       chunkCount,
     },
   };
+}
+
+function getVisibleStreamingText(value: string): string {
+  const extractionFenceStart = findTerminalExtractionFenceStart(value);
+  if (extractionFenceStart !== undefined) {
+    return value.slice(0, extractionFenceStart).trimEnd();
+  }
+
+  const incompleteFenceStart = findIncompleteJsonFenceStart(value);
+  if (incompleteFenceStart !== undefined) {
+    return value.slice(0, incompleteFenceStart).trimEnd();
+  }
+
+  const partialFenceMarker = value.match(/`{1,2}$/);
+  if (partialFenceMarker?.index !== undefined) {
+    return value.slice(0, partialFenceMarker.index).trimEnd();
+  }
+
+  return value;
+}
+
+function findTerminalExtractionFenceStart(value: string): number | undefined {
+  for (const match of value.matchAll(/```[a-z]*\s*([\s\S]*?)```/gi)) {
+    const matchIndex = match.index;
+    if (matchIndex === undefined || value.slice(matchIndex + match[0].length).trim().length > 0) {
+      continue;
+    }
+
+    const payload = parseRecordJson(match[1].trim());
+    if (!payload || unwrapModelPayload(payload, value).candidate === undefined) {
+      continue;
+    }
+
+    return matchIndex;
+  }
+
+  return undefined;
+}
+
+function findIncompleteJsonFenceStart(value: string): number | undefined {
+  const fenceMatches = Array.from(value.matchAll(/```/g));
+  if (fenceMatches.length % 2 === 0) {
+    return undefined;
+  }
+
+  const openingFence = fenceMatches[fenceMatches.length - 1];
+  const matchIndex = openingFence.index;
+  if (matchIndex === undefined) {
+    return undefined;
+  }
+
+  const afterTicks = value.slice(matchIndex + 3);
+  const lineBreakIndex = afterTicks.search(/\r?\n/);
+  const language = (lineBreakIndex < 0 ? afterTicks : afterTicks.slice(0, lineBreakIndex)).trim().toLowerCase();
+  const couldBeJsonFence = lineBreakIndex < 0 ? "json".startsWith(language) : language === "" || language === "json";
+
+  return couldBeJsonFence ? matchIndex : undefined;
 }
 
 export function buildTurnPromptLayers(
@@ -506,14 +570,7 @@ function formatGlobalRuntimeRules(
   session: TurnPipelineSessionContext,
   card?: TurnPipelineCardContext,
 ): string {
-  return [
-    "The local app is the continuity authority. Treat model output as assistant prose plus state-change proposals.",
-    "Do not claim permanent memory, lore, RPG state, inventory, relationship, or character changes are saved until the app validates them.",
-    session.systemPrompt,
-    card?.systemPrompt,
-  ]
-    .filter(isNonEmptyString)
-    .join("\n");
+  return [session.systemPrompt, card?.systemPrompt].filter(isNonEmptyString).join("\n");
 }
 
 function formatCardContext(
@@ -913,6 +970,17 @@ function stringifyValue(value: unknown): string {
     return String(value);
   }
 }
+
+function buildTrustedSystemPrompt(request: RunTurnPipelineRequest): string {
+  return [trustedRuntimeAuthority, request.responseContract ?? defaultResponseContract]
+    .filter(isNonEmptyString)
+    .join("\n\n");
+}
+
+const trustedRuntimeAuthority = [
+  "The local app is the continuity authority. Treat model output as assistant prose plus state-change proposals.",
+  "Do not claim permanent memory, lore, RPG state, inventory, relationship, or character changes are saved until the app validates them.",
+].join("\n");
 
 const defaultResponseContract = [
   "Write the assistant reply for the active card.",

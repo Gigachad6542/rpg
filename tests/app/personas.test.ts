@@ -13,7 +13,7 @@ import {
   setDefaultPersona,
   updatePersona,
 } from "../../src/app/personas";
-import { buildResponseContract } from "../../src/app/turnPromptBuilders";
+import { buildResponseContract, buildTurnPromptRequest } from "../../src/app/turnPromptBuilders";
 import { selectActiveLorebookEntries } from "../../src/runtime/loreTriggerEngine";
 import type { Lorebook, Persona, RuntimeCard, RuntimeSettings } from "../../src/app/runtimeTypes";
 
@@ -288,28 +288,24 @@ describe("formatPersonaPrompt", () => {
 });
 
 describe("buildResponseContract", () => {
-  it("omits the persona clause when no persona text is set", () => {
-    // Arrange
-    const [persona] = parsePersonas(undefined, "");
+  it("keeps persona data out of the trusted response contract", () => {
+    const contract = buildResponseContract(runtimeSettings);
 
-    // Act
-    const contract = buildResponseContract(runtimeSettings, persona);
-
-    // Assert
     expect(contract).not.toContain("impersonation/persona prompt");
   });
 
-  it("injects the active persona prompt", () => {
+  it("places the active persona in untrusted card context", () => {
     // Arrange
     const [persona] = parsePersonas([{ id: "persona_mara", name: "Mara", description: "A careful cartographer." }]);
 
     // Act
-    const contract = buildResponseContract(runtimeSettings, persona);
+    const request = buildTurnPromptRequest(card(), [], [], "I check the map.", runtimeSettings, persona);
 
     // Assert
-    expect(contract).toContain("Account for this user impersonation/persona prompt without speaking as the user:");
-    expect(contract).toContain("The player is playing as Mara.");
-    expect(contract).toContain("A careful cartographer.");
+    expect(request.card?.userPersona).toContain("The player is playing as Mara.");
+    expect(request.card?.userPersona).toContain("A careful cartographer.");
+    expect(request.responseContract).not.toContain("Mara");
+    expect(request.responseContract).not.toContain("A careful cartographer.");
   });
 });
 

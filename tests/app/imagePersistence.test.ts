@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   persistGeneratedImageLocally,
+  syncGeneratedImageFiles,
   type PersistGeneratedImageDeps,
 } from "../../src/app/imagePersistence";
 
@@ -28,6 +29,14 @@ function imageResponse(bytes: Uint8Array, type: string, ok = true): Response {
 }
 
 const JPEG_MAGIC = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
+
+it("asks the desktop backend to remove files not referenced by active artifacts", async () => {
+  const invokeImpl = vi.fn(async () => 2);
+  await expect(syncGeneratedImageFiles(["map_1", "image_2"], { invokeImpl })).resolves.toBe(2);
+  expect(invokeImpl).toHaveBeenCalledWith("sync_generated_image_files", {
+    activeArtifactIds: ["map_1", "image_2"],
+  });
+});
 
 describe("generated image persistence", () => {
   it("persists downloaded image bytes through the desktop command and returns an asset URL", async () => {

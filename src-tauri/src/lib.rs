@@ -497,6 +497,29 @@ fn validate_image_magic_bytes(extension: &str, bytes: &[u8]) -> Result<(), Strin
     }
 }
 
+#[cfg(test)]
+mod generated_image_cleanup_tests {
+    use super::remove_orphaned_generated_images;
+
+    #[test]
+    fn removes_only_supported_orphaned_image_files() {
+        let directory = std::env::temp_dir().join(format!("rpg-image-gc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("keep.png"), b"keep").unwrap();
+        std::fs::write(directory.join("orphan.webp"), b"orphan").unwrap();
+        std::fs::write(directory.join("notes.txt"), b"notes").unwrap();
+
+        let removed = remove_orphaned_generated_images(&directory, &["keep".to_string()]).unwrap();
+
+        assert_eq!(removed, 1);
+        assert!(directory.join("keep.png").exists());
+        assert!(!directory.join("orphan.webp").exists());
+        assert!(directory.join("notes.txt").exists());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
+
 fn keyring_entry(storage_key: &str) -> Result<keyring::Entry, String> {
     keyring::Entry::new(KEYRING_SERVICE, storage_key)
         .map_err(|error| format!("Could not open OS keychain entry: {error}"))

@@ -17,19 +17,19 @@ import type { ExtractionResult } from "./extraction";
 import { applyValidatedTurnEffectsToCard, type TurnEffectRuntimeCard } from "../app/turnEffects";
 
 /** One generated variant's recorded effect delta for a single assistant turn. */
-export interface TurnVariantCommit {
+export interface TurnVariantCommit<Effects = ExtractionResult> {
   variantIndex: number;
-  effects: ExtractionResult;
+  effects: Effects;
 }
 
 /** All recorded variants for one assistant turn (keyed in the ledger by messageId). */
-export interface TurnCommit {
+export interface TurnCommit<Effects = ExtractionResult> {
   messageId: string;
-  variants: TurnVariantCommit[];
+  variants: TurnVariantCommit<Effects>[];
 }
 
 /** Per-chat ledger mapping an assistant message id to its recorded commit. */
-export type TurnLedger = Record<string, TurnCommit>;
+export type TurnLedger<Effects = ExtractionResult> = Record<string, TurnCommit<Effects>>;
 
 /** Structural subset of Message that the fold needs — role + active variant. */
 export interface LedgerMessage {
@@ -39,9 +39,9 @@ export interface LedgerMessage {
 }
 
 /** How a single turn's effects are folded onto the running card state. */
-export type EffectFolder<Card> = (card: Card, effects: ExtractionResult) => Card;
+export type EffectFolder<Card, Effects = ExtractionResult> = (card: Card, effects: Effects) => Card;
 
-export function emptyTurnLedger(): TurnLedger {
+export function emptyTurnLedger<Effects = ExtractionResult>(): TurnLedger<Effects> {
   return {};
 }
 
@@ -50,12 +50,12 @@ export function emptyTurnLedger(): TurnLedger {
  * Re-recording the same variant index replaces it (idempotent regeneration of
  * the same slot), so the ledger never accumulates duplicate variant deltas.
  */
-export function recordTurnVariant(
-  ledger: TurnLedger,
+export function recordTurnVariant<Effects = ExtractionResult>(
+  ledger: TurnLedger<Effects>,
   messageId: string,
   variantIndex: number,
-  effects: ExtractionResult,
-): TurnLedger {
+  effects: Effects,
+): TurnLedger<Effects> {
   const existing = ledger[messageId];
   const preserved = existing ? existing.variants.filter((variant) => variant.variantIndex !== variantIndex) : [];
   const variants = [...preserved, { variantIndex, effects }].sort((a, b) => a.variantIndex - b.variantIndex);
@@ -71,10 +71,10 @@ export function recordTurnVariant(
  * matching how the UI treats `activeVariantIndex` defaulting to the newest
  * generation. Returns null for a commit with no recorded variants.
  */
-export function selectVariantEffects(
-  commit: TurnCommit,
+export function selectVariantEffects<Effects = ExtractionResult>(
+  commit: TurnCommit<Effects>,
   activeVariantIndex: number | undefined,
-): ExtractionResult | null {
+): Effects | null {
   if (commit.variants.length === 0) {
     return null;
   }
@@ -83,7 +83,7 @@ export function selectVariantEffects(
     return fallback.effects;
   }
   const match = commit.variants.find((variant) => variant.variantIndex === activeVariantIndex);
-  return (match ?? fallback).effects;
+  return match?.effects ?? null;
 }
 
 /**
@@ -95,9 +95,24 @@ export function selectVariantEffects(
 export function foldTurnLedger<Card extends TurnEffectRuntimeCard>(
   baseCard: Card,
   messages: readonly LedgerMessage[],
-  ledger: TurnLedger,
-  apply: EffectFolder<Card> = applyValidatedTurnEffectsToCard,
+  ledger: TurnLedger<ExtractionResult>,
+  apply?: EffectFolder<Card, ExtractionResult>,
+): Card;
+export function foldTurnLedger<Card, Effects>(
+  baseCard: Card,
+  messages: readonly LedgerMessage[],
+  ledger: TurnLedger<Effects>,
+  apply: EffectFolder<Card, Effects>,
+): Card;
+export function foldTurnLedger<Card, Effects>(
+  baseCard: Card,
+  messages: readonly LedgerMessage[],
+  ledger: TurnLedger<Effects>,
+  apply?: EffectFolder<Card, Effects>,
 ): Card {
+  const folder =
+    apply ??
+    (applyValidatedTurnEffectsToCard as unknown as EffectFolder<Card, Effects>);
   let card = baseCard;
   for (const message of messages) {
     if (message.role !== "assistant") {
@@ -111,7 +126,7 @@ export function foldTurnLedger<Card extends TurnEffectRuntimeCard>(
     if (!effects) {
       continue;
     }
-    card = apply(card, effects);
+    card = folder(card, effects);
   }
   return card;
 }
@@ -121,9 +136,12 @@ export function foldTurnLedger<Card extends TurnEffectRuntimeCard>(
  * at an edited turn (drop downstream commits) and to select the subset of
  * commits a branch inherits.
  */
-export function pruneTurnLedger(ledger: TurnLedger, keepMessageIds: Iterable<string>): TurnLedger {
+export function pruneTurnLedger<Effects = ExtractionResult>(
+  ledger: TurnLedger<Effects>,
+  keepMessageIds: Iterable<string>,
+): TurnLedger<Effects> {
   const keep = keepMessageIds instanceof Set ? keepMessageIds : new Set(keepMessageIds);
-  const pruned: TurnLedger = {};
+  const pruned: TurnLedger<Effects> = {};
   for (const [messageId, commit] of Object.entries(ledger)) {
     if (keep.has(messageId)) {
       pruned[messageId] = commit;
@@ -137,8 +155,11 @@ export function pruneTurnLedger(ledger: TurnLedger, keepMessageIds: Iterable<str
  * new ids, so the branch's ledger must point the copied commits at the cloned
  * message ids; commits whose id is absent from the map are dropped.
  */
-export function remapTurnLedger(ledger: TurnLedger, idMap: ReadonlyMap<string, string>): TurnLedger {
-  const remapped: TurnLedger = {};
+export function remapTurnLedger<Effects = ExtractionResult>(
+  ledger: TurnLedger<Effects>,
+  idMap: ReadonlyMap<string, string>,
+): TurnLedger<Effects> {
+  const remapped: TurnLedger<Effects> = {};
   for (const [messageId, commit] of Object.entries(ledger)) {
     const nextId = idMap.get(messageId);
     if (nextId === undefined) {

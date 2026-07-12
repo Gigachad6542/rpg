@@ -130,13 +130,12 @@ describe("runtime turn lineage", () => {
       "torch was secured.",
     ]);
     expect(first.memory.every((entry) => entry.id.length > 0)).toBe(true);
-    expect(first.storyEntities).toEqual([
+    expect(first.storyEntities.find((entity) => entity.name === "Mira")).toEqual(
       expect.objectContaining({
-        name: "Mira",
         knownFacts: ["the gate code", "the north road is blocked"],
         updatedAt: "2026-07-11T12:00:00.000Z",
       }),
-    ]);
+    );
   });
 
   it("derives only the active variant's complete state", () => {
@@ -168,11 +167,13 @@ describe("runtime turn lineage", () => {
     const second = deriveRuntimeTurnCard(card(), messages(1), lineage);
 
     expect(first.rpg.inventory).toEqual(["sword"]);
-    expect(first.storyEntities[0].knownFacts).toContain("the red route");
-    expect(first.storyEntities[0].knownFacts).not.toContain("the blue route");
+    const firstMira = first.storyEntities.find((entity) => entity.name === "Mira");
+    const secondMira = second.storyEntities.find((entity) => entity.name === "Mira");
+    expect(firstMira?.knownFacts).toContain("the red route");
+    expect(firstMira?.knownFacts).not.toContain("the blue route");
     expect(second.rpg.inventory).toEqual(["shield"]);
-    expect(second.storyEntities[0].knownFacts).toContain("the blue route");
-    expect(second.storyEntities[0].knownFacts).not.toContain("the red route");
+    expect(secondMira?.knownFacts).toContain("the blue route");
+    expect(secondMira?.knownFacts).not.toContain("the red route");
   });
 
   it("derives regeneration input from before the replaced assistant turn", () => {

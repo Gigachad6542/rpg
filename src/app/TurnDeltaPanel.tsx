@@ -23,6 +23,7 @@ export function TurnDeltaPanel(props: {
       {modelCalls.length > 0 ? (
         <details className="model-call-panel">
           <summary>{modelCalls.length} model calls · {combinedTokens} tokens</summary>
+          <p className="model-call-usage-note">Token counts are provider-reported when available and estimated otherwise.</p>
           <ul className="model-call-list">
             {modelCalls.map((call) => (
               <li key={call.phase}>

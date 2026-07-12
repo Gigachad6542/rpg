@@ -2662,6 +2662,11 @@ input[type="search"] {
   list-style: none;
 }
 
+.model-call-usage-note {
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+}
+
 .model-call-list li {
   display: grid;
   gap: 0.15rem;

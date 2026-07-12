@@ -69,7 +69,7 @@ export function ProvidersSection(props: {
         <p className="field-help">
           Each completed turn intentionally makes two sequential text-model calls: continuity preparation, then the
           visible response. Expand the model-call summary under a turn to see each call&apos;s input, output, total token
-          usage, latency, and status.
+          usage, latency, and status. Token counts are provider-reported when available and runtime estimates otherwise.
         </p>
         <label className="field">
           <span>Runtime mode</span>

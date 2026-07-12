@@ -71,6 +71,7 @@ describe("TurnDeltaPanel", () => {
 
     fireEvent.click(summary);
 
+    expect(screen.getByText(/provider-reported when available and estimated otherwise/i)).toBeInTheDocument();
     expect(screen.getByText(/Continuity preparation/i)).toBeInTheDocument();
     expect(screen.getByText(/Visible response/i)).toBeInTheDocument();
     expect(screen.getAllByText(/telemetry-provider \/ mock-narrator/i)).toHaveLength(2);

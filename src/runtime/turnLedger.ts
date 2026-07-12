@@ -66,10 +66,13 @@ export function recordTurnVariant<Effects = ExtractionResult>(
 }
 
 /**
- * Resolves the effects for the active variant of a commit. Falls back to the
- * last recorded variant when the requested index is missing (or undefined),
- * matching how the UI treats `activeVariantIndex` defaulting to the newest
- * generation. Returns null for a commit with no recorded variants.
+ * Resolves the effects for the active variant of a commit. When no active index
+ * is stored (`undefined`), falls back to the last recorded variant — matching
+ * how the UI treats a missing `activeVariantIndex` as the newest generation.
+ * When a specific index is requested but no variant matches, returns null so the
+ * fold skips the turn (fail closed) instead of applying a different variant's
+ * effects and leaking discarded state. Also returns null for a commit with no
+ * recorded variants.
  */
 export function selectVariantEffects<Effects = ExtractionResult>(
   commit: TurnCommit<Effects>,

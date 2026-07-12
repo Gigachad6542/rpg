@@ -7,6 +7,22 @@ second, everything else after.
 
 Legend: each item lists **Fix**, **Files**, **Done when** (acceptance criteria).
 
+## Status (2026-07-11)
+
+**Phase 0 complete** — all three items landed and verified (full Vitest suite, Rust
+tests + clippy, typecheck, lint, build all green):
+- 0.1 fail-safe hydration — commit `e527580`
+- 0.2 avatar embed budget — commit `ff11765`
+- 0.3 release checksums + version guard — `faa62a4`; schema-v2 migration + Chub
+  Rust proxy — `008c8e2`. While wiring the Chub command, discovered the Phase 0.1
+  `backup_runtime_database` / `archive_runtime_database` commands were registered in
+  the handler but missing from `build.rs` and `capabilities/default.json`, so they
+  would have been denied in a packaged build — fixed in the same commit.
+
+Deferred to a user decision: pushing `main` to origin (branch is ahead of
+`origin/main`; nothing is pushed automatically). Next up: **Phase 1 — turn-state
+integrity** (per-turn/per-variant state commits, then provenance-gated deltas + undo).
+
 ---
 
 ## Phase 0 — Stop data loss (do first, small diffs)

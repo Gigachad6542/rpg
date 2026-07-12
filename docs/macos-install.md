@@ -1,15 +1,21 @@
 # Installing on macOS
 
-The macOS build is produced automatically by CI and published to **GitHub
-Releases** as a `.dmg`. It targets Apple Silicon (M1/M2/M3/M4) and requires
-macOS 11 (Big Sur) or newer.
+Routine CI verifies the frontend tests/build and native Rust tests/clippy on
+macOS. A downloadable `.dmg` is produced only when the tag-triggered release
+workflow runs, so first confirm that the repository's **Releases** page contains
+a macOS artifact. If it does not, there is not yet a published Mac build; use
+the local-build instructions below instead.
+
+The current release configuration targets Apple Silicon and requires macOS 11
+(Big Sur) or newer. Routine CI does not yet mount and launch the packaged app,
+exercise SQLite persistence or Keychain storage, or prove Intel compatibility.
 
 ## Download and install
 
 1. Open the repository's **Releases** page on GitHub.
 2. Under the latest `v*` release, download
    `Local-First AI RPG Runtime_<version>_aarch64.dmg`.
-   Optionally download `SHA256SUMS.txt` to verify the file.
+   Optionally download `SHA256SUMS-macos.txt` to verify the file.
 3. Double-click the `.dmg`, then drag **Local-First AI RPG Runtime** into the
    **Applications** folder.
 
@@ -17,7 +23,7 @@ macOS 11 (Big Sur) or newer.
 
 ```bash
 cd ~/Downloads
-shasum -a 256 -c SHA256SUMS.txt
+shasum -a 256 -c SHA256SUMS-macos.txt
 ```
 
 ## First launch (unsigned build)
@@ -65,7 +71,8 @@ brew install node pnpm
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # Rust toolchain
 
 # In the repo:
-pnpm install
+pnpm install --frozen-lockfile
+pnpm verify:version
 pnpm desktop:build
 ```
 

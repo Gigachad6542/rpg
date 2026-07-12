@@ -74,3 +74,45 @@ jobs:
 
       - name: Desktop executable smoke
         run: pnpm desktop:smoke
+
+  verify-macos:
+    name: Verify macOS compatibility
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@1.94.1
+        with:
+          components: clippy
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Version sync
+        run: pnpm verify:version
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Rust tests
+        run: pnpm rust:test
+
+      - name: Rust clippy
+        run: pnpm rust:clippy

@@ -5,9 +5,26 @@ import { describe, expect, it } from "vitest";
 
 const workspaceRoot = process.cwd();
 
+function readWorkflow(name: string) {
+  return readFileSync(join(workspaceRoot, ".github", "workflows", name), "utf8");
+}
+
+function readJob(workflow: string, jobName: string) {
+  const lines = workflow.split(/\r?\n/);
+  const start = lines.findIndex((line) => line === `  ${jobName}:`);
+  if (start < 0) {
+    throw new Error(`Expected workflow job ${jobName}`);
+  }
+
+  const end = lines.findIndex(
+    (line, index) => index > start && /^ {2}[A-Za-z0-9_-]+:$/.test(line),
+  );
+  return lines.slice(start, end < 0 ? undefined : end).join("\n");
+}
+
 describe("release workflow", () => {
   it("publishes tagged Windows desktop artifacts with checksums", () => {
-    const workflow = readFileSync(join(workspaceRoot, ".github", "workflows", "release.yml"), "utf8");
+    const workflow = readWorkflow("release.yml");
     const packageJson = readFileSync(join(workspaceRoot, "package.json"), "utf8");
 
     expect(workflow).toContain("tags:");
@@ -20,5 +37,56 @@ describe("release workflow", () => {
     expect(workflow).toContain("gh release create");
     expect(workflow).toContain("$releaseFiles = @($artifacts | ForEach-Object { $_.FullName }) + @($checksum)");
     expect(workflow).not.toContain("$artifacts.FullName + $checksum");
+  });
+
+  it("keeps release checksums platform-specific and guards manifest versions", () => {
+    const releaseWorkflow = readWorkflow("release.yml");
+    const ciWorkflow = readWorkflow("ci.yml");
+    const packageJson = JSON.parse(readFileSync(join(workspaceRoot, "package.json"), "utf8")) as {
+      scripts?: Record<string, string>;
+    };
+    const windowsRelease = readJob(releaseWorkflow, "windows-desktop-release");
+    const macosRelease = readJob(releaseWorkflow, "macos-desktop-release");
+    const windowsVerify = readJob(ciWorkflow, "verify");
+
+    expect(packageJson.scripts?.["verify:version"]).toBe("node scripts/verify-version.mjs");
+    expect(windowsVerify).toContain("pnpm verify:version");
+    expect(windowsRelease).toContain("pnpm verify:version");
+    expect(macosRelease).toContain("pnpm verify:version");
+    expect(windowsRelease).toContain("SHA256SUMS-windows.txt");
+    expect(macosRelease).toContain("SHA256SUMS-macos.txt");
+    expect(releaseWorkflow).not.toMatch(/(?:^|\/)SHA256SUMS\.txt/m);
+  });
+
+  it("runs routine macOS source and Rust verification on pushes and pull requests", () => {
+    const workflow = readWorkflow("ci.yml");
+    const macosVerify = readJob(workflow, "verify-macos");
+
+    expect(workflow).toContain("pull_request:");
+    expect(workflow).toContain("push:");
+    expect(macosVerify).toContain("runs-on: macos-latest");
+    expect(macosVerify).toContain("pnpm install --frozen-lockfile");
+    expect(macosVerify).toContain("pnpm verify:version");
+    expect(macosVerify).toContain("pnpm test");
+    expect(macosVerify).toContain("pnpm build");
+    expect(macosVerify).toContain("pnpm rust:test");
+    expect(macosVerify).toContain("pnpm rust:clippy");
+  });
+
+  it("documents platform checksums and the provisional macOS release lane accurately", () => {
+    const macosInstall = readFileSync(join(workspaceRoot, "docs", "macos-install.md"), "utf8");
+    const releasePackaging = readFileSync(
+      join(workspaceRoot, "docs", "release-packaging.md"),
+      "utf8",
+    );
+
+    expect(macosInstall).toContain("SHA256SUMS-macos.txt");
+    expect(macosInstall).not.toMatch(/(?:^|`)SHA256SUMS\.txt(?:`|$)/m);
+    expect(macosInstall).not.toContain("produced automatically by CI and published");
+    expect(releasePackaging).toContain("SHA256SUMS-windows.txt");
+    expect(releasePackaging).toContain("SHA256SUMS-macos.txt");
+    expect(releasePackaging).not.toContain(
+      "currently treats Windows desktop packaging as the maintained release lane",
+    );
   });
 });

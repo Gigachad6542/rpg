@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { App } from "../../src/app/App";
 import { RUNTIME_STORAGE_KEY } from "../../src/app/localRuntimeStore";
 import { buildVersionedRuntimeExport } from "../../src/app/runtimeDataBundle";
+import * as memoryConsolidation from "../../src/runtime/memoryConsolidation";
 
 type TauriInvokeMock = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
 
@@ -881,6 +882,61 @@ describe("local-first card runtime UI", () => {
     fireEvent.click(within(rookCard as HTMLElement).getByRole("button", { name: /Show details for Rook/i }));
     expect(within(rookCard as HTMLElement).getByText(/Rook knows the old pier/i)).toBeInTheDocument();
     expect(within(rookCard as HTMLElement).getByText(/Ari carries a silver coin/i)).toBeInTheDocument();
+  });
+
+  it("previews memory consolidation and changes nothing until the user accepts", async () => {
+    seedRuntimeSnapshot(
+      {},
+      {
+        memory: Array.from({ length: 4 }, (_, index) => ({
+          id: `memory-${index + 1}`,
+          label: `Original fact ${index + 1}`,
+          detail: `Original detail ${index + 1}`,
+        })),
+      },
+    );
+    const consolidationSpy = vi.spyOn(memoryConsolidation, "runMemoryConsolidationSafely").mockResolvedValue({
+      changed: true,
+      entries: [{ id: "memory-condensed", label: "Condensed fact", detail: "Condensed detail" }],
+      warnings: [],
+    });
+
+    try {
+      await renderApp();
+      openBlankRpgCard();
+      fireEvent.click(screen.getByRole("button", { name: /Inspect memory/i }));
+      const drawer = screen.getByRole("dialog", { name: /Memory inspector/i });
+
+      fireEvent.click(within(drawer).getByRole("button", { name: /Consolidate memory/i }));
+      const review = await within(drawer).findByRole("region", { name: /Memory consolidation review/i });
+      expect(within(review).getByText(/4 current entries/i)).toBeInTheDocument();
+      expect(within(review).getByText(/1 proposed entry/i)).toBeInTheDocument();
+      expect(within(review).getByText(/Condensed detail/i)).toBeInTheDocument();
+
+      let persisted = JSON.parse(window.localStorage.getItem(RUNTIME_STORAGE_KEY) ?? "{}") as {
+        cards?: Array<{ memory?: unknown[] }>;
+      };
+      expect(persisted.cards?.[0]?.memory).toHaveLength(4);
+      expect(within(drawer).getByText(/Original detail 1/i)).toBeInTheDocument();
+
+      fireEvent.click(within(review).getByRole("button", { name: /Cancel consolidation/i }));
+      expect(within(drawer).queryByRole("region", { name: /Memory consolidation review/i })).not.toBeInTheDocument();
+      expect(within(drawer).getByText(/Original detail 1/i)).toBeInTheDocument();
+
+      fireEvent.click(within(drawer).getByRole("button", { name: /Consolidate memory/i }));
+      const secondReview = await within(drawer).findByRole("region", { name: /Memory consolidation review/i });
+      fireEvent.click(within(secondReview).getByRole("button", { name: /Apply consolidation/i }));
+      await waitFor(() => expect(within(drawer).queryByText(/Original detail 1/i)).not.toBeInTheDocument());
+      expect(within(drawer).getByText(/Condensed detail/i)).toBeInTheDocument();
+
+      persisted = JSON.parse(window.localStorage.getItem(RUNTIME_STORAGE_KEY) ?? "{}") as {
+        cards?: Array<{ memory?: unknown[] }>;
+      };
+      expect(persisted.cards?.[0]?.memory).toHaveLength(1);
+      expect(consolidationSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      consolidationSpy.mockRestore();
+    }
   });
 
   it("clears the current story roster back to the player placeholder and persists the cleanup", async () => {

@@ -20,6 +20,9 @@ This folder keeps operational notes and verification evidence for `rpg`.
 
 ## Testing Evidence
 
+- [Model-call, trust-boundary, and import-hardening TDD evidence](testing/model-call-trust-import-hardening-2026-07-12.tdd.md)
+  records the two-call usage ledger, system-prompt separation, streaming extraction protection,
+  strict runtime import boundary, and desktop privacy changes.
 - [Audit remediation TDD evidence](testing/audit-remediation-2026-07-03.tdd.md) records the
   red/green trail and final release verification for the July 3, 2026 audit remediation pass.
 - [Continuity knowledge coherence TDD evidence](testing/continuity-knowledge-coherence.tdd.md)

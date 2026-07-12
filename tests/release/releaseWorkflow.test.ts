@@ -73,6 +73,25 @@ describe("release workflow", () => {
     expect(macosVerify).toContain("pnpm rust:clippy");
   });
 
+  it("mounts and relaunches the packaged macOS app with isolated persistent data", () => {
+    const workflow = readWorkflow("release.yml");
+    const packageJson = JSON.parse(readFileSync(join(workspaceRoot, "package.json"), "utf8")) as {
+      scripts?: Record<string, string>;
+    };
+    const smokeScript = readFileSync(
+      join(workspaceRoot, "scripts", "desktop-installed-smoke-macos.sh"),
+      "utf8",
+    );
+
+    expect(packageJson.scripts?.["desktop:installed-smoke:mac"]).toContain("desktop-installed-smoke-macos.sh");
+    expect(packageJson.scripts?.["verify:release:mac"]).toContain("desktop:installed-smoke:mac");
+    expect(readJob(workflow, "macos-desktop-release")).toContain("pnpm verify:release:mac");
+    expect(smokeScript).toContain("hdiutil attach");
+    expect(smokeScript).toContain("LOCAL_FIRST_AI_RPG_RUNTIME_APP_DATA_DIR");
+    expect(smokeScript).toContain("local-first-ai-rpg-runtime.db");
+    expect(smokeScript).toContain("launch_and_wait");
+  });
+
   it("documents platform checksums and the provisional macOS release lane accurately", () => {
     const macosInstall = readFileSync(join(workspaceRoot, "docs", "macos-install.md"), "utf8");
     const releasePackaging = readFileSync(

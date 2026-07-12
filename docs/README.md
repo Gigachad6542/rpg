@@ -20,6 +20,9 @@ This folder keeps operational notes and verification evidence for `rpg`.
 
 ## Testing Evidence
 
+- [Two-call context-correctness TDD evidence](testing/two-call-context-correctness-2026-07-12.tdd.md)
+  records conservative per-model budgets, hidden/visible role separation, full token accounting,
+  and persisted per-call input utilization.
 - [Model-call, trust-boundary, and import-hardening TDD evidence](testing/model-call-trust-import-hardening-2026-07-12.tdd.md)
   records the two-call usage ledger, system-prompt separation, streaming extraction protection,
   strict runtime import boundary, and desktop privacy changes.

@@ -9,8 +9,9 @@ Legend: each item lists **Fix**, **Files**, **Done when** (acceptance criteria).
 
 ## Status (2026-07-11)
 
-**Phase 0 complete** — all three items landed and verified (full Vitest suite, Rust
-tests + clippy, typecheck, lint, build all green):
+**Phase 0 blockers landed** — hydration, avatar size safety, release checksums,
+version validation, the Chub desktop proxy, and a schema-v2 index migration are in
+place and verified:
 - 0.1 fail-safe hydration — commit `e527580`
 - 0.2 avatar embed budget — commit `ff11765`
 - 0.3 release checksums + version guard — `faa62a4`; schema-v2 migration + Chub
@@ -19,9 +20,21 @@ tests + clippy, typecheck, lint, build all green):
   the handler but missing from `build.rs` and `capabilities/default.json`, so they
   would have been denied in a packaged build — fixed in the same commit.
 
-Deferred to a user decision: pushing `main` to origin (branch is ahead of
-`origin/main`; nothing is pushed automatically). Next up: **Phase 1 — turn-state
-integrity** (per-turn/per-variant state commits, then provenance-gated deltas + undo).
+Phase 0 correction: schema v2 adds the missing indexes, but it does not retrofit all
+foreign-key and `CHECK` constraints that were edited into the original v1 DDL after
+some databases already existed. The current upgrade fixture is built from today's v1
+DDL and therefore does not reproduce the truly historical unconstrained schema. This
+constraint migration remains open; Phase 0 must not be described as entirely complete.
+
+**Phase 1.1 implemented locally** — commits `667d408`, `6034d0d`, `25ff873`,
+`62f93b5`, and `1aab5b8` add deterministic composite turn lineages and wire them into
+normal generation, regeneration, chat switching, branching, message-edit forks, and
+safe variant selection. Legacy chats migrate to a synthetic current-state root; old
+variants without trustworthy deltas fail closed. Full result: 416 tests green, 93.07%
+statement/line coverage, typecheck, lint, and production build green.
+
+Nothing is pushed automatically. Next up: **Phase 1.2 — provenance-gated deltas,
+visible state changes, and undo**, alongside the historical-v1 constraint migration.
 
 ---
 
@@ -112,6 +125,21 @@ v1-fixture migration test passes; Chub import works in a packaged build.
 ## Phase 1 — Turn-state integrity (the core architectural fix)
 
 ### 1.1 Per-turn, per-variant state commits
+
+**Implemented locally (2026-07-11):**
+- `runtimeTurnLineage.ts` persists an immutable base state plus deterministic composite
+  effects covering hidden memory/entities/knowledge and visible memory/RPG changes.
+- `chatTurnState.ts` owns normal-turn recording, pre-turn regeneration, branch remap,
+  edited-message forks, manual-state rebasing, and fail-closed variant selection.
+- `ChatSession.turnLineage` persists through local and SQLite snapshot paths. Legacy
+  histories receive a synthetic base because their historical deltas cannot be
+  reconstructed honestly.
+- Earlier variant switching is refused while dependent assistant turns remain; edits
+  create a branch and prune descendants instead of silently keeping stale state.
+- Browser quota compaction preserves lineage-backed message chains rather than slicing
+  away messages without rebasing their effects.
+
+Evidence: `docs/testing/turn-state-lineage.tdd.md`.
 
 **Verified:** `runtimeTypes.ts:139-157` — variants are `string[]` (text only); branches
 copy messages but share the card-global `RpgCardState`, memories, entities, knowledge.

@@ -162,13 +162,18 @@ describe("turnLedger swipe semantics", () => {
 });
 
 describe("selectVariantEffects", () => {
-  it("falls back to the last variant when the active index is missing or undefined", () => {
+  it("uses the newest variant only when no active index is stored", () => {
     let ledger = recordTurnVariant(emptyTurnLedger(), "a1", 0, traceEffect(1));
     ledger = recordTurnVariant(ledger, "a1", 1, traceEffect(2));
     const commit = ledger.a1;
     expect(selectVariantEffects(commit, undefined)?.rpg_state_updates.health_delta).toBe(2);
-    expect(selectVariantEffects(commit, 99)?.rpg_state_updates.health_delta).toBe(2);
     expect(selectVariantEffects(commit, 0)?.rpg_state_updates.health_delta).toBe(1);
+  });
+
+  it("fails closed when a persisted active variant has no matching effects", () => {
+    let ledger = recordTurnVariant(emptyTurnLedger(), "a1", 0, traceEffect(1));
+    ledger = recordTurnVariant(ledger, "a1", 1, traceEffect(2));
+    expect(selectVariantEffects(ledger.a1, 99)).toBeNull();
   });
 
   it("returns null for a commit with no variants", () => {

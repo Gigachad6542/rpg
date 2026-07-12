@@ -57,4 +57,33 @@ describe("Tauri stored-secret text provider", () => {
     );
     expect(JSON.stringify(invokeImpl.mock.calls)).not.toContain("sk-");
   });
+
+  it("rejects an aborted desktop generation without invoking the command", async () => {
+    const invokeImpl = vi.fn(async () => ({
+      providerId: "openrouter",
+      model: "qwen3.7-max",
+      text: "late response",
+      finishReason: "stop",
+    }));
+    const provider = new TauriStoredSecretTextProvider({
+      id: "openrouter",
+      displayName: "OpenRouter BYOK",
+      baseUrl: "https://openrouter.ai/api/v1",
+      secretReference: {
+        providerId: "openrouter",
+        secretName: "apiKey",
+        storageKind: "os-keychain",
+        storageKey: "openrouter:apiKey",
+        providerBaseUrl: "https://openrouter.ai/api/v1",
+      },
+      invokeImpl: invokeImpl as unknown as <T>(command: string, args?: Record<string, unknown>) => Promise<T>,
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      provider.generateText({ model: "qwen3.7-max", prompt: "Wait.", signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(invokeImpl).not.toHaveBeenCalled();
+  });
 });

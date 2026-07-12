@@ -6,6 +6,19 @@ export interface PersistGeneratedImageDeps {
   convertFileSrcImpl?: (path: string) => string;
 }
 
+export async function syncGeneratedImageFiles(
+  activeArtifactIds: string[],
+  deps: Pick<PersistGeneratedImageDeps, "invokeImpl"> = {},
+): Promise<number> {
+  const invokeImpl = deps.invokeImpl ?? invoke;
+  try {
+    const removed = await invokeImpl<number>("sync_generated_image_files", { activeArtifactIds });
+    return typeof removed === "number" && Number.isFinite(removed) ? removed : 0;
+  } catch {
+    return 0;
+  }
+}
+
 const FORMAT_BY_MIME_TYPE: Record<string, string> = {
   "image/png": "png",
   "image/jpeg": "jpeg",

@@ -16,6 +16,7 @@ pub fn run() {
             delete_provider_secret,
             generate_text_with_stored_secret,
             persist_generated_image,
+            sync_generated_image_files,
             download_chub_character
         ])
         .run(tauri::generate_context!())
@@ -453,6 +454,71 @@ fn persist_generated_image(
         .map_err(|_| "Could not write the generated image file.".to_string())?;
 
     Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn sync_generated_image_files(
+    app: tauri::AppHandle,
+    active_artifact_ids: Vec<String>,
+) -> Result<usize, String> {
+    use tauri::Manager as _;
+
+    let active_artifact_ids = active_artifact_ids
+        .iter()
+        .map(|id| normalize_identifier(id, "artifact id"))
+        .collect::<Result<Vec<_>, _>>()?;
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "Could not resolve the app data directory.".to_string())?
+        .join(GENERATED_IMAGE_DIR);
+    remove_orphaned_generated_images(&directory, &active_artifact_ids)
+}
+
+fn remove_orphaned_generated_images(
+    directory: &std::path::Path,
+    active_artifact_ids: &[String],
+) -> Result<usize, String> {
+    use std::collections::HashSet;
+
+    if !directory.exists() {
+        return Ok(0);
+    }
+    let active: HashSet<&str> = active_artifact_ids.iter().map(String::as_str).collect();
+    let entries = std::fs::read_dir(directory)
+        .map_err(|_| "Could not inspect the generated image directory.".to_string())?;
+    let mut removed = 0;
+    for entry in entries {
+        let entry = entry.map_err(|_| "Could not inspect a generated image file.".to_string())?;
+        let file_type = entry
+            .file_type()
+            .map_err(|_| "Could not inspect a generated image file.".to_string())?;
+        if !file_type.is_file() {
+            continue;
+        }
+        let path = entry.path();
+        let extension = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("");
+        if !matches!(
+            extension.to_ascii_lowercase().as_str(),
+            "png" | "jpg" | "jpeg" | "webp"
+        ) {
+            continue;
+        }
+        let stem = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("");
+        if active.contains(stem) {
+            continue;
+        }
+        std::fs::remove_file(&path)
+            .map_err(|_| "Could not remove an orphaned generated image file.".to_string())?;
+        removed += 1;
+    }
+    Ok(removed)
 }
 
 fn validate_generated_image_format(format: &str) -> Result<&'static str, String> {

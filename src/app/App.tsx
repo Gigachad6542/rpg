@@ -20,7 +20,7 @@ import {
   ShieldCheck,
   Sun,
 } from "lucide-react";
-import { persistGeneratedImageLocally } from "./imagePersistence";
+import { persistGeneratedImageLocally, syncGeneratedImageFiles } from "./imagePersistence";
 import { createSnapshotSaveQueue, type SnapshotSaveQueue } from "./snapshotSaveQueue";
 import { loadLocalRestorePoints, saveLocalRestorePoints } from "./localRestorePointStore";
 import { compileImagePrompt } from "../runtime/imagePromptCompiler";
@@ -523,6 +523,11 @@ export function App() {
       setRestoreStatus("Restore points are available this session, but could not be persisted locally.");
     }
   }, [restorePoints]);
+
+  useEffect(() => {
+    if (!repositoryHydrated) return;
+    void syncGeneratedImageFiles(generatedMaps.map((artifact) => artifact.id));
+  }, [generatedMaps, repositoryHydrated]);
 
   useEffect(() => {
     function handleWheelZoom(event: WheelEvent) {

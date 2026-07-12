@@ -11,6 +11,7 @@ fn main() {
             "delete_provider_secret",
             "generate_text_with_stored_secret",
             "persist_generated_image",
+            "sync_generated_image_files",
             "download_chub_character",
         ]),
     ))

@@ -498,6 +498,54 @@ describe("local-first card runtime UI", () => {
     }
   });
 
+  it("disables a regex lore entry when isolated matching cannot complete", async () => {
+    seedRuntimeSnapshot(
+      {},
+      {
+        lorebooks: [
+          {
+            id: "lore-regex",
+            name: "Imported regex lore",
+            description: "test",
+            enabled: true,
+            scanDepth: 4,
+            tokenBudget: 800,
+            recursiveScanning: false,
+            entries: [
+              {
+                id: "regex-entry",
+                title: "Regex gate",
+                content: "Unsafe imported regex content",
+                keys: ["\\bgate\\b"],
+                secondaryKeys: [],
+                insertionOrder: 100,
+                priority: 1,
+                enabled: true,
+                constant: false,
+                probability: 100,
+                caseSensitive: false,
+                wholeWord: false,
+                matchMode: "regex",
+              },
+            ],
+          },
+        ],
+      },
+    );
+    await renderApp();
+    openBlankRpgCard();
+    sendRuntimeMessage("I inspect the gate.");
+
+    await screen.findByText(/Disabled 1 lore regex entry/i);
+    await waitFor(() => {
+      const snapshot = JSON.parse(window.localStorage.getItem(RUNTIME_STORAGE_KEY) ?? "{}") as {
+        cards?: Array<{ lorebooks?: Array<{ entries?: Array<{ id?: string; enabled?: boolean }> }> }>;
+      };
+      const entry = snapshot.cards?.[0]?.lorebooks?.[0]?.entries?.find((item) => item.id === "regex-entry");
+      expect(entry?.enabled).toBe(false);
+    });
+  });
+
   it("runs hidden continuity before the visible turn, persists characters, and keeps details collapsed", async () => {
     const { unmount } = await renderApp();
 

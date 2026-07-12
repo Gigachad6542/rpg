@@ -475,7 +475,9 @@ describe("local-first card runtime UI", () => {
         });
       },
     };
-    const providerSpy = vi.spyOn(providerConfig, "createTextProvider").mockReturnValue(adapter);
+    const providerSpy = vi
+      .spyOn(providerConfig, "createTextProvider")
+      .mockReturnValue(adapter as ReturnType<typeof providerConfig.createTextProvider>);
 
     try {
       await renderApp();

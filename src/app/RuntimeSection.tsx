@@ -18,6 +18,7 @@ import {
   RotateCcw,
   Send,
   Sparkles,
+  Square,
   Trash2,
   UserRound,
   Wand2,
@@ -64,6 +65,7 @@ export function RuntimeSection(props: {
   runtimeRunning: boolean;
   startRuntime: () => void;
   isGenerating: boolean;
+  stopGeneration: () => void;
   streamingReply: string;
   promptRuns: PromptRun[];
   ruleWarning: string | null;
@@ -411,14 +413,26 @@ export function RuntimeSection(props: {
               <Wand2 size={16} />
               Write for me
             </button>
-            <button
-              className="primary-button compact-button"
-              type="submit"
-              disabled={!props.runtimeRunning || props.isGenerating}
-            >
-              <Send size={16} />
-              {props.isGenerating ? "Sending..." : "Send"}
-            </button>
+            {props.isGenerating ? (
+              <button
+                className="secondary-button compact-button"
+                type="button"
+                onClick={props.stopGeneration}
+                aria-label="Stop generation"
+              >
+                <Square size={15} />
+                Stop
+              </button>
+            ) : (
+              <button
+                className="primary-button compact-button"
+                type="submit"
+                disabled={!props.runtimeRunning}
+              >
+                <Send size={16} />
+                Send
+              </button>
+            )}
           </div>
         </form>
       </section>

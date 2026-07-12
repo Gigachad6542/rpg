@@ -50,20 +50,24 @@ export class TauriStoredSecretTextProvider implements TextModelAdapter {
   }
 
   async generateText(request: TextGenerationRequest): Promise<TextGenerationResponse> {
-    const response = await this.invokeImpl<StoredSecretTextResponse>("generate_text_with_stored_secret", {
-      request: {
-        providerId: this.id,
-        displayName: this.displayName,
-        baseUrl: this.baseUrl,
-        model: request.model,
-        secretReference: this.secretReference,
-        prompt: request.prompt,
-        systemPrompt: request.systemPrompt,
-        temperature: request.temperature,
-        maxOutputTokens: request.maxOutputTokens,
-        timeoutMs: request.timeoutMs,
-      },
-    });
+    request.signal?.throwIfAborted();
+    const response = await raceWithAbort(
+      this.invokeImpl<StoredSecretTextResponse>("generate_text_with_stored_secret", {
+        request: {
+          providerId: this.id,
+          displayName: this.displayName,
+          baseUrl: this.baseUrl,
+          model: request.model,
+          secretReference: this.secretReference,
+          prompt: request.prompt,
+          systemPrompt: request.systemPrompt,
+          temperature: request.temperature,
+          maxOutputTokens: request.maxOutputTokens,
+          timeoutMs: request.timeoutMs,
+        },
+      }),
+      request.signal,
+    );
     const inputTokens = response.usage?.inputTokens ?? estimateTextTokens(request.prompt);
     const outputTokens = response.usage?.outputTokens ?? estimateTextTokens(response.text);
 
@@ -80,6 +84,27 @@ export class TauriStoredSecretTextProvider implements TextModelAdapter {
       raw: response.raw,
     };
   }
+}
+
+function raceWithAbort<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) {
+    return operation;
+  }
+  signal.throwIfAborted();
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new DOMException("Generation stopped", "AbortError"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    operation.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 async function invokeTauriCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {

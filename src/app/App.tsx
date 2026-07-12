@@ -217,6 +217,13 @@ function readLegacyImpersonationPrompt(runtimeSettings: Record<string, unknown> 
   return typeof legacy === "string" ? legacy : "";
 }
 
+function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof DOMException && error.name === "AbortError") ||
+    (typeof error === "object" && error !== null && "name" in error && error.name === "AbortError")
+  );
+}
+
 interface MemoryConsolidationReview {
   cardId: string;
   originalMemory: MemoryEntry[];
@@ -333,6 +340,7 @@ export function App() {
     storageKind: "memory-only",
     reason: "Secure storage status has not been checked yet.",
   });
+  const turnAbortControllerRef = useRef<AbortController | null>(null);
 
   const activeCard = cards.find((card) => card.id === activeCardId) ?? null;
   const activePersona = getActivePersona(personas, activePersonaId);
@@ -433,6 +441,10 @@ export function App() {
 
   const currentSnapshotRef = useRef(currentSnapshot);
   const restoreSignatureRef = useRef<string>("");
+
+  useEffect(() => {
+    return () => turnAbortControllerRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     currentSnapshotRef.current = currentSnapshot;
@@ -1405,6 +1417,8 @@ export function App() {
       return;
     }
 
+    const abortController = new AbortController();
+    turnAbortControllerRef.current = abortController;
     setIsGenerating(true);
     setStreamingReply("");
     const runId = createRuntimeEntityId("run");
@@ -1448,6 +1462,7 @@ export function App() {
         latestUserMessage: generationAction,
         activeLoreCount: turnLorebookEntries.length,
         pendingReviewProposals: pendingReviewRef.current[turnCard.id] ?? [],
+        signal: abortController.signal,
       });
       const hiddenPolicyResult = filterHiddenContinuityForPolicy(turnCard, hiddenContinuityResult, {
         latestUserAction: generationAction,
@@ -1486,6 +1501,7 @@ export function App() {
         modelAdapter: provider,
         model,
         temperature: 0.6,
+        signal: abortController.signal,
         onStreamText: (text) => setStreamingReply(text),
       });
       const statusBlockLocation = deriveStatusBlockLocationProposal(
@@ -1605,11 +1621,22 @@ export function App() {
       ]);
       setDraft("");
     } catch (error) {
-      setRuleWarning(getErrorMessage(error));
+      setRuleWarning(
+        isAbortError(error)
+          ? "Generation stopped. No turn messages or state changes were saved."
+          : getErrorMessage(error),
+      );
     } finally {
+      if (turnAbortControllerRef.current === abortController) {
+        turnAbortControllerRef.current = null;
+      }
       setIsGenerating(false);
       setStreamingReply("");
     }
+  }
+
+  function stopGeneration() {
+    turnAbortControllerRef.current?.abort();
   }
 
   async function consolidateActiveCardMemory() {
@@ -2223,6 +2250,7 @@ export function App() {
   }
 
   function shutdownRuntime() {
+    turnAbortControllerRef.current?.abort();
     setRuntimeRunning(false);
     setRuleWarning(null);
     setMapPrompt(null);
@@ -2497,6 +2525,7 @@ export function App() {
               runtimeRunning={runtimeRunning}
               startRuntime={startRuntime}
               isGenerating={isGenerating}
+              stopGeneration={stopGeneration}
               streamingReply={streamingReply}
               promptRuns={promptRuns.filter((run) => run.cardId === activeCard.id && (!activeChat || run.chatId === activeChat.id))}
               ruleWarning={ruleWarning}

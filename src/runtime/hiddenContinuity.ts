@@ -84,6 +84,7 @@ export interface HiddenContinuityRunRequest {
   activeLoreCount: number;
   pendingReviewProposals?: readonly string[];
   now?: () => string;
+  signal?: AbortSignal;
 }
 
 export interface HiddenContinuityPromptRequest {
@@ -120,6 +121,7 @@ const HiddenContinuityPayloadSchema = z.object({
 export async function runHiddenContinuityPass(
   request: HiddenContinuityRunRequest,
 ): Promise<HiddenContinuityResult> {
+  throwIfAborted(request.signal);
   const prompt = buildHiddenContinuityPrompt({
     card: request.card,
     messages: request.messages,
@@ -133,6 +135,7 @@ export async function runHiddenContinuityPass(
     prompt,
     temperature: 0.2,
     maxOutputTokens: 1800,
+    signal: request.signal,
     metadata: {
       hiddenContinuityPass: true,
       cardId: request.card.id,
@@ -149,11 +152,31 @@ export async function runHiddenContinuityPassSafely(
   try {
     return await runHiddenContinuityPass(request);
   } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
     return {
       ...createEmptyHiddenContinuityResult(),
       warnings: [`Hidden continuity pass failed: ${formatHiddenContinuityError(error)}`],
     };
   }
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) {
+    return;
+  }
+  if (typeof signal.throwIfAborted === "function") {
+    signal.throwIfAborted();
+  }
+  throw new DOMException("Generation stopped", "AbortError");
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof DOMException && error.name === "AbortError") ||
+    (typeof error === "object" && error !== null && "name" in error && error.name === "AbortError")
+  );
 }
 
 export function buildHiddenContinuityPrompt(request: HiddenContinuityPromptRequest): string {

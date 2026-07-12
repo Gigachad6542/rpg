@@ -124,6 +124,7 @@ export interface RunTurnPipelineRequest extends TurnPromptCompileOptions {
   readonly now?: () => string;
   readonly persistence?: TurnPipelinePersistenceCallbacks;
   readonly metadata?: Record<string, unknown>;
+  readonly signal?: AbortSignal;
 }
 
 export interface TurnPromptRunMetadata {
@@ -231,6 +232,7 @@ interface ParsedJsonMatch {
 }
 
 export async function runTurnPipeline(request: RunTurnPipelineRequest): Promise<TurnPipelineResult> {
+  request.signal?.throwIfAborted();
   const now = request.now ?? (() => new Date().toISOString());
   const startedAt = now();
   const promptRunId = request.promptRunId ?? createPromptRunId(startedAt);
@@ -244,6 +246,7 @@ export async function runTurnPipeline(request: RunTurnPipelineRequest): Promise<
     prompt: compiledPrompt.prompt,
     temperature: request.temperature,
     maxOutputTokens: request.maxOutputTokens,
+    signal: request.signal,
     metadata: {
       promptRunId,
       sessionId: request.session.id,

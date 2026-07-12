@@ -11,7 +11,7 @@ const ONBOARDING_STEPS: OnboardingStep[] = [
   {
     icon: <KeyRound size={18} />,
     title: "Add your API key",
-    detail: "This runtime is bring-your-own-key. Your key is stored locally in the OS keychain, never sent anywhere else.",
+    detail: "This runtime is bring-your-own-key. Your key is stored in the OS keychain and transmitted only to the provider you configure when making requests.",
   },
   {
     icon: <Library size={18} />,

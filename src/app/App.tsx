@@ -22,7 +22,11 @@ import {
 } from "lucide-react";
 import { persistGeneratedImageLocally, syncGeneratedImageFiles } from "./imagePersistence";
 import { createSnapshotSaveQueue, type SnapshotSaveQueue } from "./snapshotSaveQueue";
-import { loadLocalRestorePoints, saveLocalRestorePoints } from "./localRestorePointStore";
+import {
+  loadLocalRestorePoints,
+  saveLocalRestorePoints,
+  shouldPersistRestorePointsInWebviewStorage,
+} from "./localRestorePointStore";
 import { compileImagePrompt } from "../runtime/imagePromptCompiler";
 import {
   applyHiddenContinuityToCard,
@@ -373,9 +377,15 @@ export function App() {
   const repositoryHydrated = hydration.phase === "ready";
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [restorePoints, setRestorePoints] = useState<RestorePoint<AppRuntimeSnapshot>[]>(() =>
-    loadLocalRestorePoints<AppRuntimeSnapshot>(),
+    shouldPersistRestorePointsInWebviewStorage({ isDesktopRuntime: isTauriRuntime() })
+      ? loadLocalRestorePoints<AppRuntimeSnapshot>()
+      : [],
   );
-  const [restoreStatus, setRestoreStatus] = useState("Restore points persist automatically as you play.");
+  const [restoreStatus, setRestoreStatus] = useState(() =>
+    isTauriRuntime()
+      ? "Restore points are available for this session; rotating SQLite backups persist across restarts."
+      : "Restore points persist automatically as you play.",
+  );
   const [pendingImportSnapshot, setPendingImportSnapshot] = useState<RuntimeExportSnapshot | null>(null);
   const [pendingDeleteChatId, setPendingDeleteChatId] = useState<string | null>(null);
   const [pendingDeleteCardId, setPendingDeleteCardId] = useState<string | null>(null);
@@ -510,6 +520,9 @@ export function App() {
   }, [cards, chatSessions, repositoryHydrated]);
 
   useEffect(() => {
+    if (!shouldPersistRestorePointsInWebviewStorage({ isDesktopRuntime: isTauriRuntime() })) {
+      return;
+    }
     if (!saveLocalRestorePoints(restorePoints)) {
       setRestoreStatus("Restore points are available this session, but could not be persisted locally.");
     }

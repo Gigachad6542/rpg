@@ -7,6 +7,10 @@ import {
 
 export const LOCAL_RESTORE_POINTS_KEY = "rpg.runtime.restore-points.v1";
 
+export function shouldPersistRestorePointsInWebviewStorage(input: { isDesktopRuntime: boolean }): boolean {
+  return !input.isDesktopRuntime;
+}
+
 export function loadLocalRestorePoints<TSnapshot extends RestorePointSnapshotFields>(): RestorePoint<TSnapshot>[] {
   try {
     const raw = window.localStorage.getItem(LOCAL_RESTORE_POINTS_KEY);

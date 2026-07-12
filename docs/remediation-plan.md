@@ -7,10 +7,10 @@ second, everything else after.
 
 Legend: each item lists **Fix**, **Files**, **Done when** (acceptance criteria).
 
-## Status (2026-07-11)
+## Status (2026-07-12)
 
 **Phase 0 blockers landed** — hydration, avatar size safety, release checksums,
-version validation, the Chub desktop proxy, and a schema-v2 index migration are in
+version validation, the Chub desktop proxy, and historical SQLite migrations are in
 place and verified:
 - 0.1 fail-safe hydration — commit `e527580`
 - 0.2 avatar embed budget — commit `ff11765`
@@ -20,21 +20,36 @@ place and verified:
   the handler but missing from `build.rs` and `capabilities/default.json`, so they
   would have been denied in a packaged build — fixed in the same commit.
 
-Phase 0 correction: schema v2 adds the missing indexes, but it does not retrofit all
-foreign-key and `CHECK` constraints that were edited into the original v1 DDL after
-some databases already existed. The current upgrade fixture is built from today's v1
-DDL and therefore does not reproduce the truly historical unconstrained schema. This
-constraint migration remains open; Phase 0 must not be described as entirely complete.
+The schema correction is complete locally in `3024eb0` + `3f4b808`. Schema v3 opens
+an exact pre-hardening v1 fixture and the real-risk v2/indexed-but-unconstrained shape,
+takes a SQLite-consistent backup, preflights all 19 foreign keys and five CHECK
+constraints, rebuilds transactionally, verifies row counts/integrity, and fails closed
+without writing v3 when legacy data is invalid. Evidence:
+`docs/testing/schema-v3-migration.tdd.md`.
 
 **Phase 1.1 implemented locally** — commits `667d408`, `6034d0d`, `25ff873`,
 `62f93b5`, and `1aab5b8` add deterministic composite turn lineages and wire them into
 normal generation, regeneration, chat switching, branching, message-edit forks, and
 safe variant selection. Legacy chats migrate to a synthetic current-state root; old
-variants without trustworthy deltas fail closed. Full result: 416 tests green, 93.07%
-statement/line coverage, typecheck, lint, and production build green.
+variants without trustworthy deltas fail closed. The original verification point was
+416 tests and 93.07% statement/line coverage; later phases add more tests and are
+verified together below.
 
-Nothing is pushed automatically. Next up: **Phase 1.2 — provenance-gated deltas,
-visible state changes, and undo**, alongside the historical-v1 constraint migration.
+**Phase 1.2 implemented locally** — `52e2462` through `e45aeb0` replace circular
+narration grounding with provenance-tagged proposals, visible per-turn deltas, and
+branch-specific undo. `267d312` + `cd90e4d` make memory consolidation preview-only
+until explicit acceptance. `0644c66` + `7710691` add auto/confirm-first/off portrait
+policy, default to confirm-first, and require the entity name in player-visible text.
+Evidence: `docs/testing/turn-state-provenance.tdd.md`.
+
+**Additional resilience landed locally** — `99ca782` adds routine macOS source/native
+CI (not packaged-app proof), and `6d74ea2` + `75fd4b5` add a root React error boundary
+with redacted local crash diagnostics. Nothing is pushed automatically.
+
+**Current local gate:** 52 Vitest files / 436 tests pass with 92.96% statement/line,
+89.37% branch, and 94.18% function coverage. TypeScript, ESLint, version sync, the
+production frontend build, 27 Rust tests, Rust formatting, and clippy all pass. The
+build still reports the known 541 kB main-chunk/code-splitting warning.
 
 ---
 
@@ -176,6 +191,20 @@ inventory in the fixture scenarios.
 
 ### 1.2 Provenance-gated state changes + visible deltas + undo
 
+**Implemented locally (2026-07-12):**
+- Every hidden and visible mutation is retained as an applied/blocked proposal with
+  `player-action | pre-turn-state | tool-result | model-narration` provenance.
+- Model narration alone cannot establish RPG transitions or hidden entity/knowledge
+  canon. Applied changes are shown below the assistant message and can be undone for
+  the active response variant.
+- Consolidation shows current/proposed memory and requires Apply; cancel and stale
+  reviews leave memory untouched.
+- Character portrait automation is user-selectable (`auto`, `confirm-first`, `off`),
+  defaults to confirm-first, and requires the entity name in visible user/assistant
+  text before even preparing a portrait prompt.
+
+Evidence: `docs/testing/turn-state-provenance.tdd.md`.
+
 **Verified files:** `hiddenContinuity.ts`, `turnEffects.ts`, `memoryConsolidation.ts`.
 The hidden pass can mint memories/entities/knowledge that are then "validated" against
 the same generated narration (circular); hidden output can trigger ComfyUI portrait
@@ -223,8 +252,9 @@ the feature that needs it, not as a big-bang refactor:
 
 ### 2.2 UX resilience batch
 
-- **React error boundary** at the root with an error screen offering diagnostics export
-  — a render crash must never be a blank desktop window.
+- **Implemented:** React error boundary at the root with retry/reload and a redacted
+  local diagnostics export (`6d74ea2`, `75fd4b5`). A render crash no longer becomes a
+  blank desktop window.
 - **Cancel/stop** for in-flight model requests: thread `AbortController` through
   provider calls (both hidden and visible passes); stop button in chat UI.
 - **Prompt budget**: derive from the selected model's context size instead of the
@@ -279,13 +309,15 @@ Windows; eval harness produces a baseline scorecard.
 
 ## Phase 4 — Real Mac lane (last, deliberately)
 
-**Verified:** CI is `windows-latest` only; release workflow has never run; no tags or
-DMGs; docs tell users to bypass Gatekeeper.
+**Current boundary:** routine `macos-latest` source/native verification is now defined
+in CI (`99ca782`). The hosted job has not run from this unpushed branch, and there is
+still no mounted-DMG launch/persistence/Keychain smoke, signing, notarization, or Intel
+proof. The install docs now state those limits instead of implying a published build.
 
 Ordered steps, each gated on the previous:
 
-1. **macOS CI job**: add `macos-latest` to `ci.yml` running unit tests + `pnpm build` +
-   `cargo test`/clippy. This alone surfaces platform breakage on every push.
+1. **Implemented locally:** macOS CI job runs unit tests + `pnpm build` + Rust tests /
+   clippy on pushes and pull requests. It becomes evidence only after GitHub runs it.
 2. **Mac E2E smoke in the release lane**: build DMG → `hdiutil attach` → copy app →
    launch → drive the same persistence smoke as Windows (create data, quit, relaunch,
    assert SQLite restore, Keychain store/retrieve round-trip) → detach.

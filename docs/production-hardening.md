@@ -52,16 +52,19 @@ state context, runtime settings, and response contracts do not drift from what t
 
 ## Migration Safety
 
-Each migration now runs inside a transaction. A failed migration should roll back its statements and
-must not write a `schema_migrations` success row.
+Static migrations run inside transactions. Schema v3 uses an immediate procedural transaction to
+rebuild the 11 historically unconstrained tables, because SQLite cannot add foreign keys or CHECKs
+in place. A failed migration rolls back and must not write a `schema_migrations` success row.
 
 SQLite foreign key enforcement and a 5 second busy timeout are enabled on repository connections.
 Core runtime tables now define relation constraints, boolean/role checks, and lookup indexes for the
-chat/history, prompt-run, lorebook, memory, RPG-state, and generated-map paths.
+chat/history, prompt-run, lorebook, memory, RPG-state, and generated-map paths. Historical v1 and v2
+databases receive the same schema through v3, rather than relying on edited v1 DDL.
 
-Before adding destructive or data-shaping migrations, create a local backup of the SQLite database
-from the app data directory and document the forward recovery migration. Production rollbacks should
-be forward fixes, not edits to already-applied migration definitions.
+Before v3 touches a historical database, the repository creates a SQLite-consistent `VACUUM INTO`
+backup that includes committed WAL data. Constraint preflight reports only table/field counts and
+fails closed on invalid legacy rows; it never deletes or coerces them. Production rollbacks should be
+forward fixes, not edits to already-applied migration definitions.
 
 On Windows, copy the database while the app is closed. Use the app data directory for installed
 builds, or the confined temp dev directory for `databasePath` test databases. Restore by closing the

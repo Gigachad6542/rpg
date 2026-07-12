@@ -12,8 +12,8 @@ This folder keeps operational notes and verification evidence for `rpg`.
   snapshot durability, migrations, and provider boundaries.
 - [Production plan](production-plan.md) summarizes the current production-readiness audit,
   closed blockers, remaining launch work, release milestones, and acceptance gates.
-- [macOS install](macos-install.md) covers downloading the CI-built Apple Silicon `.dmg`,
-  the unsigned-build Gatekeeper bypass, and building locally on a Mac.
+- [macOS install](macos-install.md) covers the provisional Apple Silicon release lane,
+  unsigned-build Gatekeeper behavior, current proof limits, and building locally on a Mac.
 - [Remediation plan](remediation-plan.md) is the phased response to the July 10, 2026
   external production-readiness review: data-loss fixes, turn-state integrity,
   decomposition, test depth, and the Mac release lane.
@@ -25,3 +25,11 @@ This folder keeps operational notes and verification evidence for `rpg`.
 - [Continuity knowledge coherence TDD evidence](testing/continuity-knowledge-coherence.tdd.md)
   records the July 4, 2026 fixes for durable memory retention, knows/does-not-know conflict
   resolution, de-duplicated hidden-pass context, and same-turn knowledge updates.
+- [Turn-state lineage TDD evidence](testing/turn-state-lineage.tdd.md) records deterministic
+  variant, branch, edit, regeneration, and persistence behavior.
+- [Turn-state provenance TDD evidence](testing/turn-state-provenance.tdd.md) records visible
+  state proposals, undo, memory review, and portrait consent controls.
+- [Schema-v3 migration TDD evidence](testing/schema-v3-migration.tdd.md) records the exact
+  historical fixture, constraint rebuild, backups, atomicity, and data preservation.
+- [Platform and root-resilience TDD evidence](testing/platform-resilience.tdd.md) records the
+  macOS compatibility lane and render-crash recovery boundary.

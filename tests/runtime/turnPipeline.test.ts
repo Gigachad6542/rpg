@@ -221,6 +221,30 @@ describe("turn pipeline", () => {
     expect(result.promptRun.usage.totalTokens).toBeGreaterThan(0);
   });
 
+  it("passes the caller abort signal to normal and streaming requests", async () => {
+    const controller = new AbortController();
+    const normal = new RecordingTextAdapter({
+      text: "Reply.",
+      finishReason: "stop",
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    });
+    const streaming = new StreamingTextAdapter({
+      text: "unused",
+      finishReason: "stop",
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    });
+
+    await runTurnPipeline({ ...baseRequest(normal), signal: controller.signal });
+    await runTurnPipeline({
+      ...baseRequest(streaming),
+      signal: controller.signal,
+      preferStreaming: true,
+    });
+
+    expect(normal.requests[0].signal).toBe(controller.signal);
+    expect(streaming.requests[0].signal).toBe(controller.signal);
+  });
+
   it("does not claim memory IDs that were trimmed out of the compiled prompt", async () => {
     const adapter = new RecordingTextAdapter({
       text: "A short reply.",

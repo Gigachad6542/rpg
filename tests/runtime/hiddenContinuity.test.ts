@@ -246,6 +246,25 @@ describe("hidden continuity pass", () => {
     ]);
   });
 
+  it("threads cancellation and never converts an abort into a continuity warning", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const adapter = new RecordingAdapter("{}");
+
+    await expect(
+      runHiddenContinuityPassSafely({
+        modelAdapter: adapter,
+        model: "chosen-reasoning-model",
+        card: createCard(),
+        messages: [],
+        latestUserMessage: "I wait.",
+        activeLoreCount: 0,
+        signal: controller.signal,
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(adapter.requests[0]?.signal).toBe(controller.signal);
+  });
+
   it("normalizes malformed, fenced, embedded, camelCase, and unsafe hidden continuity payloads", () => {
     expect(createEmptyHiddenContinuityResult()).toEqual({
       continuityBrief: "",

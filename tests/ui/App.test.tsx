@@ -5,6 +5,13 @@ import { App } from "../../src/app/App";
 import { RUNTIME_STORAGE_KEY } from "../../src/app/localRuntimeStore";
 import { buildVersionedRuntimeExport } from "../../src/app/runtimeDataBundle";
 import * as memoryConsolidation from "../../src/runtime/memoryConsolidation";
+import * as providerConfig from "../../src/app/providerConfig";
+import type {
+  ModelInfo,
+  TextGenerationRequest,
+  TextGenerationResponse,
+  TextModelAdapter,
+} from "../../src/providers/TextModelAdapter";
 
 type TauriInvokeMock = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
 
@@ -446,6 +453,47 @@ describe("local-first card runtime UI", () => {
 
     await screen.findByText(/Blocked by this RPG card: movement must stay plausible/i);
     expect(screen.getByRole("log", { name: /Chat transcript/i })).not.toHaveTextContent(/teleport through walls/i);
+  });
+
+  it("lets the player stop an in-flight turn before it commits messages or state", async () => {
+    const requests: TextGenerationRequest[] = [];
+    const adapter: TextModelAdapter = {
+      id: "abortable",
+      displayName: "Abortable provider",
+      async listModels(): Promise<ModelInfo[]> {
+        return [];
+      },
+      async generateText(request: TextGenerationRequest): Promise<TextGenerationResponse> {
+        requests.push(request);
+        return new Promise((_resolve, reject) => {
+          const abort = () => reject(new DOMException("Generation stopped", "AbortError"));
+          if (request.signal?.aborted) {
+            abort();
+          } else {
+            request.signal?.addEventListener("abort", abort, { once: true });
+          }
+        });
+      },
+    };
+    const providerSpy = vi.spyOn(providerConfig, "createTextProvider").mockReturnValue(adapter);
+
+    try {
+      await renderApp();
+      openBlankRpgCard();
+      sendRuntimeMessage("I inspect the unfinished corridor.");
+
+      const stop = await screen.findByRole("button", { name: /Stop generation/i });
+      expect(requests[0]?.signal).toBeInstanceOf(AbortSignal);
+      fireEvent.click(stop);
+
+      await screen.findByText(/Generation stopped/i);
+      expect(screen.queryByRole("button", { name: /Stop generation/i })).not.toBeInTheDocument();
+      expect(screen.getByRole("log", { name: /Chat transcript/i })).not.toHaveTextContent(
+        /unfinished corridor/i,
+      );
+    } finally {
+      providerSpy.mockRestore();
+    }
   });
 
   it("runs hidden continuity before the visible turn, persists characters, and keeps details collapsed", async () => {

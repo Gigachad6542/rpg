@@ -96,6 +96,7 @@ import type {
   LorebookEntry,
   MainSection,
   MediaPreviewArtifact,
+  MemoryEntry,
   Message,
   NewLorebookEntry,
   Persona,
@@ -216,6 +217,12 @@ function readLegacyImpersonationPrompt(runtimeSettings: Record<string, unknown> 
   return typeof legacy === "string" ? legacy : "";
 }
 
+interface MemoryConsolidationReview {
+  cardId: string;
+  originalMemory: MemoryEntry[];
+  proposedMemory: MemoryEntry[];
+}
+
 export function App() {
   const [initialSnapshot] = useState(() => loadLocalRuntimeSnapshot<RuntimeCard, Message, PromptRun, ChatSession>());
   const initialRuntimeSettings = parseRuntimeSettings(initialSnapshot?.runtimeSettings);
@@ -306,6 +313,7 @@ export function App() {
   const [streamingReply, setStreamingReply] = useState("");
   const [isConsolidatingMemory, setIsConsolidatingMemory] = useState(false);
   const [memoryConsolidationStatus, setMemoryConsolidationStatus] = useState<string | null>(null);
+  const [memoryConsolidationReview, setMemoryConsolidationReview] = useState<MemoryConsolidationReview | null>(null);
   const [saveStatus, setSaveStatus] = useState(initialSnapshot ? "Loaded local runtime snapshot." : "Ready for local save.");
   const [repositoryStatus, setRepositoryStatus] = useState("Repository store initializing.");
   const [dataManagementStatus, setDataManagementStatus] = useState("Runtime export, import, and diagnostics are ready.");
@@ -1613,6 +1621,7 @@ export function App() {
       label: entry.label,
       detail: entry.detail,
     }));
+    setMemoryConsolidationReview(null);
     setIsConsolidatingMemory(true);
     setMemoryConsolidationStatus("Consolidating memory...");
     try {
@@ -1621,15 +1630,19 @@ export function App() {
       const result = await runMemoryConsolidationSafely({ modelAdapter: provider, model, entries });
       if (result.changed) {
         const before = entries.length;
-        commitManualActiveCardState({
-          ...activeCard,
-          memory: result.entries.map((entry) => ({
+        const proposedMemory = result.entries.map((entry) => ({
             id: entry.id ?? createRuntimeEntityId("memory"),
             label: entry.label,
             detail: entry.detail,
-          })),
+          }));
+        setMemoryConsolidationReview({
+          cardId: activeCard.id,
+          originalMemory: activeCard.memory.map((entry) => ({ ...entry })),
+          proposedMemory,
         });
-        setMemoryConsolidationStatus(`Memory consolidated: ${before} to ${result.entries.length} entries.`);
+        setMemoryConsolidationStatus(
+          `Review the proposed consolidation: ${before} to ${result.entries.length} entries. Nothing has changed yet.`,
+        );
       } else {
         setMemoryConsolidationStatus(
           result.warnings[0] ?? "Memory is already concise; nothing to consolidate.",
@@ -1640,6 +1653,30 @@ export function App() {
     } finally {
       setIsConsolidatingMemory(false);
     }
+  }
+
+  function applyMemoryConsolidationReview() {
+    if (!activeCard || !memoryConsolidationReview || memoryConsolidationReview.cardId !== activeCard.id) {
+      setMemoryConsolidationReview(null);
+      setMemoryConsolidationStatus("The consolidation review no longer matches the active card; memory was not changed.");
+      return;
+    }
+    if (JSON.stringify(activeCard.memory) !== JSON.stringify(memoryConsolidationReview.originalMemory)) {
+      setMemoryConsolidationReview(null);
+      setMemoryConsolidationStatus("Memory changed while this review was open; the stale proposal was discarded.");
+      return;
+    }
+
+    const before = activeCard.memory.length;
+    const proposedMemory = memoryConsolidationReview.proposedMemory.map((entry) => ({ ...entry }));
+    commitManualActiveCardState({ ...activeCard, memory: proposedMemory });
+    setMemoryConsolidationReview(null);
+    setMemoryConsolidationStatus(`Memory consolidation applied: ${before} to ${proposedMemory.length} entries.`);
+  }
+
+  function cancelMemoryConsolidationReview() {
+    setMemoryConsolidationReview(null);
+    setMemoryConsolidationStatus("Memory consolidation cancelled; original memory was not changed.");
   }
 
   async function prepareImagePrompt() {
@@ -2570,6 +2607,9 @@ export function App() {
           consolidate={() => void consolidateActiveCardMemory()}
           isConsolidating={isConsolidatingMemory}
           status={memoryConsolidationStatus}
+          review={memoryConsolidationReview?.cardId === activeCard.id ? memoryConsolidationReview : null}
+          applyConsolidation={applyMemoryConsolidationReview}
+          cancelConsolidation={cancelMemoryConsolidationReview}
         />
       ) : null}
       {showOnboarding ? (

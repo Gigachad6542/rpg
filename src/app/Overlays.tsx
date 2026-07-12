@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Layers3, X } from "lucide-react";
-import type { MediaPreviewArtifact, RuntimeCard } from "./runtimeTypes";
+import type { MediaPreviewArtifact, MemoryEntry, RuntimeCard } from "./runtimeTypes";
 import { toGeneratedImageSrc } from "./generatedImages";
 
 export function MediaPreviewDialog(props: { preview: MediaPreviewArtifact; close: () => void }) {
@@ -57,6 +57,12 @@ export function MemoryDrawer(props: {
   consolidate: () => void;
   isConsolidating: boolean;
   status: string | null;
+  review: {
+    originalMemory: MemoryEntry[];
+    proposedMemory: MemoryEntry[];
+  } | null;
+  applyConsolidation: () => void;
+  cancelConsolidation: () => void;
 }) {
   useEffect(() => {
     function closeOnEscape(event: KeyboardEvent) {
@@ -85,7 +91,7 @@ export function MemoryDrawer(props: {
           className="secondary-button compact-button"
           type="button"
           onClick={props.consolidate}
-          disabled={props.isConsolidating || props.card.memory.length < 2}
+          disabled={props.isConsolidating || Boolean(props.review) || props.card.memory.length < 2}
         >
           <Layers3 size={15} />
           {props.isConsolidating ? "Consolidating..." : "Consolidate memory"}
@@ -95,6 +101,34 @@ export function MemoryDrawer(props: {
         <p className="field-help" role="status" aria-live="polite">
           {props.status}
         </p>
+      ) : null}
+      {props.review ? (
+        <section className="memory-consolidation-review" role="region" aria-label="Memory consolidation review">
+          <div className="memory-consolidation-summary">
+            <strong>{props.review.originalMemory.length} current entries</strong>
+            <span aria-hidden="true">→</span>
+            <strong>
+              {props.review.proposedMemory.length} proposed {props.review.proposedMemory.length === 1 ? "entry" : "entries"}
+            </strong>
+          </div>
+          <p className="field-help">Review the proposed memory below. Current memory remains authoritative until you apply it.</p>
+          <div className="memory-list proposed-memory-list">
+            {props.review.proposedMemory.map((entry) => (
+              <article className="memory-row" key={entry.id}>
+                <strong>{entry.label}</strong>
+                <p>{entry.detail}</p>
+              </article>
+            ))}
+          </div>
+          <div className="button-row">
+            <button className="primary-button compact-button" type="button" onClick={props.applyConsolidation}>
+              Apply consolidation
+            </button>
+            <button className="secondary-button compact-button" type="button" onClick={props.cancelConsolidation}>
+              Cancel consolidation
+            </button>
+          </div>
+        </section>
       ) : null}
       {props.card.memory.length === 0 ? <p>No saved memory for this card yet.</p> : null}
       <div className="memory-list">
@@ -108,4 +142,3 @@ export function MemoryDrawer(props: {
     </aside>
   );
 }
-

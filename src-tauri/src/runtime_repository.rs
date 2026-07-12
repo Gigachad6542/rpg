@@ -2311,6 +2311,8 @@ const SCHEMA_V2_INDEX_STATEMENTS: &[&str] = &[
 mod tests {
     use super::*;
 
+    const HISTORICAL_SCHEMA_V1: &str = include_str!("../tests/fixtures/schema-v1-0996b8d.sql");
+
     #[test]
     fn migrations_are_idempotent() {
         let path = temp_db_path("migrations_are_idempotent");
@@ -2323,42 +2325,128 @@ mod tests {
     }
 
     #[test]
-    fn upgrades_a_version_1_database_by_backfilling_indexes() {
-        let path = temp_db_path("upgrades_v1_backfills_indexes");
+    fn upgrades_the_real_historical_v1_schema_without_losing_data() {
+        let workspace = temp_workspace_dir("upgrades_real_historical_v1");
+        let path = workspace.join("runtime.db");
+        create_historical_v1_database(&path, false);
 
-        // Simulate an old install: v1 tables present, schema_migrations records
-        // only version 1, and none of the later indexes exist.
-        {
-            let conn = Connection::open(&path).unwrap();
-            configure_connection(&conn).unwrap();
-            conn.execute_batch(SCHEMA_MIGRATIONS_CREATE).unwrap();
-            for statement in SCHEMA_V1_TABLE_STATEMENTS {
-                conn.execute_batch(statement).unwrap();
-            }
-            conn.execute(
-                "INSERT INTO schema_migrations (version, name, applied_at) VALUES (1, 'initial_core_schema', ?1)",
-                params![now_iso()],
-            )
-            .unwrap();
-            assert_eq!(count_indexes(&conn), 0);
-        }
+        let before = Connection::open(&path).unwrap();
+        assert_eq!(count_indexes(&before), 0);
+        assert_eq!(count_foreign_keys(&before), 0);
+        assert_eq!(count_check_constraints(&before), 0);
+        drop(before);
 
         let runs = initialize_repository_at_path(&path).unwrap();
-        let v1 = runs.iter().find(|run| run.version == 1).unwrap();
-        let v2 = runs.iter().find(|run| run.version == 2).unwrap();
-        assert_eq!(v1.status, "skipped");
-        assert_eq!(v2.status, "applied");
+        assert_eq!(migration_status(&runs, 1), "skipped");
+        assert_eq!(migration_status(&runs, 2), "applied");
+        assert_eq!(migration_status(&runs, 3), "applied");
 
-        let conn = Connection::open(&path).unwrap();
+        let conn = open_migrated_connection(&path).unwrap();
+        assert_eq!(latest_schema_version(&conn), 3);
         assert_eq!(
             count_indexes(&conn),
             SCHEMA_V2_INDEX_STATEMENTS.len() as i64
         );
+        assert_eq!(count_foreign_keys(&conn), 19);
+        assert_eq!(count_check_constraints(&conn), 5);
+        assert_historical_rows_survived(&conn);
+        assert_constraint_actions(&conn);
+        assert_check_constraints_are_enforced(&conn);
+        assert_foreign_keys_reject_orphans(&conn);
+        drop(conn);
 
-        // Re-running is a no-op; the upgraded database now matches a fresh one.
+        assert_eq!(count_migration_backups(&workspace), 1);
         let rerun = initialize_repository_at_path(&path).unwrap();
         assert!(rerun.iter().all(|run| run.status == "skipped"));
-        cleanup(&path);
+        assert_eq!(count_migration_backups(&workspace), 1);
+        let _ = std::fs::remove_dir_all(&workspace);
+    }
+
+    #[test]
+    fn upgrades_a_v2_database_that_still_has_the_unconstrained_v1_tables() {
+        let workspace = temp_workspace_dir("upgrades_unconstrained_v2");
+        let path = workspace.join("runtime.db");
+        create_historical_v1_database(&path, true);
+
+        let before = Connection::open(&path).unwrap();
+        assert_eq!(
+            count_indexes(&before),
+            SCHEMA_V2_INDEX_STATEMENTS.len() as i64
+        );
+        assert_eq!(count_foreign_keys(&before), 0);
+        drop(before);
+
+        let runs = initialize_repository_at_path(&path).unwrap();
+        assert_eq!(migration_status(&runs, 1), "skipped");
+        assert_eq!(migration_status(&runs, 2), "skipped");
+        assert_eq!(migration_status(&runs, 3), "applied");
+
+        let conn = open_migrated_connection(&path).unwrap();
+        assert_eq!(count_foreign_keys(&conn), 19);
+        assert_eq!(count_check_constraints(&conn), 5);
+        assert_historical_rows_survived(&conn);
+        let _ = std::fs::remove_dir_all(&workspace);
+    }
+
+    #[test]
+    fn upgraded_historical_schema_matches_a_fresh_database() {
+        let workspace = temp_workspace_dir("historical_schema_matches_fresh");
+        let historical_path = workspace.join("historical.db");
+        let fresh_path = workspace.join("fresh.db");
+        create_historical_v1_database(&historical_path, false);
+        initialize_repository_at_path(&historical_path).unwrap();
+        initialize_repository_at_path(&fresh_path).unwrap();
+
+        let historical = open_migrated_connection(&historical_path).unwrap();
+        let fresh = open_migrated_connection(&fresh_path).unwrap();
+        assert_eq!(
+            core_schema_signature(&historical),
+            core_schema_signature(&fresh)
+        );
+        assert_eq!(
+            foreign_key_signature(&historical),
+            foreign_key_signature(&fresh)
+        );
+        let _ = std::fs::remove_dir_all(&workspace);
+    }
+
+    #[test]
+    fn dirty_historical_data_blocks_v3_atomically_and_keeps_a_backup() {
+        let workspace = temp_workspace_dir("dirty_historical_v3");
+        let path = workspace.join("runtime.db");
+        create_historical_v1_database(&path, true);
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute(
+                "UPDATE message_branches SET chat_id = 'missing-chat', is_active = 7 WHERE id = 'branch-1'",
+                [],
+            )
+            .unwrap();
+        }
+
+        let result = initialize_repository_at_path(&path);
+        assert!(matches!(result, Err(RuntimeRepositoryError::Validation(_))));
+
+        let conn = Connection::open(&path).unwrap();
+        configure_connection(&conn).unwrap();
+        assert_eq!(latest_schema_version(&conn), 2);
+        assert_eq!(count_foreign_keys(&conn), 0);
+        assert_eq!(
+            conn.query_row(
+                "SELECT chat_id || ':' || is_active FROM message_branches WHERE id = 'branch-1'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "missing-chat:7"
+        );
+        assert_eq!(
+            conn.pragma_query_value(None, "foreign_keys", |row| row.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(count_migration_backups(&workspace), 1);
+        let _ = std::fs::remove_dir_all(&workspace);
     }
 
     #[test]
@@ -2794,6 +2882,318 @@ mod tests {
             ],
             "savedAt": "2026-06-27T20:00:00.000Z"
         })
+    }
+
+    const CONSTRAINED_CORE_TABLES: &[&str] = &[
+        "character_versions",
+        "message_branches",
+        "messages",
+        "events",
+        "character_knowledge",
+        "memory_entries",
+        "memory_archive",
+        "lorebook_entries",
+        "rpg_state_snapshots",
+        "prompt_runs",
+        "image_prompt_runs",
+    ];
+
+    fn create_historical_v1_database(path: &Path, mark_v2_applied: bool) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch(HISTORICAL_SCHEMA_V1).unwrap();
+        seed_historical_constraint_graph(&conn);
+        if mark_v2_applied {
+            for statement in SCHEMA_V2_INDEX_STATEMENTS {
+                conn.execute_batch(statement).unwrap();
+            }
+            conn.execute(
+                "INSERT INTO schema_migrations (version, name, applied_at) VALUES (2, 'backfill_core_indexes', ?1)",
+                params![now_iso()],
+            )
+            .unwrap();
+        }
+    }
+
+    fn seed_historical_constraint_graph(conn: &Connection) {
+        conn.execute_batch(
+            r#"
+            INSERT INTO characters
+              (id, name, description, profile_json, source, introduced_at_json, created_at, updated_at)
+            VALUES
+              ('char-1', 'Nia', 'historical character', '{"kind":"character"}', 'manual', NULL, 't0', 't0');
+            INSERT INTO character_versions
+              (id, character_id, version, card_json, change_reason, created_at)
+            VALUES
+              ('char-version-1', 'char-1', 1, '{"name":"Nia"}', 'seed', 't0');
+            INSERT INTO chats
+              (id, title, mode, active_branch_id, root_state_snapshot_id, metadata_json, profile_id, world_id, created_at, updated_at)
+            VALUES
+              ('chat-1', 'Historical chat', 'rpg', 'branch-1', NULL, '{"fixture":true}', NULL, 'world-1', 't0', 't0');
+            INSERT INTO message_branches
+              (id, chat_id, name, root_message_id, head_message_id, base_message_id, label, is_active, created_at, updated_at)
+            VALUES
+              ('branch-1', 'chat-1', 'Main', 'message-1', 'message-2', NULL, 'Main', 1, 't0', 't0');
+            INSERT INTO messages
+              (id, chat_id, branch_id, parent_message_id, role, content, state_snapshot_id, prompt_run_id, metadata_json, updated_at, created_at)
+            VALUES
+              ('message-1', 'chat-1', 'branch-1', NULL, 'user', 'parent payload', NULL, NULL, '{}', 't0', 't0'),
+              ('message-2', 'chat-1', 'branch-1', 'message-1', 'assistant', 'child payload', 'state-1', 'prompt-1', '{"variant":0}', 't0', 't0');
+            INSERT INTO events
+              (id, chat_id, branch_id, message_id, summary, occurred_at, location, participant_character_ids_json, world_truth, metadata_json, created_at)
+            VALUES
+              ('event-1', 'chat-1', 'branch-1', 'message-2', 'Historical event', 't0', 'Cellar', '["char-1"]', 1, '{}', 't0');
+            INSERT INTO character_knowledge
+              (id, character_id, event_id, chat_id, knowledge_type, certainty, interpretation, emotional_reaction, can_discuss_with_json, created_at, updated_at)
+            VALUES
+              ('knowledge-1', 'char-1', 'event-1', 'chat-1', 'witnessed', 0.9, 'Saw the gate open', 'alert', '["char-1"]', 't0', 't0');
+            INSERT INTO memory_entries
+              (id, chat_id, category, text, importance, pinned, related_character_ids_json, related_event_ids_json, last_accessed_at, created_at, updated_at)
+            VALUES
+              ('memory-1', 'chat-1', 'continuity', 'Historical memory payload', 0.8, 1, '["char-1"]', '["event-1"]', 't0', 't0', 't0');
+            INSERT INTO memory_archive
+              (id, source_memory_id, archive_reason, payload_json, archived_at)
+            VALUES
+              ('archive-1', 'memory-1', 'fixture', '{"preserve":true}', 't0');
+            INSERT INTO lorebooks
+              (id, name, description, created_at, updated_at)
+            VALUES
+              ('lorebook-1', 'History', 'fixture lore', 't0', 't0');
+            INSERT INTO lorebook_entries
+              (id, lorebook_id, title, content, constant, triggers_json, token_budget, created_at, updated_at)
+            VALUES
+              ('lore-entry-1', 'lorebook-1', 'Gate', 'Historical lore payload', 1, '["gate"]', 500, 't0', 't0');
+            INSERT INTO rpg_worlds
+              (id, name, ruleset, description, created_at, updated_at)
+            VALUES
+              ('world-1', 'Historical world', 'fixture', 'world payload', 't0', 't0');
+            INSERT INTO rpg_state_snapshots
+              (id, world_id, chat_id, branch_id, message_id, payload_json, created_at)
+            VALUES
+              ('state-1', 'world-1', 'chat-1', 'branch-1', 'message-2', '{"location":"Cellar"}', 't0');
+            INSERT INTO prompt_runs
+              (id, chat_id, message_id, provider, model, temperature, token_budget, compiled_prompt, included_memory_ids_json, included_lore_entry_ids_json, included_state_snapshot_id, response_text, extraction_json, state_changes_json, request_json, model_settings_json, created_at)
+            VALUES
+              ('prompt-1', 'chat-1', 'message-2', 'mock', 'fixture', 0.2, 100, 'prompt payload', '["memory-1"]', '["lore-entry-1"]', 'state-1', 'response payload', '{}', '{}', '{}', '{}', 't0');
+            INSERT INTO image_prompt_runs
+              (id, chat_id, message_id, provider, compiled_prompt, negative_prompt, style_preset, result_uri, created_at)
+            VALUES
+              ('image-1', 'chat-1', 'message-2', 'mock', 'image prompt payload', 'none', 'fixture', 'asset://image-1', 't0');
+            "#,
+        )
+        .unwrap();
+    }
+
+    fn migration_status(runs: &[MigrationRun], version: i64) -> &'static str {
+        runs.iter()
+            .find(|run| run.version == version)
+            .map(|run| run.status)
+            .unwrap_or("missing")
+    }
+
+    fn latest_schema_version(conn: &Connection) -> i64 {
+        conn.query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    fn count_migration_backups(workspace: &Path) -> usize {
+        let backup_dir = workspace.join(BACKUP_DIR_NAME);
+        let Ok(entries) = std::fs::read_dir(backup_dir) else {
+            return 0;
+        };
+        entries
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.starts_with(BACKUP_FILE_PREFIX))
+            })
+            .count()
+    }
+
+    fn count_foreign_keys(conn: &Connection) -> usize {
+        foreign_key_signature(conn).len()
+    }
+
+    fn foreign_key_signature(conn: &Connection) -> Vec<String> {
+        let mut output = Vec::new();
+        for table in CONSTRAINED_CORE_TABLES {
+            let mut statement = conn
+                .prepare(&format!("PRAGMA foreign_key_list('{table}')"))
+                .unwrap();
+            let rows = statement
+                .query_map([], |row| {
+                    Ok(format!(
+                        "{table}|{}|{}|{}|{}|{}",
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, String>(6)?,
+                    ))
+                })
+                .unwrap();
+            output.extend(rows.map(|row| row.unwrap()));
+        }
+        output.sort();
+        output
+    }
+
+    fn count_check_constraints(conn: &Connection) -> usize {
+        let mut statement = conn
+            .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND sql IS NOT NULL")
+            .unwrap();
+        statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .map(|sql| sql.unwrap().to_uppercase().matches("CHECK (").count())
+            .sum()
+    }
+
+    fn core_schema_signature(conn: &Connection) -> Vec<String> {
+        let mut statement = conn
+            .prepare(
+                "SELECT type, name, sql FROM sqlite_master
+                 WHERE (type = 'table' AND name IN (
+                   'character_versions', 'message_branches', 'messages', 'events',
+                   'character_knowledge', 'memory_entries', 'memory_archive',
+                   'lorebook_entries', 'rpg_state_snapshots', 'prompt_runs',
+                   'image_prompt_runs'
+                 )) OR (type = 'index' AND name LIKE 'idx_%')
+                 ORDER BY type, name",
+            )
+            .unwrap();
+        statement
+            .query_map([], |row| {
+                let sql: String = row.get(2)?;
+                Ok(format!(
+                    "{}|{}|{}",
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    sql.split_whitespace().collect::<Vec<_>>().join(" ")
+                ))
+            })
+            .unwrap()
+            .map(|row| row.unwrap())
+            .collect()
+    }
+
+    fn assert_historical_rows_survived(conn: &Connection) {
+        for (table, expected) in [
+            ("character_versions", 1),
+            ("message_branches", 1),
+            ("messages", 2),
+            ("events", 1),
+            ("character_knowledge", 1),
+            ("memory_entries", 1),
+            ("memory_archive", 1),
+            ("lorebook_entries", 1),
+            ("rpg_state_snapshots", 1),
+            ("prompt_runs", 1),
+            ("image_prompt_runs", 1),
+        ] {
+            assert_eq!(
+                count_rows(conn, table),
+                expected,
+                "row count changed for {table}"
+            );
+        }
+        assert_eq!(
+            conn.query_row(
+                "SELECT content FROM messages WHERE id = 'message-2'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "child payload"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT payload_json FROM memory_archive WHERE id = 'archive-1'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "{\"preserve\":true}"
+        );
+    }
+
+    fn assert_constraint_actions(conn: &Connection) {
+        let mut expected = vec![
+            "character_knowledge|character_id|characters|id|NO ACTION|CASCADE",
+            "character_knowledge|chat_id|chats|id|NO ACTION|SET NULL",
+            "character_knowledge|event_id|events|id|NO ACTION|CASCADE",
+            "character_versions|character_id|characters|id|NO ACTION|CASCADE",
+            "events|branch_id|message_branches|id|NO ACTION|SET NULL",
+            "events|chat_id|chats|id|NO ACTION|CASCADE",
+            "events|message_id|messages|id|NO ACTION|SET NULL",
+            "image_prompt_runs|message_id|messages|id|NO ACTION|SET NULL",
+            "lorebook_entries|lorebook_id|lorebooks|id|NO ACTION|CASCADE",
+            "memory_archive|source_memory_id|memory_entries|id|NO ACTION|CASCADE",
+            "memory_entries|chat_id|chats|id|NO ACTION|CASCADE",
+            "message_branches|chat_id|chats|id|NO ACTION|CASCADE",
+            "messages|branch_id|message_branches|id|NO ACTION|CASCADE",
+            "messages|chat_id|chats|id|NO ACTION|CASCADE",
+            "messages|parent_message_id|messages|id|NO ACTION|SET NULL",
+            "prompt_runs|chat_id|chats|id|NO ACTION|CASCADE",
+            "prompt_runs|message_id|messages|id|NO ACTION|SET NULL",
+            "rpg_state_snapshots|branch_id|message_branches|id|NO ACTION|CASCADE",
+            "rpg_state_snapshots|chat_id|chats|id|NO ACTION|CASCADE",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect::<Vec<_>>();
+        expected.sort();
+        assert_eq!(foreign_key_signature(conn), expected);
+    }
+
+    fn assert_check_constraints_are_enforced(conn: &Connection) {
+        assert!(conn
+            .execute(
+                "INSERT INTO message_branches (id, chat_id, label, is_active, created_at, updated_at) VALUES ('bad-branch', 'chat-1', 'bad', 2, 't', 't')",
+                [],
+            )
+            .is_err());
+        assert!(conn
+            .execute(
+                "INSERT INTO messages (id, chat_id, branch_id, role, content, metadata_json, updated_at, created_at) VALUES ('bad-message-role', 'chat-1', 'branch-1', 'invalid', 'bad', '{}', 't', 't')",
+                [],
+            )
+            .is_err());
+        assert!(conn
+            .execute(
+                "INSERT INTO events (id, chat_id, summary, participant_character_ids_json, world_truth, created_at) VALUES ('bad-event', 'chat-1', 'bad', '[]', 2, 't')",
+                [],
+            )
+            .is_err());
+        assert!(conn
+            .execute(
+                "INSERT INTO memory_entries (id, chat_id, category, text, importance, pinned, related_character_ids_json, related_event_ids_json, created_at, updated_at) VALUES ('bad-memory', 'chat-1', 'bad', 'bad', 1, 2, '[]', '[]', 't', 't')",
+                [],
+            )
+            .is_err());
+        assert!(conn
+            .execute(
+                "INSERT INTO lorebook_entries (id, lorebook_id, title, content, constant, triggers_json, created_at, updated_at) VALUES ('bad-lore', 'lorebook-1', 'bad', 'bad', 2, '[]', 't', 't')",
+                [],
+            )
+            .is_err());
+    }
+
+    fn assert_foreign_keys_reject_orphans(conn: &Connection) {
+        assert!(conn
+            .execute(
+                "INSERT INTO messages (id, chat_id, branch_id, role, content, metadata_json, updated_at, created_at) VALUES ('orphan-message-v3', 'missing-chat', 'missing-branch', 'assistant', 'orphan', '{}', 't', 't')",
+                [],
+            )
+            .is_err());
     }
 
     fn count_rows(conn: &Connection, table: &str) -> i64 {

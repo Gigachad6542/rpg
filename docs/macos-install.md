@@ -8,7 +8,9 @@ the local-build instructions below instead.
 
 The current release configuration targets Apple Silicon and requires macOS 11
 (Big Sur) or newer. Routine CI does not yet mount and launch the packaged app,
-exercise SQLite persistence or Keychain storage, or prove Intel compatibility.
+The tagged release lane now mounts the built DMG, copies the app, launches it twice
+against an isolated profile, and checks SQLite integrity. It does not yet automate
+Keychain storage, signing/notarization, or Intel compatibility.
 
 ## Download and install
 

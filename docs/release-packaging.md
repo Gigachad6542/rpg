@@ -22,8 +22,9 @@ pnpm verify:release
 
 On every push to `main`/`master` and on pull requests, the `verify-macos` CI job
 runs the unit tests, frontend build, Rust tests, and Rust clippy on
-`macos-latest`. Tagged releases additionally run `pnpm verify:release:mac` and
-build the unsigned `.dmg`; the Windows-only executable and installed-profile
+`macos-latest`. Tagged releases additionally run `pnpm verify:release:mac`, build
+the unsigned `.dmg`, mount/copy/relaunch it against isolated SQLite storage, and
+verify database integrity; the Windows-only executable and installed-profile
 smoke scripts are intentionally not run on macOS.
 
 ## Output

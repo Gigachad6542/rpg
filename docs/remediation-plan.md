@@ -309,10 +309,10 @@ Windows; eval harness produces a baseline scorecard.
 
 ## Phase 4 — Real Mac lane (last, deliberately)
 
-**Current boundary:** routine `macos-latest` source/native verification is now defined
-in CI (`99ca782`). The hosted job has not run from this unpushed branch, and there is
-still no mounted-DMG launch/persistence/Keychain smoke, signing, notarization, or Intel
-proof. The install docs now state those limits instead of implying a published build.
+**Current boundary:** routine `macos-latest` source/native verification and a tagged-release
+mounted-DMG copy/launch/relaunch/SQLite-integrity smoke are now defined. The hosted jobs
+have not run from this unpushed branch. Keychain automation, signing, notarization, and
+Intel/universal-binary proof remain open; the install docs state those limits.
 
 Ordered steps, each gated on the previous:
 

@@ -27,6 +27,7 @@ This folder keeps operational notes and verification evidence for `rpg`.
   resolution, de-duplicated hidden-pass context, and same-turn knowledge updates.
 - [Turn-state lineage TDD evidence](testing/turn-state-lineage.tdd.md) records deterministic
   variant, branch, edit, regeneration, and persistence behavior.
+- [Remediation completion evidence](testing/remediation-completion-2026-07-12.tdd.md) records the final TDD checkpoints, release-gate results, and remaining external Mac gates.
 - [Turn-state provenance TDD evidence](testing/turn-state-provenance.tdd.md) records visible
   state proposals, undo, memory review, and portrait consent controls.
 - [Schema-v3 migration TDD evidence](testing/schema-v3-migration.tdd.md) records the exact

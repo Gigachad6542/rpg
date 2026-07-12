@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sync-generated-image-files"
+description = "Enables the sync_generated_image_files command without any pre-configured scope."
+commands.allow = ["sync_generated_image_files"]
+
+[[permission]]
+identifier = "deny-sync-generated-image-files"
+description = "Denies the sync_generated_image_files command without any pre-configured scope."
+commands.deny = ["sync_generated_image_files"]

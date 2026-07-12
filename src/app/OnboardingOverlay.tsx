@@ -1,4 +1,5 @@
 import { KeyRound, Library, MessageSquareText, Sparkles } from "lucide-react";
+import { useDialogFocusTrap } from "./useDialogFocusTrap";
 
 type OnboardingStep = {
   icon: JSX.Element;
@@ -29,8 +30,9 @@ export function OnboardingOverlay(props: {
   onOpenCards: () => void;
   onDismiss: () => void;
 }) {
+  const dialogRef = useDialogFocusTrap<HTMLDivElement>();
   return (
-    <div className="onboarding-overlay" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+    <div ref={dialogRef} className="onboarding-overlay" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
       <div className="onboarding-card">
         <div className="onboarding-heading">
           <span className="onboarding-badge">
@@ -38,7 +40,7 @@ export function OnboardingOverlay(props: {
             First run
           </span>
           <h2 id="onboarding-title">Welcome to your local RPG runtime</h2>
-          <p>Everything runs on your machine. Three quick steps to get playing.</p>
+          <p>Your runtime data stays local unless you use a hosted model provider. Chat, persona, memory, lore, and state needed for a response are sent to the provider you configure.</p>
         </div>
         <ol className="onboarding-steps">
           {ONBOARDING_STEPS.map((step, index) => (

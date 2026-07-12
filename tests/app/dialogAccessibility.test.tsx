@@ -12,7 +12,7 @@ describe("modal accessibility", () => {
     expect(screen.getByText(/chat.*persona.*memory.*lore.*provider/i)).toBeInTheDocument();
     const buttons = screen.getAllByRole("button");
     expect(document.activeElement).toBe(buttons[0]);
-    buttons.at(-1)?.focus();
+    buttons[buttons.length - 1]?.focus();
     fireEvent.keyDown(document, { key: "Tab" });
     expect(document.activeElement).toBe(buttons[0]);
   });
@@ -32,7 +32,7 @@ describe("modal accessibility", () => {
             negativePrompt: "",
             provider: "mock",
             model: "mock",
-            status: "ready",
+            status: "generated",
             createdAt: "2026-07-12T00:00:00.000Z",
             imageUrl: "data:image/png;base64,AA==",
           },

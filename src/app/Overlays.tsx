@@ -2,8 +2,10 @@ import { useEffect } from "react";
 import { Layers3, X } from "lucide-react";
 import type { MediaPreviewArtifact, MemoryEntry, RuntimeCard } from "./runtimeTypes";
 import { toGeneratedImageSrc } from "./generatedImages";
+import { useDialogFocusTrap } from "./useDialogFocusTrap";
 
 export function MediaPreviewDialog(props: { preview: MediaPreviewArtifact; close: () => void }) {
+  const dialogRef = useDialogFocusTrap<HTMLElement>();
   useEffect(() => {
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -20,6 +22,7 @@ export function MediaPreviewDialog(props: { preview: MediaPreviewArtifact; close
   return (
     <div className="media-preview-backdrop" role="presentation" onMouseDown={props.close}>
       <section
+        ref={dialogRef}
         className="media-preview-dialog"
         role="dialog"
         aria-modal="true"
@@ -64,6 +67,7 @@ export function MemoryDrawer(props: {
   applyConsolidation: () => void;
   cancelConsolidation: () => void;
 }) {
+  const dialogRef = useDialogFocusTrap<HTMLElement>();
   useEffect(() => {
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -76,7 +80,7 @@ export function MemoryDrawer(props: {
   }, [props]);
 
   return (
-    <aside className="memory-drawer" role="dialog" aria-modal="true" aria-label="Memory inspector">
+    <aside ref={dialogRef} className="memory-drawer" role="dialog" aria-modal="true" aria-label="Memory inspector">
       <div className="drawer-header">
         <div>
           <p className="eyebrow">Hidden until opened</p>

@@ -31,7 +31,11 @@ import {
 } from "../runtime/hiddenContinuity";
 import { createRuntimeTurnEffects } from "../runtime/runtimeTurnLineage";
 import { detectKnowledgeLeaks, describeKnowledgeLeaks } from "../runtime/knowledgeLeakDetector";
-import { selectActiveLorebookEntries, validateLoreKeys } from "../runtime/loreTriggerEngine";
+import {
+  selectActiveLorebookEntriesForPreview,
+  selectActiveLorebookEntriesSafely,
+  validateLoreKeys,
+} from "../runtime/loreTriggerEngine";
 import { formatDiceResult, rollFromNotation } from "../runtime/diceEngine";
 import { parseSlashCommand } from "../runtime/slashCommands";
 import {
@@ -230,6 +234,36 @@ interface MemoryConsolidationReview {
   proposedMemory: MemoryEntry[];
 }
 
+function disableLoreEntries(
+  lorebooks: Lorebook[],
+  disabledEntryIds: ReadonlySet<string>,
+): Lorebook[] {
+  return lorebooks.map((lorebook) => ({
+    ...lorebook,
+    entries: lorebook.entries.map((entry) =>
+      disabledEntryIds.has(entry.id) ? { ...entry, enabled: false } : entry,
+    ),
+  }));
+}
+
+function disableLoreEntriesInCard(
+  card: RuntimeCard,
+  disabledEntryIds: ReadonlySet<string>,
+): RuntimeCard {
+  return disabledEntryIds.size === 0
+    ? card
+    : { ...card, lorebooks: disableLoreEntries(card.lorebooks, disabledEntryIds) };
+}
+
+function disableLoreEntriesInPersona(
+  persona: Persona,
+  disabledEntryIds: ReadonlySet<string>,
+): Persona {
+  return disabledEntryIds.size === 0
+    ? persona
+    : { ...persona, lorebooks: disableLoreEntries(persona.lorebooks, disabledEntryIds) };
+}
+
 export function App() {
   const [initialSnapshot] = useState(() => loadLocalRuntimeSnapshot<RuntimeCard, Message, PromptRun, ChatSession>());
   const initialRuntimeSettings = parseRuntimeSettings(initialSnapshot?.runtimeSettings);
@@ -352,7 +386,7 @@ export function App() {
       if (!activeCard) {
         return [];
       }
-      return selectActiveLorebookEntries({
+      return selectActiveLorebookEntriesForPreview({
         lorebooks: collectActiveLorebooks(activeCard, activePersona),
         messages,
         draft,
@@ -1396,7 +1430,7 @@ export function App() {
       return;
     }
 
-    const turnCard = options?.cardOverride ?? activeCard;
+    let turnCard = options?.cardOverride ?? activeCard;
     const parsedCommand = options?.actionOverride === undefined ? parseSlashCommand(draft.trim()) : null;
     if (parsedCommand) {
       await runSlashCommand(parsedCommand.command.name, parsedCommand.args);
@@ -1434,7 +1468,7 @@ export function App() {
       content: generationAction,
     };
     try {
-      const turnLorebookEntries = selectActiveLorebookEntries({
+      const loreSelection = await selectActiveLorebookEntriesSafely({
         lorebooks: collectActiveLorebooks(turnCard, activePersona),
         messages: chatMessages,
         draft: generationAction,
@@ -1452,6 +1486,22 @@ export function App() {
           memoryEntries: turnCard.memory.map((entry) => `${entry.label}: ${entry.detail}`),
         },
       });
+      const turnLorebookEntries = loreSelection.entries;
+      const disabledLoreEntryIds = new Set(loreSelection.disabledEntryIds);
+      if (disabledLoreEntryIds.size > 0) {
+        turnCard = disableLoreEntriesInCard(turnCard, disabledLoreEntryIds);
+        setCards((current) =>
+          current.map((card) =>
+            card.id === turnCard.id ? disableLoreEntriesInCard(card, disabledLoreEntryIds) : card,
+          ),
+        );
+        setPersonas((current) =>
+          current.map((persona) => disableLoreEntriesInPersona(persona, disabledLoreEntryIds)),
+        );
+        setRuleWarning(
+          `Disabled ${disabledLoreEntryIds.size} lore regex ${disabledLoreEntryIds.size === 1 ? "entry" : "entries"} after isolated matching failed or timed out.`,
+        );
+      }
       const provider = createTextProvider(providerSettings, sessionApiKey, turnCard, generationAction, turnLorebookEntries.length);
       const model = providerSettings.mode === "mock" ? "mock-narrator" : providerSettings.model;
       const hiddenContinuityResult = await runHiddenContinuityPassSafely({
@@ -1582,7 +1632,10 @@ export function App() {
             effects: turnEffects,
           })
         : recordChatTurnVariant(nextChatDraft, activeCard, assistantMessage.id, variantIndex, turnEffects);
-      const nextActiveCard = deriveCardForChat(activeCard, nextChat);
+      const nextActiveCard = disableLoreEntriesInCard(
+        deriveCardForChat(activeCard, nextChat),
+        disabledLoreEntryIds,
+      );
       const leakWarnings = describeKnowledgeLeaks(
         detectKnowledgeLeaks(assistantMessage.content, nextActiveCard.storyEntities),
       );

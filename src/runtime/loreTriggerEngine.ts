@@ -1,3 +1,5 @@
+import { testRegexInWorker, type LoreRegexTest } from "./loreRegexIsolation";
+
 export const LORE_MATCH_MODES = ["literal", "wildcard", "regex"] as const;
 
 /** How an entry's keys are compared against the scanned text. */
@@ -77,6 +79,16 @@ export interface SelectLorebookEntriesInput<Entry extends LoreTriggerEntry = Lor
   sources?: LoreTriggerSources;
 }
 
+export interface SafeLoreSelectionOptions {
+  regexTest?: LoreRegexTest;
+  timeoutMs?: number;
+}
+
+export interface SafeLoreSelectionResult<Entry extends LoreTriggerEntry = LoreTriggerEntry> {
+  entries: Entry[];
+  disabledEntryIds: string[];
+}
+
 export function selectActiveLorebookEntries<Entry extends LoreTriggerEntry>(
   input: SelectLorebookEntriesInput<Entry>,
 ): Entry[] {
@@ -102,6 +114,176 @@ export function selectActiveLorebookEntries<Entry extends LoreTriggerEntry>(
   }
 
   return uniqueLorebookEntries(activeEntries).sort(compareLorebookEntries);
+}
+
+/**
+ * Synchronous prompt previews never execute imported regex on the UI thread.
+ * Literal and wildcard entries remain available immediately; regex entries are
+ * evaluated only by `selectActiveLorebookEntriesSafely` during turn execution.
+ */
+export function selectActiveLorebookEntriesForPreview<Entry extends LoreTriggerEntry>(
+  input: SelectLorebookEntriesInput<Entry>,
+): Entry[] {
+  return selectActiveLorebookEntries({
+    ...input,
+    lorebooks: input.lorebooks.map((lorebook) => ({
+      ...lorebook,
+      entries: lorebook.entries.map((entry) =>
+        entry.matchMode === "regex" ? ({ ...entry, enabled: false } as Entry) : entry,
+      ),
+    })),
+  });
+}
+
+/** Evaluates regex entries off-thread with a per-test deadline and reports offenders. */
+export async function selectActiveLorebookEntriesSafely<Entry extends LoreTriggerEntry>(
+  input: SelectLorebookEntriesInput<Entry>,
+  options: SafeLoreSelectionOptions = {},
+): Promise<SafeLoreSelectionResult<Entry>> {
+  const activeEntries: Entry[] = [];
+  const disabledEntryIds = new Set<string>();
+  const regexTest = options.regexTest ?? testRegexInWorker;
+  const timeoutMs = Math.max(1, Math.min(1_000, Math.trunc(options.timeoutMs ?? 50)));
+
+  for (const lorebook of input.lorebooks) {
+    if (!lorebook.enabled) {
+      continue;
+    }
+
+    const scanText = createScanTextResolver(input, lorebook.scanDepth);
+    let triggeredEntries = await filterLorebookEntriesSafely(
+      lorebook.entries,
+      (entry) => scanText(entry),
+      regexTest,
+      timeoutMs,
+      disabledEntryIds,
+    );
+    if (lorebook.recursiveScanning && triggeredEntries.length > 0) {
+      const triggeredContent = triggeredEntries.map((entry) => entry.content).join("\n");
+      const recursiveEntries = await filterLorebookEntriesSafely(
+        lorebook.entries,
+        (entry) => scanText(entry, triggeredContent),
+        regexTest,
+        timeoutMs,
+        disabledEntryIds,
+      );
+      triggeredEntries = uniqueLorebookEntries([...triggeredEntries, ...recursiveEntries]);
+    }
+    activeEntries.push(...applyLorebookBudget(triggeredEntries, lorebook.tokenBudget));
+  }
+
+  return {
+    entries: uniqueLorebookEntries(activeEntries).sort(compareLorebookEntries),
+    disabledEntryIds: [...disabledEntryIds],
+  };
+}
+
+async function filterLorebookEntriesSafely<Entry extends LoreTriggerEntry>(
+  entries: Entry[],
+  scanText: (entry: Entry) => NormalizedScanText,
+  regexTest: LoreRegexTest,
+  timeoutMs: number,
+  disabledEntryIds: Set<string>,
+): Promise<Entry[]> {
+  const decisions = await Promise.all(
+    entries.map(async (entry) => ({
+      entry,
+      active: await isLorebookEntryActiveSafely(
+        entry,
+        scanText(entry),
+        regexTest,
+        timeoutMs,
+        disabledEntryIds,
+      ),
+    })),
+  );
+  return decisions.filter((decision) => decision.active).map((decision) => decision.entry);
+}
+
+async function isLorebookEntryActiveSafely(
+  entry: LoreTriggerEntry,
+  scanText: NormalizedScanText,
+  regexTest: LoreRegexTest,
+  timeoutMs: number,
+  disabledEntryIds: Set<string>,
+): Promise<boolean> {
+  if ((entry.matchMode ?? "literal") !== "regex") {
+    return isLorebookEntryActive(entry, scanText);
+  }
+  if (!entry.enabled || entry.probability <= 0) {
+    return false;
+  }
+  if (entry.constant) {
+    return probabilityAllows(entry);
+  }
+
+  const primary = await regexTermsMatchSafely(
+    entry.keys,
+    entry,
+    scanText.raw,
+    regexTest,
+    timeoutMs,
+    disabledEntryIds,
+  );
+  if (!primary || disabledEntryIds.has(entry.id)) {
+    return false;
+  }
+  const secondary =
+    entry.secondaryKeys.length === 0 ||
+    (await regexTermsMatchSafely(
+      entry.secondaryKeys,
+      entry,
+      scanText.raw,
+      regexTest,
+      timeoutMs,
+      disabledEntryIds,
+    ));
+  return secondary && !disabledEntryIds.has(entry.id) && probabilityAllows(entry);
+}
+
+async function regexTermsMatchSafely(
+  terms: readonly string[],
+  entry: LoreTriggerEntry,
+  text: string,
+  regexTest: LoreRegexTest,
+  timeoutMs: number,
+  disabledEntryIds: Set<string>,
+): Promise<boolean> {
+  for (const rawTerm of terms) {
+    const term = rawTerm.trim();
+    if (!term || term.length > MAX_LORE_PATTERN_LENGTH) {
+      continue;
+    }
+    try {
+      const matched = await withDeadline(
+        regexTest(term, entry.caseSensitive ? "" : "i", text, timeoutMs),
+        timeoutMs,
+      );
+      if (matched) {
+        return true;
+      }
+    } catch {
+      disabledEntryIds.add(entry.id);
+      return false;
+    }
+  }
+  return false;
+}
+
+function withDeadline<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = globalThis.setTimeout(() => reject(new Error("Lore regex timed out.")), timeoutMs);
+    operation.then(
+      (value) => {
+        globalThis.clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        globalThis.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 /** Reports why a key cannot be compiled, so the editor can reject it before saving. */

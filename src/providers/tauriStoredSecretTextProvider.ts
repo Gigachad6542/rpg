@@ -68,7 +68,9 @@ export class TauriStoredSecretTextProvider implements TextModelAdapter {
       }),
       request.signal,
     );
-    const inputTokens = response.usage?.inputTokens ?? estimateTextTokens(request.prompt);
+    const inputTokens =
+      response.usage?.inputTokens ??
+      estimateTextTokens([request.systemPrompt, request.prompt].filter(Boolean).join("\n\n"));
     const outputTokens = response.usage?.outputTokens ?? estimateTextTokens(response.text);
 
     return {

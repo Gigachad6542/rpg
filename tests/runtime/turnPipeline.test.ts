@@ -121,6 +121,28 @@ describe("turn pipeline", () => {
     expect(actualInputTokens + reservedOutputTokens).toBeLessThanOrEqual(maxInputTokens);
   });
 
+  it("uses the same system-adjusted token limit for prompt preview and execution", async () => {
+    const adapter = new RecordingTextAdapter({
+      text: "A short reply.",
+      finishReason: "stop",
+      usage: { inputTokens: 20, outputTokens: 4, totalTokens: 24 },
+    });
+    const request = {
+      ...baseRequest(adapter),
+      responseContract: "Return one concise, grounded scene.",
+      tokenBudget: { maxInputTokens: 2_000, reservedOutputTokens: 200 },
+    };
+    const { modelAdapter: _modelAdapter, model: _model, ...previewRequest } = request;
+
+    const preview = compileTurnPrompt(previewRequest);
+    const execution = await runTurnPipeline(request);
+
+    expect(preview.tokenLimit).toBeLessThan(
+      request.tokenBudget.maxInputTokens - (request.tokenBudget.reservedOutputTokens ?? 0),
+    );
+    expect(execution.promptRun.tokenLimit).toBe(preview.tokenLimit);
+  });
+
   it("compiles local RPG context, calls the adapter, validates extraction, and reports run metadata", async () => {
     const adapter = new RecordingTextAdapter({
       text: [
@@ -161,7 +183,8 @@ describe("turn pipeline", () => {
     expect(adapter.requests[0].prompt).toContain("[Gatehouse | priority 10]");
     expect(adapter.requests[0].prompt).toContain("Location: Unmapped road");
     expect(adapter.requests[0].prompt).toContain("## User latest message\nI approach the glowing lantern gate.");
-    expect(adapter.requests[0].prompt).toContain("Presentation rules: use *single asterisks*");
+    expect(adapter.requests[0].systemPrompt).toContain("Presentation rules: use *single asterisks*");
+    expect(adapter.requests[0].prompt).not.toContain("Presentation rules: use *single asterisks*");
     expect(adapter.requests[0].metadata?.includedLayerIds).toContain(TURN_PIPELINE_LAYER_IDS.rpgState);
 
     expect(result.assistantMessageText).toBe(
@@ -416,7 +439,10 @@ describe("turn pipeline", () => {
       includeLayerLabels: false,
     });
 
-    expect(result.promptRun.truncatedLayerIds).toContain(TURN_PIPELINE_LAYER_IDS.longTermMemory);
+    expect([
+      ...result.promptRun.truncatedLayerIds,
+      ...result.promptRun.omittedLayerIds,
+    ]).toContain(TURN_PIPELINE_LAYER_IDS.longTermMemory);
     expect(result.promptRun.includedMemoryIds).not.toContain("mem-trimmed");
   });
 
@@ -562,7 +588,7 @@ describe("turn pipeline", () => {
     expect(compiled.prompt).toContain("Flags: [object Object]");
     expect(compiled.prompt).toContain("Card boundary.\n\nGlobal boundary.");
     expect(compiled.prompt).toContain("Explicit latest action.");
-    expect(compiled.prompt).toContain("Custom response contract.");
+    expect(compiled.prompt).not.toContain("Custom response contract.");
     expect(compiled.prompt).toContain("Card prefill.");
   });
 

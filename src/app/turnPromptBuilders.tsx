@@ -1,6 +1,7 @@
 // Turn-prompt assembly, response contract, and mock-provider response builders extracted from App.tsx.
 import { type ReactNode } from "react";
 import { formatStoryEntitiesForKnowledgeBoundary } from "../runtime/hiddenContinuity";
+import { resolveModelCallBudget, type ModelCallBudget } from "../runtime/modelCallBudget";
 import { buildSceneText, orderByRelevance, selectPresentNames } from "../runtime/relevanceScoring";
 import type { LorebookEntry, Message, Persona, RuntimeCard, RuntimeSettings, TurnPromptRequest } from "./runtimeTypes";
 import { titleCase } from "./appUtils";
@@ -74,6 +75,11 @@ export function buildTurnPromptRequest(
   activePersona: Persona | null = null,
   overrides: Partial<TurnPromptRequest> = {},
 ): TurnPromptRequest {
+  const fallbackBudget = resolveModelCallBudget({
+    providerId: "unknown",
+    model: "unknown",
+    phase: "visible-response",
+  });
   const sceneText = buildSceneText([
     ...messages.slice(-6).map((message) => message.content),
     draft,
@@ -137,10 +143,20 @@ export function buildTurnPromptRequest(
       "Characters should only know what the card, active lore, memory, current scene, or explicit story entity ledger gives them reason to know. The narrator may know the broader scene state.",
       formatStoryEntitiesForKnowledgeBoundary(card.storyEntities, presentEntityNames),
     ].filter(Boolean).join("\n\n"),
-    tokenBudget: { maxInputTokens: 6_000, reservedOutputTokens: 900 },
+    ...toVisibleTurnBudget(fallbackBudget),
     responseContract: buildResponseContract(runtimeSettings),
     preferStreaming: runtimeSettings.textStreaming,
     ...overrides,
+  };
+}
+
+export function toVisibleTurnBudget(budget: ModelCallBudget): Pick<TurnPromptRequest, "tokenBudget" | "maxOutputTokens"> {
+  return {
+    tokenBudget: {
+      maxInputTokens: budget.inputBudgetTokens + budget.maxOutputTokens,
+      reservedOutputTokens: budget.maxOutputTokens,
+    },
+    maxOutputTokens: budget.maxOutputTokens,
   };
 }
 

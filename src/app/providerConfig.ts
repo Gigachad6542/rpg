@@ -1,7 +1,8 @@
 // Provider, model, and runtime-settings parsing plus text-provider construction, extracted from App.tsx.
 import { MockTextProvider } from "../providers/mockTextProvider";
 import { OpenAICompatibleTextProvider } from "../providers/openAICompatibleProvider";
-import { qwen37MaxReferencePreset } from "../providers/modelPresets";
+import { mockNarratorModel, qwen37MaxReferencePreset } from "../providers/modelPresets";
+import type { ModelInfo } from "../providers/TextModelAdapter";
 import { TauriStoredSecretTextProvider } from "../providers/tauriStoredSecretTextProvider";
 import { parseSecretReference } from "../security/keyStorage";
 import type {
@@ -85,6 +86,20 @@ export function getTextModelChoices(settings: ProviderSettings): ModelChoice[] {
     return [{ id: "mock-narrator", label: "Mock Narrator" }];
   }
   return withCurrentModelChoice(alibabaModelChoices, settings.model);
+}
+
+export function getConfiguredTextModelInfo(settings: ProviderSettings): ModelInfo {
+  if (settings.mode === "mock" || settings.providerId === "mock") {
+    return { ...mockNarratorModel };
+  }
+  if (settings.providerId === qwen37MaxReferencePreset.providerId && settings.model === qwen37MaxReferencePreset.id) {
+    return { ...qwen37MaxReferencePreset };
+  }
+  return {
+    id: settings.model,
+    displayName: settings.model,
+    providerId: settings.providerId,
+  };
 }
 
 export function getImageModelChoices(installedModels: string[], currentModel: string): ModelChoice[] {
@@ -339,13 +354,7 @@ export function createTextProvider(
       displayName: settings.displayName,
       baseUrl,
       secretReference: settings.secretReference,
-      models: [
-        {
-          ...qwen37MaxReferencePreset,
-          id: settings.model,
-          providerId: settings.providerId,
-        },
-      ],
+      models: [getConfiguredTextModelInfo(settings)],
     });
   }
   if (isHostedDesktopProvider(settings)) {
@@ -358,12 +367,6 @@ export function createTextProvider(
     baseUrl,
     apiKey: sessionApiKey,
     allowUnauthenticated: settings.providerId === "local",
-    models: [
-      {
-        ...qwen37MaxReferencePreset,
-        id: settings.model,
-        providerId: settings.providerId,
-      },
-    ],
+    models: [getConfiguredTextModelInfo(settings)],
   });
 }

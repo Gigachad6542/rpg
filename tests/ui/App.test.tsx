@@ -1831,6 +1831,8 @@ describe("local-first card runtime UI", () => {
     });
 
     const settingsPreview = screen.getByRole("region", { name: /Settings prompt preview/i });
+    expect(settingsPreview).toHaveTextContent(/Trusted system instructions/i);
+    expect(settingsPreview).toHaveTextContent(/User context/i);
     expect(settingsPreview).toHaveTextContent(/Do not include emojis/i);
     expect(settingsPreview).toHaveTextContent(/cautious cartographer/i);
     openCardEditorTab(/rules/i);

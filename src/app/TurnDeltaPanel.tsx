@@ -33,6 +33,9 @@ export function TurnDeltaPanel(props: {
                 </div>
                 <span>{call.provider} / {call.model}</span>
                 <span>{call.usage.inputTokens} input · {call.usage.outputTokens} output · {call.usage.totalTokens} total</span>
+                {call.inputBudgetTokens && call.inputBudgetTokens > 0 ? (
+                  <span>{formatInputBudgetUsage(call.usage.inputTokens, call.inputBudgetTokens)}</span>
+                ) : null}
                 <span>{Math.round(call.durationMs)} ms</span>
               </li>
             ))}
@@ -67,6 +70,11 @@ export function TurnDeltaPanel(props: {
       ) : null}
     </div>
   );
+}
+
+function formatInputBudgetUsage(inputTokens: number, inputBudgetTokens: number): string {
+  const utilization = Math.round((inputTokens / inputBudgetTokens) * 100);
+  return `${inputTokens} / ${inputBudgetTokens} input tokens · ${utilization}% used`;
 }
 
 function getDisplayProposals(run: PromptRun): TurnEffectProposal[] {

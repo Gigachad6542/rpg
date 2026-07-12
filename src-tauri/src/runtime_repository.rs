@@ -3028,6 +3028,10 @@ mod tests {
             json!(28)
         );
         assert_eq!(
+            loaded["promptRuns"][0]["modelCalls"][0]["inputBudgetTokens"],
+            json!(14200)
+        );
+        assert_eq!(
             loaded["promptRuns"][0]["stateProposals"][0]["provenance"],
             json!("player-action")
         );
@@ -3290,6 +3294,7 @@ mod tests {
                             "provider": "mock",
                             "model": "mock-narrator",
                             "usage": { "inputTokens": 8, "outputTokens": 2, "totalTokens": 10 },
+                            "inputBudgetTokens": 14200,
                             "durationMs": 12,
                             "status": "success"
                         },
@@ -3298,6 +3303,7 @@ mod tests {
                             "provider": "mock",
                             "model": "mock-narrator",
                             "usage": { "inputTokens": 20, "outputTokens": 8, "totalTokens": 28 },
+                            "inputBudgetTokens": 5100,
                             "durationMs": 34,
                             "status": "success"
                         }

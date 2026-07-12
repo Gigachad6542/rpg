@@ -406,6 +406,11 @@ describe("App pure helper coverage", () => {
     expect(helpers.getDefaultTextModel("mock")).toBe("mock-narrator");
     expect(helpers.getDefaultTextModel("alibaba-model-studio")).toBeTruthy();
     expect(helpers.getTextModelChoices(providerSettings({ providerId: "custom", model: "custom-model" })).map((choice: any) => choice.id)).toContain("custom-model");
+    expect(helpers.getConfiguredTextModelInfo(providerSettings())).not.toHaveProperty("contextWindow");
+    expect(helpers.getConfiguredTextModelInfo(providerSettings({
+      providerId: "alibaba-model-studio",
+      model: "qwen3.7-max",
+    }))).toMatchObject({ contextWindow: 262_144, maxOutputTokens: 8_192 });
     expect(helpers.getImageModelChoices(["installed.safetensors"], "custom-current")[0]).toEqual({
       id: "custom-current",
       label: "custom-current",

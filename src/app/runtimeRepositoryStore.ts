@@ -805,6 +805,13 @@ function readModelCalls(value: unknown): ModelCallRecord[] | undefined {
     const model = item.model;
     const durationMs = item.durationMs;
     const usage = readModelCallUsage(item.usage);
+    const rawInputBudgetTokens = item.inputBudgetTokens;
+    const inputBudgetTokens =
+      typeof rawInputBudgetTokens === "number" &&
+      Number.isFinite(rawInputBudgetTokens) &&
+      rawInputBudgetTokens >= 0
+        ? rawInputBudgetTokens
+        : undefined;
     if (
       (phase !== "hidden-continuity" && phase !== "visible-response") ||
       (status !== "success" && status !== "error") ||
@@ -813,11 +820,20 @@ function readModelCalls(value: unknown): ModelCallRecord[] | undefined {
       typeof durationMs !== "number" ||
       !Number.isFinite(durationMs) ||
       durationMs < 0 ||
+      (rawInputBudgetTokens !== undefined && inputBudgetTokens === undefined) ||
       !usage
     ) {
       return [];
     }
-    return [{ phase, provider, model, usage, durationMs, status }];
+    return [{
+      phase,
+      provider,
+      model,
+      usage,
+      ...(inputBudgetTokens === undefined ? {} : { inputBudgetTokens }),
+      durationMs,
+      status,
+    }];
   });
 
   return modelCalls.length > 0 ? modelCalls.slice(0, 2) : undefined;

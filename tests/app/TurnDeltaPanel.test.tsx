@@ -62,7 +62,7 @@ describe("TurnDeltaPanel", () => {
               durationMs: 640,
               status: "success",
             },
-          ] as unknown as PromptRun["modelCalls"],
+          ],
         } as Partial<PromptRun>)}
         onUndo={vi.fn()}
       />,

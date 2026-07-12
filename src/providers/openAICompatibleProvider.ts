@@ -110,7 +110,9 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
 
       const payload = (await timeout.run(response.json())) as ChatCompletionResponse;
       const text = payload.choices?.[0]?.message?.content?.trim() ?? "";
-      const inputTokens = payload.usage?.prompt_tokens ?? estimateTextTokens(request.prompt);
+      const inputTokens =
+        payload.usage?.prompt_tokens ??
+        estimateTextTokens([request.systemPrompt, request.prompt].filter(Boolean).join("\n\n"));
       const outputTokens = payload.usage?.completion_tokens ?? estimateTextTokens(text);
 
       return {

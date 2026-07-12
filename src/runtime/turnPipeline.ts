@@ -6,7 +6,7 @@ import type {
 } from "../providers/TextModelAdapter";
 import { compilePrompt, type CompiledPrompt, type PromptLayer } from "./promptCompiler";
 import type { TokenBudget, TokenEstimator } from "./tokenBudget";
-import { estimateTextTokens } from "./tokenBudget";
+import { estimateTextTokens, normalizeTokenEstimate } from "./tokenBudget";
 import {
   createEmptyExtractionResult,
   validateExtractionResult,
@@ -237,16 +237,18 @@ export async function runTurnPipeline(request: RunTurnPipelineRequest): Promise<
   const startedAt = now();
   const promptRunId = request.promptRunId ?? createPromptRunId(startedAt);
   const warnings: TurnPipelineWarning[] = [];
+  const systemPrompt = buildTurnSystemPrompt(request);
+  const maxOutputTokens = request.maxOutputTokens ?? request.tokenBudget?.reservedOutputTokens;
   const compiledPrompt = compileTurnPrompt(request);
   const includedLayerIds = compiledPrompt.includedLayers.map((layer) => layer.id);
   const includedLayerIdSet = new Set(includedLayerIds);
 
   const generationRequest: TextGenerationRequest = {
     model: request.model,
-    systemPrompt: buildTrustedSystemPrompt(request),
+    systemPrompt,
     prompt: compiledPrompt.prompt,
     temperature: request.temperature,
-    maxOutputTokens: request.maxOutputTokens,
+    maxOutputTokens,
     signal: request.signal,
     metadata: {
       promptRunId,
@@ -300,7 +302,7 @@ export async function runTurnPipeline(request: RunTurnPipelineRequest): Promise<
     providerId: generationResponse.providerId,
     model: generationResponse.model,
     temperature: request.temperature,
-    maxOutputTokens: request.maxOutputTokens,
+    maxOutputTokens,
     tokenBudget: request.tokenBudget,
     compiledPrompt: compiledPrompt.prompt,
     tokenEstimate: compiledPrompt.tokenEstimate,
@@ -352,10 +354,15 @@ export async function runTurnPipeline(request: RunTurnPipelineRequest): Promise<
 export function compileTurnPrompt(request: Omit<RunTurnPipelineRequest, "modelAdapter" | "model">): CompiledPrompt {
   const latestUserMessage = resolveLatestUserMessage(request.messages, request.latestUserMessage);
   const layers = buildTurnPromptLayers(request, latestUserMessage);
+  const systemPrompt = buildTurnSystemPrompt(request);
+  const maxOutputTokens = request.maxOutputTokens ?? request.tokenBudget?.reservedOutputTokens;
 
   return compilePrompt({
     layers,
-    tokenBudget: request.tokenBudget,
+    // tokenLimit describes the user-prompt allowance after the trusted system
+    // prompt and output have been reserved. Prompt-run tokenBudget retains the
+    // caller's original total context envelope.
+    tokenBudget: reserveSystemPromptTokens(request, systemPrompt, maxOutputTokens),
     estimator: request.estimator,
     includeLayerLabels: request.includeLayerLabels,
   });
@@ -544,11 +551,6 @@ export function buildTurnPromptLayers(
       kind: "postHistoryInstructions",
       content: request.card?.postHistoryInstructions ?? "",
       required: false,
-    }),
-    createLayer({
-      id: TURN_PIPELINE_LAYER_IDS.finalResponseContract,
-      kind: "finalResponseContract",
-      content: request.responseContract ?? defaultResponseContract,
     }),
     createLayer({
       id: TURN_PIPELINE_LAYER_IDS.assistantPrefill,
@@ -971,10 +973,30 @@ function stringifyValue(value: unknown): string {
   }
 }
 
-function buildTrustedSystemPrompt(request: RunTurnPipelineRequest): string {
+export function buildTurnSystemPrompt(request: Pick<RunTurnPipelineRequest, "responseContract">): string {
   return [trustedRuntimeAuthority, request.responseContract ?? defaultResponseContract]
     .filter(isNonEmptyString)
     .join("\n\n");
+}
+
+function reserveSystemPromptTokens(
+  request: Pick<RunTurnPipelineRequest, "estimator" | "tokenBudget">,
+  systemPrompt: string,
+  maxOutputTokens: number | undefined,
+): TokenBudget | undefined {
+  if (!request.tokenBudget) {
+    return undefined;
+  }
+
+  const estimator = request.estimator ?? estimateTextTokens;
+  // The provider joins the system and user roles with a separator for fallback
+  // accounting. Reserve that separator here as well so rounding cannot place
+  // the combined request one token over the declared context budget.
+  const systemPromptTokens = normalizeTokenEstimate(estimator(`${systemPrompt}\n\n`));
+  return {
+    maxInputTokens: Math.max(0, request.tokenBudget.maxInputTokens - systemPromptTokens),
+    reservedOutputTokens: maxOutputTokens ?? request.tokenBudget.reservedOutputTokens,
+  };
 }
 
 const trustedRuntimeAuthority = [

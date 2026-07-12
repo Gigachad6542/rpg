@@ -175,6 +175,7 @@ const ModelCallSchema = z
     provider: z.string(),
     model: z.string(),
     usage: TokenUsageSchema,
+    inputBudgetTokens: z.number().nonnegative().optional(),
     durationMs: z.number().nonnegative(),
     status: z.enum(["success", "error"]),
   })

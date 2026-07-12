@@ -35,6 +35,7 @@ import {
   type StoryEntity,
 } from "../runtime/hiddenContinuity";
 import { createRuntimeTurnEffects } from "../runtime/runtimeTurnLineage";
+import { resolveModelCallBudget } from "../runtime/modelCallBudget";
 import { detectKnowledgeLeaks, describeKnowledgeLeaks } from "../runtime/knowledgeLeakDetector";
 import {
   selectActiveLorebookEntriesForPreview,
@@ -55,6 +56,7 @@ import {
   stripTrailingCallToAction,
 } from "./assistantMessageParsing";
 import {
+  buildTurnSystemPrompt,
   compileTurnPrompt,
   runTurnPipeline,
   TURN_PIPELINE_LAYER_IDS,
@@ -178,6 +180,7 @@ import {
   applyPromptDebugRetention,
   createTextProvider,
   getAllowedProviderBaseUrl,
+  getConfiguredTextModelInfo,
   isHostedDesktopProvider,
   normalizeImageProviderQualitySettings,
   parseImageProviderSettings,
@@ -197,7 +200,13 @@ import {
   upsertGeneratedMap,
   upsertGeneratedMaps,
 } from "./generatedImages";
-import { buildTurnPromptRequest, formatDetailedCharacterDefinition, isTauriRuntime } from "./turnPromptBuilders";
+import {
+  buildResponseContract,
+  buildTurnPromptRequest,
+  formatDetailedCharacterDefinition,
+  isTauriRuntime,
+  toVisibleTurnBudget,
+} from "./turnPromptBuilders";
 import type { ImportedCard } from "./cardImport";
 import {
   characterPortraitNegativePrompt,
@@ -449,6 +458,13 @@ export function App() {
       if (!activeCard) {
         return emptyCompiledPrompt;
       }
+      const previewModel = providerSettings.mode === "mock" ? "mock-narrator" : providerSettings.model;
+      const previewBudget = resolveModelCallBudget({
+        providerId: providerSettings.providerId,
+        model: previewModel,
+        phase: "visible-response",
+        modelInfo: getConfiguredTextModelInfo(providerSettings),
+      });
       return compileTurnPrompt({
         ...buildTurnPromptRequest(
           activeCard,
@@ -457,13 +473,24 @@ export function App() {
           deferredDraft,
           runtimeSettings,
           activePersona,
+          toVisibleTurnBudget(previewBudget),
         ),
         includeLayerLabels: true,
       });
     },
-    [activeCard, activePersona, deferredLorebookEntries, deferredDraft, messages, runtimeSettings],
+    [activeCard, activePersona, deferredLorebookEntries, deferredDraft, messages, providerSettings, runtimeSettings],
   );
-  const compiledPrompt = compiledPromptResult.prompt;
+  const compiledPrompt = useMemo(
+    () => activeCard
+      ? [
+          "## Trusted system instructions",
+          buildTurnSystemPrompt({ responseContract: buildResponseContract(runtimeSettings) }),
+          "## User context",
+          compiledPromptResult.prompt,
+        ].join("\n\n")
+      : "",
+    [activeCard, compiledPromptResult.prompt, runtimeSettings],
+  );
   const currentSnapshot = useMemo<AppRuntimeSnapshot>(
     () => ({
       version: 2 as const,
@@ -1568,6 +1595,19 @@ export function App() {
       }
       const provider = createTextProvider(providerSettings, sessionApiKey, turnCard, generationAction, turnLorebookEntries.length);
       const model = providerSettings.mode === "mock" ? "mock-narrator" : providerSettings.model;
+      const configuredModelInfo = getConfiguredTextModelInfo(providerSettings);
+      const hiddenBudget = resolveModelCallBudget({
+        providerId: providerSettings.providerId,
+        model,
+        phase: "hidden-continuity",
+        modelInfo: configuredModelInfo,
+      });
+      const visibleBudget = resolveModelCallBudget({
+        providerId: providerSettings.providerId,
+        model,
+        phase: "visible-response",
+        modelInfo: configuredModelInfo,
+      });
       let hiddenCallOutcome: TextModelCallOutcome | undefined;
       const hiddenCallStartedAt = readMonotonicMilliseconds();
       const hiddenContinuityResult = await runHiddenContinuityPassSafely({
@@ -1580,12 +1620,15 @@ export function App() {
         latestUserMessage: generationAction,
         activeLoreCount: turnLorebookEntries.length,
         pendingReviewProposals: pendingReviewRef.current[turnCard.id] ?? [],
+        inputBudgetTokens: hiddenBudget.inputBudgetTokens,
+        maxOutputTokens: hiddenBudget.maxOutputTokens,
         signal: abortController.signal,
       });
       const hiddenModelCall = toModelCallRecord({
         phase: "hidden-continuity",
         fallbackProvider: provider.id,
         fallbackModel: model,
+        inputBudgetTokens: hiddenBudget.inputBudgetTokens,
         durationMs: elapsedMilliseconds(hiddenCallStartedAt),
         outcome: hiddenCallOutcome,
       });
@@ -1612,6 +1655,7 @@ export function App() {
           runtimeSettings,
           activePersona,
           {
+            ...toVisibleTurnBudget(visibleBudget),
             latestUserMessage: hiddenLatestUserMessage,
             promptRunId: runId,
             metadata: {
@@ -1635,6 +1679,7 @@ export function App() {
         provider: pipelineResult.promptRun.providerId,
         model: pipelineResult.promptRun.model,
         usage: { ...pipelineResult.promptRun.usage },
+        inputBudgetTokens: visibleBudget.inputBudgetTokens,
         durationMs: elapsedMilliseconds(visibleCallStartedAt),
         status: pipelineResult.promptRun.finishReason === "error" ? "error" : "success",
       };
@@ -2843,6 +2888,7 @@ function toModelCallRecord(input: {
   phase: ModelCallRecord["phase"];
   fallbackProvider: string;
   fallbackModel: string;
+  inputBudgetTokens: number;
   durationMs: number;
   outcome?: TextModelCallOutcome;
 }): ModelCallRecord {
@@ -2856,6 +2902,7 @@ function toModelCallRecord(input: {
     usage: response
       ? { ...response.usage }
       : { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    inputBudgetTokens: input.inputBudgetTokens,
     durationMs: input.durationMs,
     status: response && response.finishReason !== "error" ? "success" : "error",
   };

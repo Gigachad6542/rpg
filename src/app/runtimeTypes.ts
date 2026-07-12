@@ -175,6 +175,8 @@ export type ModelCallRecord = {
     outputTokens: number;
     totalTokens: number;
   };
+  /** Maximum input-token allowance for this phase; absent on legacy prompt runs. */
+  inputBudgetTokens?: number;
   durationMs: number;
   status: "success" | "error";
 };

@@ -6,6 +6,8 @@ import {
   parseLoreMatchMode,
   parseLoreScanScopes,
   selectActiveLorebookEntries,
+  selectActiveLorebookEntriesForPreview,
+  selectActiveLorebookEntriesSafely,
   validateLoreKeys,
   type LoreTriggerBook,
   type LoreTriggerEntry,
@@ -206,6 +208,46 @@ describe("match modes", () => {
     // Assert
     expect(active).toEqual([]);
     expect(Date.now() - startedAt).toBeLessThan(1_000);
+  });
+
+  it("runs regex selection through the injected isolated matcher", async () => {
+    const regexTest = async (source: string, flags: string, text: string) => {
+      expect(source).toBe("\\bsilver\\s+gates?\\b");
+      expect(flags).toBe("i");
+      expect(text).toContain("SILVER GATE");
+      return true;
+    };
+    const result = await selectActiveLorebookEntriesSafely(
+      {
+        lorebooks: [bookOf([entry({ id: "regex", keys: ["\\bsilver\\s+gates?\\b"], matchMode: "regex" })])],
+        messages: [],
+        draft: "The SILVER GATE opens.",
+      },
+      { regexTest, timeoutMs: 20 },
+    );
+
+    expect(result.entries.map((item) => item.id)).toEqual(["regex"]);
+    expect(result.disabledEntryIds).toEqual([]);
+  });
+
+  it("times out an untrusted regex, reports it for disabling, and never blocks preview", async () => {
+    const regexEntry = entry({ id: "redos", keys: ["(a+)+$"], matchMode: "regex" });
+    const literalEntry = entry({ id: "literal", keys: ["gate"], matchMode: "literal" });
+    const input = {
+      lorebooks: [bookOf([regexEntry, literalEntry])],
+      messages: [],
+      draft: `${"a".repeat(10_000)}! gate`,
+    };
+    const startedAt = performance.now();
+    const result = await selectActiveLorebookEntriesSafely(input, {
+      regexTest: () => new Promise<boolean>(() => undefined),
+      timeoutMs: 5,
+    });
+
+    expect(performance.now() - startedAt).toBeLessThan(100);
+    expect(result.entries.map((item) => item.id)).toEqual(["literal"]);
+    expect(result.disabledEntryIds).toEqual(["redos"]);
+    expect(selectActiveLorebookEntriesForPreview(input).map((item) => item.id)).toEqual(["literal"]);
   });
 });
 

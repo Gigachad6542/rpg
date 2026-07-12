@@ -36,6 +36,8 @@ const card: RuntimeCard = {
       enabled: true,
       constant: false,
       probability: 100,
+      caseSensitive: false,
+      wholeWord: false,
       matchMode: "literal",
     }],
   }],

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BookOpen, Plus, Settings2, Trash2 } from "lucide-react";
+import { BookOpen, Download, Plus, Settings2, Trash2 } from "lucide-react";
 import { type CompiledPrompt } from "../runtime/promptCompiler";
 import type {
   CardKind,
@@ -17,6 +17,7 @@ import { InstructionsPanel, LorebooksPanel, RulesPanel } from "./CardEditorPanel
 import { RpgStatePanel } from "./RpgStatePanel";
 import { CardImportPanel } from "./CardImportPanel";
 import type { ImportedCard } from "./cardImport";
+import { exportRuntimeCard } from "./cardExport";
 
 export function CardsSection(props: {
   cards: RuntimeCard[];
@@ -105,6 +106,14 @@ export function CardsSection(props: {
                 <button className="secondary-button compact-button" type="button" onClick={() => props.editCard(card)}>
                   <Settings2 size={16} />
                   Edit
+                </button>
+                <button className="secondary-button compact-button" type="button" onClick={() => exportRuntimeCard(card, "json")}>
+                  <Download size={16} />
+                  Export JSON
+                </button>
+                <button className="secondary-button compact-button" type="button" onClick={() => exportRuntimeCard(card, "png")}>
+                  <Download size={16} />
+                  Export PNG
                 </button>
                 <button
                   className="secondary-button danger-button compact-button"

@@ -50,13 +50,18 @@ describe("conversationRestoreSignature", () => {
     expect(conversationRestoreSignature(after, 1)).not.toBe(conversationRestoreSignature(before, 1));
   });
 
-  test("does NOT change when merely swiping between existing variants", () => {
-    // Swiping only moves the active index and mirrors an existing variant into
-    // content; the variants array is untouched, so no restore point is captured.
-    const showingB = [session("s1", [{ id: "m1", content: "b", variants: ["a", "b"] }])];
-    const showingA = [session("s1", [{ id: "m1", content: "a", variants: ["a", "b"] }])];
+  test("changes when swiping selects a different state-bearing variant", () => {
+    const showingB = [session("s1", [{ id: "m1", content: "b", variants: ["a", "b"], activeVariantIndex: 1 }])];
+    const showingA = [session("s1", [{ id: "m1", content: "a", variants: ["a", "b"], activeVariantIndex: 0 }])];
 
-    expect(conversationRestoreSignature(showingA, 1)).toBe(conversationRestoreSignature(showingB, 1));
+    expect(conversationRestoreSignature(showingA, 1)).not.toBe(conversationRestoreSignature(showingB, 1));
+  });
+
+  test("changes when a variant's state effects are undone", () => {
+    const before = [session("s1", [{ id: "m1", content: "a", activeVariantIndex: 0 }])];
+    const after = [session("s1", [{ id: "m1", content: "a", activeVariantIndex: 0, undoneVariantIndices: [0] }])];
+
+    expect(conversationRestoreSignature(after, 1)).not.toBe(conversationRestoreSignature(before, 1));
   });
 
   test("changes when the card count changes", () => {

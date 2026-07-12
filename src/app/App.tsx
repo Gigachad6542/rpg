@@ -506,16 +506,7 @@ export function App() {
       return;
     }
     restoreSignatureRef.current = signature;
-    setRestorePoints((current) =>
-      appendRestorePoint(
-        current,
-        buildRestorePoint({
-          id: createRuntimeEntityId("restore"),
-          createdAt: new Date().toISOString(),
-          snapshot: currentSnapshotRef.current,
-        }),
-      ),
-    );
+    captureRestorePoint();
   }, [cards, chatSessions, repositoryHydrated]);
 
   useEffect(() => {
@@ -814,6 +805,19 @@ export function App() {
     setSaveStatus(status);
   }
 
+  function captureRestorePoint(snapshot: AppRuntimeSnapshot = currentSnapshotRef.current) {
+    setRestorePoints((current) =>
+      appendRestorePoint(
+        current,
+        buildRestorePoint({
+          id: createRuntimeEntityId("restore"),
+          createdAt: new Date().toISOString(),
+          snapshot,
+        }),
+      ),
+    );
+  }
+
   function exportRuntimeData() {
     const bundle = buildVersionedRuntimeExport(toRuntimeExportSnapshot(currentSnapshot));
     downloadJson(`rpg-runtime-${formatDownloadTimestamp(bundle.exportedAt)}.json`, bundle);
@@ -837,12 +841,7 @@ export function App() {
 
   function applyRuntimeImport() {
     if (!pendingImportSnapshot) return;
-    setRestorePoints((current) =>
-      appendRestorePoint(
-        current,
-        buildRestorePoint({ id: createRuntimeEntityId("restore"), createdAt: new Date().toISOString(), snapshot: currentSnapshotRef.current }),
-      ),
-    );
+    captureRestorePoint();
     hydrateFromSnapshot(pendingImportSnapshot as RepositoryRuntimeSnapshot, "Imported runtime export.");
     setDataManagementStatus(`Imported runtime export saved at ${pendingImportSnapshot.savedAt}.`);
     setPendingImportSnapshot(null);
@@ -1796,6 +1795,7 @@ export function App() {
 
     const before = activeCard.memory.length;
     const proposedMemory = memoryConsolidationReview.proposedMemory.map((entry) => ({ ...entry }));
+    captureRestorePoint();
     commitManualActiveCardState({ ...activeCard, memory: proposedMemory });
     setMemoryConsolidationReview(null);
     setMemoryConsolidationStatus(`Memory consolidation applied: ${before} to ${proposedMemory.length} entries.`);
@@ -2381,6 +2381,7 @@ export function App() {
   }
 
   function removePersona(personaId: string) {
+    captureRestorePoint();
     const remaining = deletePersona(personas, personaId);
     setPersonas(remaining);
     setActivePersonaId(parseActivePersonaId(activePersonaId, remaining));

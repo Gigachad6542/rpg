@@ -2238,6 +2238,35 @@ pre {
   gap: 8px;
 }
 
+.crash-recovery {
+  align-items: center;
+  background: var(--bg);
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.crash-recovery-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 14px;
+  max-width: 680px;
+  padding: 24px;
+}
+
+.crash-recovery-card h1,
+.crash-recovery-card p {
+  margin: 0;
+}
+
+.crash-recovery-actions {
+  flex-wrap: wrap;
+}
+
 .proposed-memory-list {
   max-height: 34vh;
   overflow-y: auto;

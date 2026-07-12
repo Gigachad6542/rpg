@@ -2,6 +2,7 @@
 import type { ChatSession, Message, PromptRun, RuntimeCard } from "./runtimeTypes";
 import type { LocalRuntimeSnapshot } from "./localRuntimeStore";
 import { isRecord } from "./appUtils";
+import { createRuntimeTurnLineage, parseRuntimeTurnLineage } from "../runtime/runtimeTurnLineage";
 
 export function parseChatSessions(
   value: unknown,
@@ -18,6 +19,10 @@ export function parseChatSessions(
           if (!cardId || typeof session.id !== "string") {
             return null;
           }
+          const card = cards.find((candidate) => candidate.id === cardId);
+          if (!card) {
+            return null;
+          }
           const messages = sanitizeMessages(session.messages);
           return {
             id: session.id,
@@ -29,6 +34,7 @@ export function parseChatSessions(
             createdAt: typeof session.createdAt === "string" ? session.createdAt : new Date().toISOString(),
             updatedAt: typeof session.updatedAt === "string" ? session.updatedAt : new Date().toISOString(),
             messages,
+            turnLineage: parseRuntimeTurnLineage(session.turnLineage, card),
           };
         })
         .filter((session): session is ChatSession => Boolean(session))
@@ -43,6 +49,7 @@ export function parseChatSessions(
     sessions.push(
       createChatSession(card.id, `${card.name} chat`, {
         messages: card.id === activeCardId ? migratedMessages : [],
+        turnLineage: createRuntimeTurnLineage(card),
       }),
     );
   }
@@ -121,7 +128,7 @@ export function sanitizeMessages(value: unknown): Message[] {
 export function createChatSession(
   cardId: string,
   title: string,
-  options: Partial<Pick<ChatSession, "id" | "branchOfId" | "branchedFromMessageId" | "messages">> = {},
+  options: Partial<Pick<ChatSession, "id" | "branchOfId" | "branchedFromMessageId" | "messages" | "turnLineage">> = {},
 ): ChatSession {
   const now = new Date().toISOString();
   const id = options.id ?? createRuntimeEntityId("chat");
@@ -135,6 +142,7 @@ export function createChatSession(
     createdAt: now,
     updatedAt: now,
     messages,
+    ...(options.turnLineage ? { turnLineage: options.turnLineage } : {}),
   };
 }
 

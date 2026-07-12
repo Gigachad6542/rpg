@@ -4,13 +4,15 @@ import {
   branchChatTurnState,
   deriveCardForChat,
   deriveCardForRegeneration,
+  forkChatForMessageEdit,
   initializeChatTurnState,
+  rebaseChatTurnState,
   recordChatTurnVariant,
   recordRegeneratedChatVariant,
   switchChatMessageVariant,
 } from "../../src/app/chatTurnState";
 import { createChatSession, parseChatSessions } from "../../src/app/chatSessions";
-import type { ChatSession, Message, RuntimeCard } from "../../src/app/runtimeTypes";
+import type { Message, RuntimeCard } from "../../src/app/runtimeTypes";
 import { createEmptyExtractionResult } from "../../src/runtime/extraction";
 import { createEmptyHiddenContinuityResult } from "../../src/runtime/hiddenContinuity";
 import { createRuntimeTurnEffects } from "../../src/runtime/runtimeTurnLineage";
@@ -95,7 +97,11 @@ describe("chat turn-state integration helpers", () => {
 
     expect(deriveCardForRegeneration(baseCard, session, "a-old").rpg?.inventory).toEqual([]);
 
-    const replacementMessages = turnMessages("a-new", 1);
+    const replacementMessages = turnMessages("a-new", 1).map((message) =>
+      message.id === "a-new"
+        ? { ...message, content: "Second.", variants: ["First.", "Second."], activeVariantIndex: 1 }
+        : message,
+    );
     const regenerated = recordRegeneratedChatVariant({
       chat: { ...session, messages: replacementMessages },
       card: baseCard,
@@ -169,5 +175,81 @@ describe("chat turn-state integration helpers", () => {
     expect(result.changed).toBe(false);
     expect(result.reason).toMatch(/downstream/i);
     expect(result.chat).toEqual(session);
+  });
+
+  it("rebases explicit manual state changes and disables stale variant deltas", () => {
+    const baseCard = card();
+    let session = initializeChatTurnState(createChatSession(baseCard.id, "Chat"), baseCard);
+    session = {
+      ...session,
+      messages: turnMessages("a1", 0).map((message) =>
+        message.id === "a1"
+          ? { ...message, variants: ["First", "Second"], activeVariantIndex: 0 }
+          : message,
+      ),
+    };
+    session = recordChatTurnVariant(session, baseCard, "a1", 0, effects("torch"));
+    const manuallyChanged = deriveCardForChat(baseCard, session);
+    manuallyChanged.rpg = { ...manuallyChanged.rpg!, inventory: ["torch", "manual note"] };
+
+    const rebased = rebaseChatTurnState(session, manuallyChanged);
+    expect(rebased.turnLineage?.ledger).toEqual({});
+    expect(deriveCardForChat(manuallyChanged, rebased).rpg?.inventory).toEqual(["torch", "manual note"]);
+
+    const staleSwipe = switchChatMessageVariant(rebased, manuallyChanged, "a1", 1);
+    expect(staleSwipe.changed).toBe(false);
+    expect(staleSwipe.reason).toMatch(/state history/i);
+  });
+
+  it("edits an earlier user turn by forking and pruning dependent history", () => {
+    const baseCard = card();
+    const messages: Message[] = [
+      { id: "u1", role: "user", content: "First" },
+      { id: "a1", role: "assistant", content: "Torch" },
+      { id: "u2", role: "user", content: "Old choice" },
+      { id: "a2", role: "assistant", content: "Rope" },
+    ];
+    let parent = initializeChatTurnState(
+      { ...createChatSession(baseCard.id, "Parent"), messages },
+      baseCard,
+    );
+    parent = recordChatTurnVariant(parent, baseCard, "a1", 0, effects("torch"));
+    parent = recordChatTurnVariant(parent, baseCard, "a2", 0, effects("rope"));
+
+    const branch = forkChatForMessageEdit(parent, baseCard, "u2", "New choice", "branch-edit");
+    expect(branch).not.toBeNull();
+    expect(branch?.branchOfId).toBe(parent.id);
+    expect(branch?.messages.map((message) => message.content)).toEqual(["First", "Torch", "New choice"]);
+    expect(deriveCardForChat(baseCard, branch!).rpg?.inventory).toEqual(["torch"]);
+    expect(deriveCardForChat(baseCard, parent).rpg?.inventory).toEqual(["torch", "rope"]);
+  });
+
+  it("drops an edited assistant turn's stale effects and variant controls", () => {
+    const baseCard = card();
+    let parent = initializeChatTurnState(
+      {
+        ...createChatSession(baseCard.id, "Parent"),
+        messages: [
+          { id: "u1", role: "user", content: "Choose" },
+          {
+            id: "a1",
+            role: "assistant",
+            content: "Torch",
+            variants: ["Torch", "Lantern"],
+            activeVariantIndex: 0,
+          },
+        ],
+      },
+      baseCard,
+    );
+    parent = recordChatTurnVariant(parent, baseCard, "a1", 0, effects("torch"));
+    parent = recordChatTurnVariant(parent, baseCard, "a1", 1, effects("lantern"));
+
+    const branch = forkChatForMessageEdit(parent, baseCard, "a1", "Custom outcome", "branch-assistant");
+    const edited = branch?.messages[branch.messages.length - 1];
+    expect(edited).toMatchObject({ content: "Custom outcome" });
+    expect(edited?.variants).toBeUndefined();
+    expect(edited?.activeVariantIndex).toBeUndefined();
+    expect(deriveCardForChat(baseCard, branch!).rpg?.inventory).toEqual([]);
   });
 });

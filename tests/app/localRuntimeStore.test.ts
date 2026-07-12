@@ -90,6 +90,29 @@ describe("local runtime store", () => {
     expect(withDebug.promptRuns[0].compiledPrompt).toBe("debug compiled prompt");
   });
 
+  it("never truncates lineage-backed chat history without rebasing its state root", () => {
+    const writes: string[] = [];
+    let callCount = 0;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation((_key: string, value: string) => {
+      callCount += 1;
+      if (callCount === 1) {
+        throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+      }
+      writes.push(value);
+    });
+    const snapshot = createLargeSnapshot();
+    snapshot.chatSessions![0].turnLineage = {
+      baseState: { memory: [], storyEntities: [] },
+      ledger: { "session-message-0": { messageId: "session-message-0", variants: [] } },
+    };
+
+    saveLocalRuntimeSnapshot(snapshot);
+
+    const compact = JSON.parse(writes[0]) as typeof snapshot;
+    expect(compact.chatSessions?.[0].messages).toHaveLength(120);
+    expect(compact.chatSessions?.[0].turnLineage).toEqual(snapshot.chatSessions?.[0].turnLineage);
+  });
+
   it("keeps a larger generated media window with character portrait metadata", () => {
     const writes: string[] = [];
     vi.spyOn(Storage.prototype, "setItem").mockImplementation((_key: string, value: string) => {

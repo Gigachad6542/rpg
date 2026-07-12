@@ -26,12 +26,10 @@ import { compileImagePrompt } from "../runtime/imagePromptCompiler";
 import {
   applyHiddenContinuityToCard,
   buildVisibleUserMessageWithHiddenContinuity,
-  createEmptyHiddenContinuityResult,
   runHiddenContinuityPassSafely,
-  toHiddenContinuityKnowledgeUpdates,
-  type HiddenContinuityResult,
   type StoryEntity,
 } from "../runtime/hiddenContinuity";
+import { createRuntimeTurnEffects } from "../runtime/runtimeTurnLineage";
 import { detectKnowledgeLeaks, describeKnowledgeLeaks } from "../runtime/knowledgeLeakDetector";
 import { selectActiveLorebookEntries, validateLoreKeys } from "../runtime/loreTriggerEngine";
 import { formatDiceResult, rollFromNotation } from "../runtime/diceEngine";
@@ -84,7 +82,6 @@ import {
 import { HydrationGate } from "./HydrationGate";
 import { archiveDesktopRuntimeDatabase } from "./tauriRuntimeRepositoryClient";
 import {
-  applyValidatedTurnEffectsToCard,
   describeValidatedTurnEffects,
   filterValidatedTurnEffectsForPolicy,
 } from "./turnEffects";
@@ -134,6 +131,17 @@ import {
   parseChatSessions,
   upsertChatSession,
 } from "./chatSessions";
+import {
+  branchChatTurnState,
+  deriveCardForChat,
+  deriveCardForRegeneration,
+  forkChatForMessageEdit,
+  initializeChatTurnState,
+  rebaseChatTurnState,
+  recordChatTurnVariant,
+  recordRegeneratedChatVariant,
+  switchChatMessageVariant,
+} from "./chatTurnState";
 import {
   buildImagePromptRequest,
   planImagePromptWithTextModel,
@@ -223,18 +231,26 @@ export function App() {
     initialSnapshot?.messages ?? starterMessages,
     initialActiveCardId,
   );
+  const initialActiveChatIds = parseActiveChatIds(
+    initialSnapshot?.activeChatIds,
+    normalizedInitialCards,
+    initialChatSessions,
+    initialActiveCardId,
+  );
+  const initialCardsWithChatState = normalizedInitialCards.map((card) => {
+    const chat = getActiveChatForCard(card.id, initialChatSessions, initialActiveChatIds);
+    return chat ? deriveCardForChat(card, chat) : card;
+  });
   const repositoryStoreRef = useRef<RuntimeRepository | null>(null);
   const snapshotSaveQueueRef = useRef<SnapshotSaveQueue<RepositoryRuntimeSnapshot> | null>(null);
   const pendingReviewRef = useRef<Record<string, string[]>>({});
   const keyStorageRef = useRef<KeyStorage>(requireSecureKeyStorage());
   const [theme, setTheme] = useState<Theme>(() => initialSnapshot?.theme ?? "dark");
   const [section, setSection] = useState<MainSection>("runtime");
-  const [cards, setCards] = useState<RuntimeCard[]>(() => normalizedInitialCards);
+  const [cards, setCards] = useState<RuntimeCard[]>(() => initialCardsWithChatState);
   const [activeCardId, setActiveCardId] = useState(() => initialActiveCardId);
   const [chatSessions, setChatSessions] = useState<ChatSession[]>(() => initialChatSessions);
-  const [activeChatIds, setActiveChatIds] = useState<Record<string, string>>(() =>
-    parseActiveChatIds(initialSnapshot?.activeChatIds, normalizedInitialCards, initialChatSessions, initialActiveCardId),
-  );
+  const [activeChatIds, setActiveChatIds] = useState<Record<string, string>>(() => initialActiveChatIds);
   const [cardTab, setCardTab] = useState<CardTab>("chat");
   const [draft, setDraft] = useState("");
   const [runtimeRunning, setRuntimeRunning] = useState(true);
@@ -689,11 +705,21 @@ export function App() {
       snapshot.messages as Message[],
       hydratedActiveCardId,
     );
+    const hydratedActiveChatIds = parseActiveChatIds(
+      snapshot.activeChatIds,
+      normalizedCards,
+      hydratedChatSessions,
+      hydratedActiveCardId,
+    );
+    const hydratedCards = normalizedCards.map((card) => {
+      const chat = getActiveChatForCard(card.id, hydratedChatSessions, hydratedActiveChatIds);
+      return chat ? deriveCardForChat(card, chat) : card;
+    });
     setTheme(snapshot.theme);
-    setCards(normalizedCards);
+    setCards(hydratedCards);
     setActiveCardId(hydratedActiveCardId);
     setChatSessions(hydratedChatSessions);
-    setActiveChatIds(parseActiveChatIds(snapshot.activeChatIds, normalizedCards, hydratedChatSessions, hydratedActiveCardId));
+    setActiveChatIds(hydratedActiveChatIds);
     const hydratedRuntimeSettings = parseRuntimeSettings(snapshot.runtimeSettings);
     const hydratedPersonas = parsePersonas(snapshot.personas, readLegacyImpersonationPrompt(snapshot.runtimeSettings));
     setPromptRuns(applyPromptDebugRetention(snapshot.promptRuns as PromptRun[], hydratedRuntimeSettings));
@@ -740,6 +766,9 @@ export function App() {
   }
 
   function selectCard(card: RuntimeCard) {
+    const selectedChat = getActiveChatForCard(card.id, chatSessions, activeChatIds);
+    const selectedCard = selectedChat ? deriveCardForChat(card, selectedChat) : card;
+    setCards((current) => current.map((candidate) => (candidate.id === card.id ? selectedCard : candidate)));
     setActiveCardId(card.id);
     setCardTab("chat");
     setSection("runtime");
@@ -758,6 +787,9 @@ export function App() {
   }
 
   function editCard(card: RuntimeCard) {
+    const selectedChat = getActiveChatForCard(card.id, chatSessions, activeChatIds);
+    const selectedCard = selectedChat ? deriveCardForChat(card, selectedChat) : card;
+    setCards((current) => current.map((candidate) => (candidate.id === card.id ? selectedCard : candidate)));
     setActiveCardId(card.id);
     setCardTab("instructions");
     setSection("cards");
@@ -818,7 +850,7 @@ export function App() {
     };
 
     setCards((current) => [...current, card]);
-    const chat = createChatSession(card.id, `${card.name} chat`);
+    const chat = initializeChatTurnState(createChatSession(card.id, `${card.name} chat`), card);
     setChatSessions((current) => [...current, chat]);
     setActiveChatIds((current) => ({ ...current, [card.id]: chat.id }));
     setActiveCardId(card.id);
@@ -832,7 +864,7 @@ export function App() {
   function importCard(result: ImportedCard) {
     const [card] = normalizeRuntimeCards([result.card]);
     setCards((current) => [...current, card]);
-    const chat = createChatSession(card.id, `${card.name} chat`);
+    const chat = initializeChatTurnState(createChatSession(card.id, `${card.name} chat`), card);
     setChatSessions((current) => [...current, chat]);
     setActiveChatIds((current) => ({ ...current, [card.id]: chat.id }));
     setActiveCardId(card.id);
@@ -845,28 +877,35 @@ export function App() {
     if (!activeCard) {
       return;
     }
+    const nextCard = { ...activeCard, ...patch };
+    if ("memory" in patch || "storyEntities" in patch || "rpg" in patch) {
+      commitManualActiveCardState(nextCard);
+      return;
+    }
     setCards((current) =>
-      current.map((card) => (card.id === activeCard.id ? { ...card, ...patch } : card)),
+      current.map((card) => (card.id === activeCard.id ? nextCard : card)),
     );
+  }
+
+  function commitManualActiveCardState(nextCard: RuntimeCard) {
+    setCards((current) => current.map((card) => (card.id === nextCard.id ? nextCard : card)));
+    if (activeChat) {
+      const rebasedChat = rebaseChatTurnState(activeChat, nextCard);
+      setChatSessions((current) => upsertChatSession(current, rebasedChat));
+    }
   }
 
   function clearStoryCharacters() {
     if (!activeCard) {
       return;
     }
-    setCards((current) =>
-      current.map((card) =>
-        card.id === activeCard.id
-          ? {
-              ...card,
-              storyEntities: createInitialStoryEntities(card.id, {
-                cardKind: card.kind,
-                cardCharacterName: card.characterName,
-              }),
-            }
-          : card,
-      ),
-    );
+    commitManualActiveCardState({
+      ...activeCard,
+      storyEntities: createInitialStoryEntities(activeCard.id, {
+        cardKind: activeCard.kind,
+        cardCharacterName: activeCard.characterName,
+      }),
+    });
     setGeneratedMaps((current) =>
       current.filter((artifact) => artifact.cardId !== activeCard.id || artifact.imageKind !== "character"),
     );
@@ -879,7 +918,7 @@ export function App() {
       return;
     }
 
-    const chat = createChatSession(card.id, `${card.name} chat`);
+    const chat = initializeChatTurnState(createChatSession(card.id, `${card.name} chat`), card);
     setChatSessions((current) => [...current, chat]);
     setActiveChatIds((current) => ({ ...current, [card.id]: chat.id }));
   }
@@ -892,6 +931,8 @@ export function App() {
     if (!chat) {
       return;
     }
+    const nextCard = deriveCardForChat(activeCard, chat);
+    setCards((current) => current.map((card) => (card.id === activeCard.id ? nextCard : card)));
     setActiveChatIds((current) => ({ ...current, [activeCard.id]: chat.id }));
     setRuleWarning(null);
     setPendingDeleteChatId(null);
@@ -909,7 +950,10 @@ export function App() {
     if (!activeCard) {
       return;
     }
-    const chat = createChatSession(activeCard.id, `${activeCard.name} chat ${getCardChats(activeCard.id, chatSessions).length + 1}`);
+    const chat = initializeChatTurnState(
+      createChatSession(activeCard.id, `${activeCard.name} chat ${getCardChats(activeCard.id, chatSessions).length + 1}`),
+      activeCard,
+    );
     setChatSessions((current) => [...current, chat]);
     setActiveChatIds((current) => ({ ...current, [activeCard.id]: chat.id }));
     setRuleWarning(null);
@@ -930,12 +974,13 @@ export function App() {
     }
 
     const branchId = createRuntimeEntityId("chat");
-    const branch = createChatSession(activeCard.id, `${activeChat.title || activeCard.name} branch`, {
+    const branchDraft = createChatSession(activeCard.id, `${activeChat.title || activeCard.name} branch`, {
       id: branchId,
       branchOfId: activeChat.id,
       branchedFromMessageId: activeChat.messages[activeChat.messages.length - 1]?.id,
       messages: cloneMessagesForBranch(activeChat.messages, branchId),
     });
+    const branch = branchChatTurnState(activeChat, branchDraft, activeCard);
     setChatSessions((current) => [...current, branch]);
     setActiveChatIds((current) => ({ ...current, [activeCard.id]: branch.id }));
     setRuleWarning(null);
@@ -961,13 +1006,18 @@ export function App() {
     }
 
     const remainingForCard = getCardChats(activeCard.id, chatSessions).filter((chat) => chat.id !== activeChat.id);
-    const fallback = remainingForCard[0] ?? createChatSession(activeCard.id, `${activeCard.name} chat`);
+    const fallback = remainingForCard[0] ?? initializeChatTurnState(
+      createChatSession(activeCard.id, `${activeCard.name} chat`),
+      activeCard,
+    );
+    const fallbackCard = deriveCardForChat(activeCard, fallback);
     setPendingDeleteChatId(null);
     setChatSessions((current) => [
       ...current.filter((chat) => chat.id !== activeChat.id && (chat.cardId !== activeCard.id || remainingForCard.some((candidate) => candidate.id === chat.id))),
       ...(remainingForCard.length === 0 ? [fallback] : []),
     ]);
     setActiveChatIds((current) => ({ ...current, [activeCard.id]: fallback.id }));
+    setCards((current) => current.map((card) => (card.id === activeCard.id ? fallbackCard : card)));
     setPromptRuns((current) => current.filter((run) => run.chatId !== activeChat.id));
     setGeneratedMaps((current) => current.filter((artifact) => artifact.chatId !== activeChat.id));
     setMapArtifact(null);
@@ -1017,22 +1067,16 @@ export function App() {
   }
 
   function updateActiveRpgState(patch: Partial<RpgCardState>) {
-    if (!activeCard) {
+    if (!activeCard?.rpg) {
       return;
     }
-    setCards((current) =>
-      current.map((card) =>
-        card.id === activeCard.id && card.rpg
-          ? {
-              ...card,
-              rpg: {
-                ...card.rpg,
-                ...patch,
-              },
-            }
-          : card,
-      ),
-    );
+    commitManualActiveCardState({
+      ...activeCard,
+      rpg: {
+        ...activeCard.rpg,
+        ...patch,
+      },
+    });
   }
 
   function updateActiveLorebook(lorebookId: string, patch: Partial<Omit<Lorebook, "id" | "entries">>) {
@@ -1151,53 +1195,40 @@ export function App() {
   }
 
   function editMessageContent(messageId: string, content: string) {
-    if (!activeChat) {
+    if (!activeCard || !activeChat) {
       return;
     }
     const trimmed = content.trim();
     if (!trimmed) {
       return;
     }
-    setChatSessions((current) =>
-      upsertChatSession(current, {
-        ...activeChat,
-        messages: activeChat.messages.map((message) => {
-          if (message.id !== messageId) {
-            return message;
-          }
-          if (message.variants && message.variants.length > 0) {
-            const activeIndex = message.activeVariantIndex ?? message.variants.length - 1;
-            return {
-              ...message,
-              content: trimmed,
-              variants: message.variants.map((variant, index) => (index === activeIndex ? trimmed : variant)),
-            };
-          }
-          return { ...message, content: trimmed };
-        }),
-        updatedAt: new Date().toISOString(),
-      }),
-    );
+    const branchId = createRuntimeEntityId("chat");
+    const branch = forkChatForMessageEdit(activeChat, activeCard, messageId, trimmed, branchId);
+    if (!branch) {
+      setRuleWarning("That message could not be edited safely.");
+      return;
+    }
+    const nextCard = deriveCardForChat(activeCard, branch);
+    setChatSessions((current) => [...current, branch]);
+    setActiveChatIds((current) => ({ ...current, [activeCard.id]: branch.id }));
+    setCards((current) => current.map((card) => (card.id === activeCard.id ? nextCard : card)));
+    setDraft("");
+    setRuleWarning("Edited message opened a branch; downstream turns remain in the original chat.");
   }
 
   function swipeMessageVariant(messageId: string, direction: -1 | 1) {
-    if (!activeChat) {
+    if (!activeCard || !activeChat) {
       return;
     }
-    setChatSessions((current) =>
-      upsertChatSession(current, {
-        ...activeChat,
-        messages: activeChat.messages.map((message) => {
-          if (message.id !== messageId || !message.variants || message.variants.length < 2) {
-            return message;
-          }
-          const currentIndex = message.activeVariantIndex ?? message.variants.length - 1;
-          const nextIndex = (currentIndex + direction + message.variants.length) % message.variants.length;
-          return { ...message, content: message.variants[nextIndex], activeVariantIndex: nextIndex };
-        }),
-        updatedAt: new Date().toISOString(),
-      }),
-    );
+    const result = switchChatMessageVariant(activeChat, activeCard, messageId, direction);
+    if (!result.changed) {
+      setRuleWarning(result.reason ?? "That response variant could not be selected.");
+      return;
+    }
+    const nextCard = deriveCardForChat(activeCard, result.chat);
+    setChatSessions((current) => upsertChatSession(current, result.chat));
+    setCards((current) => current.map((card) => (card.id === activeCard.id ? nextCard : card)));
+    setRuleWarning(null);
   }
 
   async function regenerateLastReply() {
@@ -1226,7 +1257,14 @@ export function App() {
       lastAssistant.variants && lastAssistant.variants.length > 0
         ? lastAssistant.variants
         : [lastAssistant.content];
-    await generateMockTurn({ actionOverride: action, baseMessages, previousVariants });
+    const regenerationCard = deriveCardForRegeneration(activeCard, activeChat, lastAssistant.id);
+    await generateMockTurn({
+      actionOverride: action,
+      baseMessages,
+      previousVariants,
+      cardOverride: regenerationCard,
+      replacedAssistantMessageId: lastAssistant.id,
+    });
   }
 
   async function runSlashCommand(name: string, args: string) {
@@ -1268,7 +1306,10 @@ export function App() {
       setRuleWarning("Invalid dice notation. Try something like /roll 2d6+3.");
       return;
     }
-    const rollChat = activeChat ?? createChatSession(activeCard.id, `${activeCard.name} chat`);
+    const rollChat = activeChat ?? initializeChatTurnState(
+      createChatSession(activeCard.id, `${activeCard.name} chat`),
+      activeCard,
+    );
     if (!activeChat) {
       setActiveChatIds((current) => ({ ...current, [activeCard.id]: rollChat.id }));
     }
@@ -1292,6 +1333,8 @@ export function App() {
     actionOverride?: string;
     baseMessages?: Message[];
     previousVariants?: string[];
+    cardOverride?: RuntimeCard;
+    replacedAssistantMessageId?: string;
   }) {
     if (!activeCard) {
       setRuleWarning("Open a card before starting the runtime.");
@@ -1309,6 +1352,7 @@ export function App() {
       return;
     }
 
+    const turnCard = options?.cardOverride ?? activeCard;
     const parsedCommand = options?.actionOverride === undefined ? parseSlashCommand(draft.trim()) : null;
     if (parsedCommand) {
       await runSlashCommand(parsedCommand.command.name, parsedCommand.args);
@@ -1319,10 +1363,10 @@ export function App() {
     const generationAction = visibleUserAction || randomOpeningAction;
 
     const validation = validatePlayerActionWithRules({
-      cardKind: activeCard.kind,
-      rules: activeCard.playerRules,
+      cardKind: turnCard.kind,
+      rules: turnCard.playerRules,
       action: generationAction,
-      rpgState: activeCard.rpg,
+      rpgState: turnCard.rpg,
     });
     setRuleWarning(validation.warning);
     if (!validation.allowed) {
@@ -1332,7 +1376,7 @@ export function App() {
     setIsGenerating(true);
     setStreamingReply("");
     const runId = createRuntimeEntityId("run");
-    const chat = activeChat ?? createChatSession(activeCard.id, `${activeCard.name} chat`);
+    const chat = activeChat ?? initializeChatTurnState(createChatSession(turnCard.id, `${turnCard.name} chat`), turnCard);
     const chatMessages = options?.baseMessages ?? filterPersistedOpeningMessages(chat.messages);
     if (!activeChat) {
       setChatSessions((current) => [...current, chat]);
@@ -1344,18 +1388,36 @@ export function App() {
       content: generationAction,
     };
     try {
-      const provider = createTextProvider(providerSettings, sessionApiKey, activeCard, generationAction, activeLorebookEntries.length);
+      const turnLorebookEntries = selectActiveLorebookEntries({
+        lorebooks: collectActiveLorebooks(turnCard, activePersona),
+        messages: chatMessages,
+        draft: generationAction,
+        context: turnCard.rpg
+          ? {
+              currentLocation: turnCard.rpg.location,
+              activeQuests: turnCard.rpg.quests,
+              inventory: turnCard.rpg.inventory,
+              worldFlags: turnCard.rpg.flags,
+            }
+          : undefined,
+        sources: {
+          cardDefinition: formatDetailedCharacterDefinition(turnCard),
+          personaDescription: activePersona?.description,
+          memoryEntries: turnCard.memory.map((entry) => `${entry.label}: ${entry.detail}`),
+        },
+      });
+      const provider = createTextProvider(providerSettings, sessionApiKey, turnCard, generationAction, turnLorebookEntries.length);
       const model = providerSettings.mode === "mock" ? "mock-narrator" : providerSettings.model;
       const hiddenContinuity = await runHiddenContinuityPassSafely({
         modelAdapter: provider,
         model,
-        card: toHiddenContinuityCard(activeCard),
+        card: toHiddenContinuityCard(turnCard),
         messages: chatMessages,
         latestUserMessage: generationAction,
-        activeLoreCount: activeLorebookEntries.length,
-        pendingReviewProposals: pendingReviewRef.current[activeCard.id] ?? [],
+        activeLoreCount: turnLorebookEntries.length,
+        pendingReviewProposals: pendingReviewRef.current[turnCard.id] ?? [],
       });
-      const continuityCard = applyHiddenContinuityToCard(activeCard, hiddenContinuity);
+      const continuityCard = applyHiddenContinuityToCard(turnCard, hiddenContinuity);
       const hiddenLatestUserMessage: Message = {
         ...userMessage,
         content: buildVisibleUserMessageWithHiddenContinuity(
@@ -1367,7 +1429,7 @@ export function App() {
       const pipelineResult = await runTurnPipeline({
         ...buildTurnPromptRequest(
           continuityCard,
-          activeLorebookEntries,
+          turnLorebookEntries,
           chatMessages,
           generationAction,
           runtimeSettings,
@@ -1376,8 +1438,8 @@ export function App() {
             latestUserMessage: hiddenLatestUserMessage,
             promptRunId: runId,
             metadata: {
-              cardKind: activeCard.kind,
-              includedLoreEntryIds: activeLorebookEntries.map((entry) => entry.id),
+              cardKind: turnCard.kind,
+              includedLoreEntryIds: turnLorebookEntries.map((entry) => entry.id),
               providerMode: providerSettings.mode,
               textStreaming: runtimeSettings.textStreaming,
               chatId: chat.id,
@@ -1408,13 +1470,9 @@ export function App() {
         latestUserAction: userMessage.content,
         assistantMessageText: pipelineResult.assistantMessageText,
       });
-      pendingReviewRef.current[activeCard.id] = policyResult.warnings
+      pendingReviewRef.current[turnCard.id] = policyResult.warnings
         .filter((warning) => /^Blocked/i.test(warning))
         .slice(-8);
-      const visibleKnowledgeContinuity: HiddenContinuityResult = {
-        ...createEmptyHiddenContinuityResult(),
-        knowledgeUpdates: toHiddenContinuityKnowledgeUpdates(policyResult.extraction.character_knowledge_updates),
-      };
       const warnings = [
         ...hiddenContinuity.warnings.map((warning) => `Hidden continuity: ${warning}`),
         ...pipelineResult.warnings.map((warning) => warning.message),
@@ -1436,10 +1494,34 @@ export function App() {
           ? { variants: assistantVariants, activeVariantIndex: assistantVariants.length - 1 }
           : {}),
       };
-      const nextActiveCard = applyValidatedTurnEffectsToCard(
-        applyHiddenContinuityToCard(continuityCard, visibleKnowledgeContinuity),
-        policyResult.extraction,
-      );
+      const variantIndex = assistantVariants ? assistantVariants.length - 1 : 0;
+      const turnEffects = createRuntimeTurnEffects({
+        hiddenContinuity,
+        extraction: policyResult.extraction,
+        committedAt: new Date().toISOString(),
+        idSeed: `${assistantMessage.id}-v${variantIndex}`,
+      });
+      const nextMessages = visibleUserAction
+        ? [...chatMessages, userMessage, assistantMessage]
+        : [...chatMessages, assistantMessage];
+      const nextChatDraft: ChatSession = {
+        ...chat,
+        messages: nextMessages,
+        title: chat.title || deriveChatTitle(generationAction),
+        updatedAt: new Date().toISOString(),
+      };
+      const nextChat = options?.replacedAssistantMessageId
+        ? recordRegeneratedChatVariant({
+            chat: nextChatDraft,
+            card: activeCard,
+            retainedMessages: chatMessages,
+            replacedAssistantMessageId: options.replacedAssistantMessageId,
+            replacementAssistantMessageId: assistantMessage.id,
+            variantIndex,
+            effects: turnEffects,
+          })
+        : recordChatTurnVariant(nextChatDraft, activeCard, assistantMessage.id, variantIndex, turnEffects);
+      const nextActiveCard = deriveCardForChat(activeCard, nextChat);
       const leakWarnings = describeKnowledgeLeaks(
         detectKnowledgeLeaks(assistantMessage.content, nextActiveCard.storyEntities),
       );
@@ -1454,33 +1536,14 @@ export function App() {
         : [];
       const turnWarnings = [...warnings, ...leakWarnings, ...boundaryWarnings];
 
-      setChatSessions((current) =>
-        upsertChatSession(current, {
-          ...chat,
-          messages: visibleUserAction ? [...chatMessages, userMessage, assistantMessage] : [...chatMessages, assistantMessage],
-          title: chat.title || deriveChatTitle(generationAction),
-          updatedAt: new Date().toISOString(),
-        }),
-      );
-      setCards((current) =>
-        current.map((card) =>
-          card.id === activeCard.id
-            ? applyValidatedTurnEffectsToCard(
-                applyHiddenContinuityToCard(
-                  applyHiddenContinuityToCard(card, hiddenContinuity),
-                  visibleKnowledgeContinuity,
-                ),
-                policyResult.extraction,
-              )
-            : card,
-        ),
-      );
+      setChatSessions((current) => upsertChatSession(current, nextChat));
+      setCards((current) => current.map((card) => (card.id === activeCard.id ? nextActiveCard : card)));
       void generateMissingCharacterPortraits(nextActiveCard, chat.id);
       setPromptRuns((current) => [
         ...current,
         {
           id: runId,
-          cardId: activeCard.id,
+          cardId: turnCard.id,
           chatId: chat.id,
           compiledPrompt: runtimeSettings.promptDebugLogs ? pipelineResult.promptRun.compiledPrompt : "",
           response: assistantMessage.content,
@@ -1520,20 +1583,14 @@ export function App() {
       const result = await runMemoryConsolidationSafely({ modelAdapter: provider, model, entries });
       if (result.changed) {
         const before = entries.length;
-        setCards((current) =>
-          current.map((card) =>
-            card.id === activeCard.id
-              ? {
-                  ...card,
-                  memory: result.entries.map((entry) => ({
-                    id: entry.id ?? createRuntimeEntityId("memory"),
-                    label: entry.label,
-                    detail: entry.detail,
-                  })),
-                }
-              : card,
-          ),
-        );
+        commitManualActiveCardState({
+          ...activeCard,
+          memory: result.entries.map((entry) => ({
+            id: entry.id ?? createRuntimeEntityId("memory"),
+            label: entry.label,
+            detail: entry.detail,
+          })),
+        });
         setMemoryConsolidationStatus(`Memory consolidated: ${before} to ${result.entries.length} entries.`);
       } else {
         setMemoryConsolidationStatus(
@@ -2125,11 +2182,27 @@ export function App() {
     const snapshot = point.snapshot;
     const restoredMessages = snapshot.chatSessions.reduce((count, session) => count + session.messages.length, 0);
     restoreSignatureRef.current = `${restoredMessages}:${snapshot.cards.length}`;
+    const restoredChatSessions = parseChatSessions(
+      snapshot.chatSessions,
+      snapshot.cards,
+      snapshot.messages,
+      snapshot.activeCardId,
+    );
+    const restoredActiveChatIds = parseActiveChatIds(
+      snapshot.activeChatIds,
+      snapshot.cards,
+      restoredChatSessions,
+      snapshot.activeCardId,
+    );
+    const restoredCards = snapshot.cards.map((card) => {
+      const chat = getActiveChatForCard(card.id, restoredChatSessions, restoredActiveChatIds);
+      return chat ? deriveCardForChat(card, chat) : card;
+    });
     setTheme(snapshot.theme);
-    setCards(snapshot.cards);
+    setCards(restoredCards);
     setActiveCardId(snapshot.activeCardId);
-    setChatSessions(snapshot.chatSessions);
-    setActiveChatIds(snapshot.activeChatIds);
+    setChatSessions(restoredChatSessions);
+    setActiveChatIds(restoredActiveChatIds);
     setPromptRuns(snapshot.promptRuns);
     setProviderKeyStatus(snapshot.providerKeyStatus);
     setProviderSettings(snapshot.providerSettings);
@@ -2470,4 +2543,3 @@ export function App() {
     </main>
   );
 }
-

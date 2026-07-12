@@ -8,6 +8,7 @@ import type { StoryEntity } from "../runtime/hiddenContinuity";
 import type { LoreMatchMode, LoreScanScope } from "../runtime/loreTriggerEngine";
 import type { PlayerRuleDefinition } from "../runtime/playerRuleEngine";
 import type { RunTurnPipelineRequest } from "../runtime/turnPipeline";
+import type { RuntimeTurnLineage } from "../runtime/runtimeTurnLineage";
 import type { SecretReference } from "../security/keyStorage";
 import type { LocalRuntimeSnapshot } from "./localRuntimeStore";
 
@@ -154,6 +155,8 @@ export type ChatSession = {
   createdAt: string;
   updatedAt: string;
   messages: Message[];
+  /** Immutable chat root plus per-assistant-variant state effects. */
+  turnLineage?: RuntimeTurnLineage;
 };
 
 export type PromptRun = {

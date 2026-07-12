@@ -174,6 +174,13 @@ function compactChatSessions<ChatSession>(chatSessions: ChatSession[] | undefine
     if (!isRecord(session) || !Array.isArray(session.messages)) {
       return session;
     }
+    // A lineage root and its message chain are one consistency unit. Slicing
+    // messages without folding the removed commits into a new base would make
+    // the restored card lose historical effects, so fail size compaction closed
+    // for these sessions until a lineage-aware rebase compactor exists.
+    if (isRecord(session.turnLineage)) {
+      return session;
+    }
     return {
       ...session,
       messages: session.messages.slice(-50),

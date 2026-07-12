@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { App } from "../../src/app/App";
 import { RUNTIME_STORAGE_KEY } from "../../src/app/localRuntimeStore";
+import { LOCAL_RESTORE_POINTS_KEY } from "../../src/app/localRestorePointStore";
 import { buildVersionedRuntimeExport } from "../../src/app/runtimeDataBundle";
 import * as memoryConsolidation from "../../src/runtime/memoryConsolidation";
 import * as providerConfig from "../../src/app/providerConfig";
@@ -1872,6 +1873,22 @@ describe("local-first card runtime UI", () => {
     await waitFor(() =>
       expect(screen.getByLabelText(/Prompt debugger/i)).toHaveTextContent(/Mara grew up on the storm coast/i),
     );
+  });
+
+  it("captures a restore point immediately before persona deletion", async () => {
+    await renderApp();
+    fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
+    const personaPanel = screen.getByRole("region", { name: /Persona profiles/i });
+    fireEvent.change(within(personaPanel).getByLabelText(/New persona name/i), { target: { value: "Mara" } });
+    fireEvent.click(within(personaPanel).getByRole("button", { name: /Create persona/i }));
+    fireEvent.click(within(personaPanel).getByRole("button", { name: /Delete Mara/i }));
+
+    await waitFor(() => {
+      const points = JSON.parse(window.localStorage.getItem(LOCAL_RESTORE_POINTS_KEY) ?? "[]") as Array<{
+        snapshot?: { personas?: Array<{ name?: string }> };
+      }>;
+      expect(points[0]?.snapshot?.personas?.some((persona) => persona.name === "Mara")).toBe(true);
+    });
   });
 
   it("creates and edits richer character card definition fields", async () => {

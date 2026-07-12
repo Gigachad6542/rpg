@@ -58,6 +58,19 @@ describe("release workflow", () => {
     expect(releaseWorkflow).not.toMatch(/(?:^|\/)SHA256SUMS\.txt/m);
   });
 
+  it("keeps pnpm supply-chain policy in the workspace config supported by current pnpm", () => {
+    const packageJson = JSON.parse(readFileSync(join(workspaceRoot, "package.json"), "utf8")) as {
+      pnpm?: unknown;
+    };
+    const workspaceConfig = readFileSync(join(workspaceRoot, "pnpm-workspace.yaml"), "utf8");
+
+    expect(packageJson.pnpm).toBeUndefined();
+    expect(workspaceConfig).toContain("overrides:");
+    expect(workspaceConfig).toContain("esbuild: ^0.25.12");
+    expect(workspaceConfig).toContain("vite: ^6.4.3");
+    expect(workspaceConfig).toContain("onlyBuiltDependencies:");
+  });
+
   it("runs routine macOS source and Rust verification on pushes and pull requests", () => {
     const workflow = readWorkflow("ci.yml");
     const macosVerify = readJob(workflow, "verify-macos");

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { TauriStoredSecretTextProvider } from "../../src/providers/tauriStoredSecretTextProvider";
+import { estimateTextTokens } from "../../src/runtime/tokenBudget";
 
 describe("Tauri stored-secret text provider", () => {
   it("delegates generation to the desktop command with a secret reference only", async () => {
@@ -56,6 +57,39 @@ describe("Tauri stored-secret text provider", () => {
       }),
     );
     expect(JSON.stringify(invokeImpl.mock.calls)).not.toContain("sk-");
+  });
+
+  it("includes the trusted system prompt in desktop fallback input-token usage", async () => {
+    const invokeImpl = vi.fn(async () => ({
+      providerId: "openrouter",
+      model: "qwen3.7-max",
+      text: "Fallback desktop response.",
+      finishReason: "stop",
+    }));
+    const provider = new TauriStoredSecretTextProvider({
+      id: "openrouter",
+      displayName: "OpenRouter BYOK",
+      baseUrl: "https://openrouter.ai/api/v1",
+      secretReference: {
+        providerId: "openrouter",
+        secretName: "apiKey",
+        storageKind: "os-keychain",
+        storageKey: "openrouter:apiKey",
+        providerBaseUrl: "https://openrouter.ai/api/v1",
+      },
+      invokeImpl: invokeImpl as unknown as <T>(command: string, args?: Record<string, unknown>) => Promise<T>,
+    });
+    const systemPrompt = "Trusted desktop authority ".repeat(8);
+    const prompt = "Player context ".repeat(4);
+
+    const response = await provider.generateText({ model: "qwen3.7-max", systemPrompt, prompt });
+
+    const expectedInputTokens = estimateTextTokens(`${systemPrompt}\n\n${prompt}`);
+    expect(response.usage).toEqual({
+      inputTokens: expectedInputTokens,
+      outputTokens: estimateTextTokens("Fallback desktop response."),
+      totalTokens: expectedInputTokens + estimateTextTokens("Fallback desktop response."),
+    });
   });
 
   it("rejects an aborted desktop generation without invoking the command", async () => {

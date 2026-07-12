@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { OpenAICompatibleTextProvider } from "../../src/providers/openAICompatibleProvider";
+import { estimateTextTokens } from "../../src/runtime/tokenBudget";
 
 describe("OpenAI-compatible text provider", () => {
   it("calls chat completions with a session key and maps usage", async () => {
@@ -47,6 +48,38 @@ describe("OpenAI-compatible text provider", () => {
       usage: {
         totalTokens: 15,
       },
+    });
+  });
+
+  it("includes the trusted system prompt in fallback input-token usage", async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "Fallback response." }, finish_reason: "stop" }],
+        }),
+        { status: 200 },
+      ),
+    );
+    const provider = new OpenAICompatibleTextProvider({
+      id: "fallback-provider",
+      baseUrl: "https://example.test/v1",
+      apiKey: "session-key",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const systemPrompt = "Trusted runtime authority ".repeat(8);
+    const prompt = "Player-visible context ".repeat(4);
+
+    const response = await provider.generateText({
+      model: "qwen3.7-max",
+      systemPrompt,
+      prompt,
+    });
+
+    const expectedInputTokens = estimateTextTokens(`${systemPrompt}\n\n${prompt}`);
+    expect(response.usage).toEqual({
+      inputTokens: expectedInputTokens,
+      outputTokens: estimateTextTokens("Fallback response."),
+      totalTokens: expectedInputTokens + estimateTextTokens("Fallback response."),
     });
   });
 

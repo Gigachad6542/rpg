@@ -19,6 +19,7 @@ import {
   toHiddenContinuityKnowledgeUpdates,
   type HiddenContinuityCard,
 } from "../../src/runtime/hiddenContinuity";
+import { estimateTextTokens } from "../../src/runtime/tokenBudget";
 
 class RecordingAdapter implements TextModelAdapter {
   readonly id = "recording-provider";
@@ -144,7 +145,7 @@ describe("hidden continuity pass", () => {
     ]);
   });
 
-  it("runs on the same selected provider/model before building the visible message context", async () => {
+  it("keeps immutable analyst policy in the system prompt and untrusted runtime context in the user prompt", async () => {
     const adapter = new RecordingAdapter(
       JSON.stringify({
         continuity_brief: "Nia is the player character and Rook only knows what they saw.",
@@ -164,44 +165,137 @@ describe("hidden continuity pass", () => {
     const result = await runHiddenContinuityPass({
       modelAdapter: adapter,
       model: "chosen-reasoning-model",
-      card: createCard(),
-      messages: [{ role: "assistant", content: "Rain gathers in the alley." }],
-      latestUserMessage: "I am Nia beside Rook.",
+      card: {
+        ...createCard(),
+        name: "IMPORTED_CARD_NAME_SENTINEL",
+        summary: "IMPORTED_CARD_SUMMARY_SENTINEL",
+        memory: [{ id: "memory-imported", label: "Imported", detail: "IMPORTED_MEMORY_SENTINEL" }],
+      },
+      messages: [{ role: "assistant", content: "IMPORTED_HISTORY_SENTINEL" }],
+      latestUserMessage: "LATEST_PLAYER_ACTION_SENTINEL",
       activeLoreCount: 2,
+      pendingReviewProposals: ["IMPORTED_REVIEW_SENTINEL"],
       now: () => "2026-07-01T12:00:00.000Z",
     });
 
     expect(adapter.requests).toHaveLength(1);
-    expect(adapter.requests[0].model).toBe("chosen-reasoning-model");
-    expect(adapter.requests[0].temperature).toBeLessThanOrEqual(0.2);
-    expect(adapter.requests[0].metadata).toMatchObject({ hiddenContinuityPass: true });
-    expect(adapter.requests[0].prompt).toContain("facts about the player character, not the real app user");
-    expect(adapter.requests[0].prompt).not.toContain("Mara");
-    expect(adapter.requests[0].prompt).not.toContain("Elara");
+    const generationRequest = adapter.requests[0];
+    expect(generationRequest.model).toBe("chosen-reasoning-model");
+    expect(generationRequest.temperature).toBeLessThanOrEqual(0.2);
+    expect(generationRequest.metadata).toMatchObject({ hiddenContinuityPass: true });
+    expect(generationRequest.systemPrompt).toBeTypeOf("string");
+    expect(generationRequest.systemPrompt).toContain("hidden continuity analyst");
+    expect(generationRequest.systemPrompt).toContain("Output JSON only");
+    expect(generationRequest.systemPrompt).toContain("facts about the player character, not the real app user");
+    expect(generationRequest.prompt).not.toContain("hidden continuity analyst");
+    expect(generationRequest.prompt).not.toContain("Output JSON only");
+
+    const untrustedSentinels = [
+      "IMPORTED_CARD_NAME_SENTINEL",
+      "IMPORTED_CARD_SUMMARY_SENTINEL",
+      "IMPORTED_MEMORY_SENTINEL",
+      "IMPORTED_HISTORY_SENTINEL",
+      "LATEST_PLAYER_ACTION_SENTINEL",
+      "IMPORTED_REVIEW_SENTINEL",
+    ];
+    for (const sentinel of untrustedSentinels) {
+      expect(generationRequest.prompt).toContain(sentinel);
+      expect(generationRequest.systemPrompt).not.toContain(sentinel);
+    }
     expect(result.continuityBrief).toContain("Nia is the player character");
 
     const visibleMessage = buildVisibleUserMessageWithHiddenContinuity(
-      "I am Nia beside Rook.",
+      "LATEST_PLAYER_ACTION_SENTINEL",
       result,
       createCard(),
     );
-    expect(visibleMessage).toContain("Visible user message:\nI am Nia beside Rook.");
+    expect(visibleMessage).toContain("Visible user message:\nLATEST_PLAYER_ACTION_SENTINEL");
     expect(visibleMessage).toContain("Private continuity context");
     expect(visibleMessage).toContain("Do not quote or reveal this private context");
   });
 
-  it("prompts for stable memory instead of recent event logs", () => {
-    const prompt = buildHiddenContinuityPrompt({
+  it("keeps the full hidden request within its resolved input budget without dropping the latest action or essential state", async () => {
+    const adapter = new RecordingAdapter("{}");
+    const oversizedDetail = "discardable historical detail ".repeat(180);
+
+    await runHiddenContinuityPass({
+      modelAdapter: adapter,
+      model: "budgeted-reasoning-model",
+      inputBudgetTokens: 1_800,
+      maxOutputTokens: 321,
+      card: {
+        ...createCard(),
+        name: "Budget Sentinel RPG",
+        summary: "Essential card identity.",
+        memory: Array.from({ length: 40 }, (_, index) => ({
+          id: `memory-${index}`,
+          label: `Old memory ${index}`,
+          detail: `${oversizedDetail} MEMORY_TAIL_${index}`,
+        })),
+        rpgState: {
+          location: "Essential Citadel",
+          health: "7/10",
+          inventory: ["essential compass"],
+          quests: ["Reach the observatory"],
+          knownPlaces: ["Essential Citadel"],
+        },
+      },
+      messages: Array.from({ length: 12 }, (_, index) => ({
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: `${oversizedDetail} HISTORY_TAIL_${index}`,
+      })),
+      latestUserMessage: "LATEST_ACTION_MUST_SURVIVE: I open the observatory door.",
+      activeLoreCount: 18,
+      now: () => "2026-07-01T12:00:00.000Z",
+    });
+
+    const generationRequest = adapter.requests[0];
+    const completeInput = [generationRequest.systemPrompt, generationRequest.prompt]
+      .filter(Boolean)
+      .join("\n\n");
+    expect(estimateTextTokens(completeInput)).toBeLessThanOrEqual(1_800);
+    expect(generationRequest.maxOutputTokens).toBe(321);
+    expect(generationRequest.prompt).toContain("LATEST_ACTION_MUST_SURVIVE");
+    expect(generationRequest.prompt).toContain("Card: Budget Sentinel RPG (rpg)");
+    expect(generationRequest.prompt).toContain("Location: Essential Citadel");
+    expect(generationRequest.prompt).toContain("Health: 7/10");
+    expect(generationRequest.prompt).not.toContain("HISTORY_TAIL_0");
+  });
+
+  it("uses the resolved hidden-pass output limit explicitly", async () => {
+    const adapter = new RecordingAdapter("{}");
+
+    await runHiddenContinuityPass({
+      modelAdapter: adapter,
+      model: "budgeted-reasoning-model",
+      inputBudgetTokens: 1_800,
+      maxOutputTokens: 321,
+      card: createCard(),
+      messages: [],
+      latestUserMessage: "I wait.",
+      activeLoreCount: 0,
+    });
+
+    expect(adapter.requests[0].maxOutputTokens).toBe(321);
+  });
+
+  it("keeps stable-memory policy in the immutable analyst instructions", async () => {
+    const adapter = new RecordingAdapter("{}");
+
+    await runHiddenContinuityPass({
+      modelAdapter: adapter,
+      model: "chosen-reasoning-model",
       card: createCard(),
       messages: [],
       latestUserMessage: "I walk north.",
       activeLoreCount: 0,
-      now: "2026-07-01T12:00:00.000Z",
+      now: () => "2026-07-01T12:00:00.000Z",
     });
 
-    expect(prompt).toContain("Store only stable core facts");
-    expect(prompt).toContain("Recent actions usually stay in chat context");
-    expect(prompt).toContain("track who explicitly knows or does not know each fact");
+    expect(adapter.requests[0].systemPrompt).toContain("Store only stable core facts");
+    expect(adapter.requests[0].systemPrompt).toContain("Recent actions usually stay in chat context");
+    expect(adapter.requests[0].systemPrompt).toContain("track who explicitly knows or does not know each fact");
+    expect(adapter.requests[0].prompt).not.toContain("Store only stable core facts");
   });
 
   it("includes blocked proposals for review only when some are pending", () => {
@@ -235,6 +329,8 @@ describe("hidden continuity pass", () => {
       messages: [{ role: "assistant", content: "Rain gathers in the alley." }],
       latestUserMessage: "I am Nia beside Rook.",
       activeLoreCount: 2,
+      inputBudgetTokens: 1_800,
+      maxOutputTokens: 321,
       now: () => "2026-07-01T12:00:00.000Z",
     });
 
@@ -257,6 +353,8 @@ describe("hidden continuity pass", () => {
       messages: [],
       latestUserMessage: "I wait.",
       activeLoreCount: 0,
+      inputBudgetTokens: 1_800,
+      maxOutputTokens: 321,
       signal: controller.signal,
     });
     expect(adapter.requests[0]?.signal).toBe(controller.signal);
@@ -270,6 +368,8 @@ describe("hidden continuity pass", () => {
         messages: [],
         latestUserMessage: "I wait.",
         activeLoreCount: 0,
+        inputBudgetTokens: 1_800,
+        maxOutputTokens: 321,
         signal: controller.signal,
       }),
     ).rejects.toMatchObject({ name: "AbortError" });

@@ -32,6 +32,7 @@ type ModelCallRecord = {
     outputTokens: number;
     totalTokens: number;
   };
+  inputBudgetTokens: number;
   durationMs: number;
   status: "success" | "error";
 };
@@ -111,6 +112,7 @@ describe("intentional two-call turn telemetry", () => {
           provider: "telemetry-provider",
           model: "mock-narrator",
           usage: { inputTokens: 30, outputTokens: 5, totalTokens: 35 },
+          inputBudgetTokens: expect.any(Number),
           durationMs: expect.any(Number),
           status: "success",
         },
@@ -119,11 +121,13 @@ describe("intentional two-call turn telemetry", () => {
           provider: "telemetry-provider",
           model: "mock-narrator",
           usage: { inputTokens: 40, outputTokens: 10, totalTokens: 50 },
+          inputBudgetTokens: expect.any(Number),
           durationMs: expect.any(Number),
           status: "success",
         },
       ]);
       expect(modelCalls.every((call) => call.durationMs >= 0)).toBe(true);
+      expect(modelCalls.every((call) => call.inputBudgetTokens >= call.usage.inputTokens)).toBe(true);
       expect(screen.getByText(/2 model calls/i)).toHaveTextContent(/85 tokens/i);
     } finally {
       providerSpy.mockRestore();
@@ -168,6 +172,7 @@ describe("intentional two-call turn telemetry", () => {
         provider: "telemetry-provider",
         model: "mock-narrator",
         usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        inputBudgetTokens: expect.any(Number),
         durationMs: expect.any(Number),
         status: "error",
       });
@@ -176,6 +181,7 @@ describe("intentional two-call turn telemetry", () => {
         provider: "telemetry-provider",
         model: "mock-narrator",
         usage: { inputTokens: 16, outputTokens: 4, totalTokens: 20 },
+        inputBudgetTokens: expect.any(Number),
         durationMs: expect.any(Number),
         status: "success",
       });

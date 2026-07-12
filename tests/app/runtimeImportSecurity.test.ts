@@ -43,6 +43,39 @@ describe("runtime import security boundaries", () => {
     expect(() => parseVersionedRuntimeExport(JSON.stringify(bundle))).toThrow(/runtime export json is invalid/i);
   });
 
+  it("preserves a valid model-call input budget and rejects a negative budget", () => {
+    const validBundle = createValidBundle();
+    validBundle.snapshot.promptRuns[0].modelCalls = [
+      {
+        phase: "hidden-continuity",
+        provider: "mock",
+        model: "mock-narrator",
+        usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+        inputBudgetTokens: 14_200,
+        durationMs: 12,
+        status: "success",
+      },
+    ];
+
+    const parsed = parseVersionedRuntimeExport(JSON.stringify(validBundle));
+    const parsedCall = (parsed.promptRuns[0].modelCalls as Array<Record<string, unknown>>)[0];
+    expect(parsedCall.inputBudgetTokens).toBe(14_200);
+
+    const invalidBundle = createValidBundle();
+    invalidBundle.snapshot.promptRuns[0].modelCalls = [
+      {
+        phase: "visible-response",
+        provider: "mock",
+        model: "mock-narrator",
+        usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+        inputBudgetTokens: -1,
+        durationMs: 12,
+        status: "success",
+      },
+    ];
+    expect(() => parseVersionedRuntimeExport(JSON.stringify(invalidBundle))).toThrow(/runtime export json is invalid/i);
+  });
+
   it.each([
     ["card", (snapshot: RuntimeExportSnapshot) => {
       snapshot.cards.push({ ...snapshot.cards[0] });

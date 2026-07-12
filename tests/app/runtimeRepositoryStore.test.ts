@@ -225,6 +225,7 @@ describe("runtime repository store", () => {
               provider: "mock",
               model: "mock-narrator",
               usage: { inputTokens: 8, outputTokens: 2, totalTokens: 10 },
+              inputBudgetTokens: 14_200,
               durationMs: 12,
               status: "success",
             },
@@ -233,6 +234,7 @@ describe("runtime repository store", () => {
               provider: "mock",
               model: "mock-narrator",
               usage: { inputTokens: 20, outputTokens: 8, totalTokens: 28 },
+              inputBudgetTokens: 5_100,
               durationMs: 34,
               status: "success",
             },
@@ -339,8 +341,8 @@ describe("runtime repository store", () => {
         totalTokens: 28,
       },
       modelCalls: [
-        { phase: "hidden-continuity", usage: { totalTokens: 10 } },
-        { phase: "visible-response", usage: { totalTokens: 28 } },
+        { phase: "hidden-continuity", usage: { totalTokens: 10 }, inputBudgetTokens: 14_200 },
+        { phase: "visible-response", usage: { totalTokens: 28 }, inputBudgetTokens: 5_100 },
       ],
     });
     await expect(new PromptRunRepository(driver).getById("run_001")).resolves.toMatchObject({

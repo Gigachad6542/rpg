@@ -49,6 +49,7 @@ describe("TurnDeltaPanel", () => {
               provider: "telemetry-provider",
               model: "mock-narrator",
               usage: { inputTokens: 30, outputTokens: 5, totalTokens: 35 },
+              inputBudgetTokens: 120,
               durationMs: 120,
               status: "success",
             },
@@ -57,10 +58,11 @@ describe("TurnDeltaPanel", () => {
               provider: "telemetry-provider",
               model: "mock-narrator",
               usage: { inputTokens: 40, outputTokens: 10, totalTokens: 50 },
+              inputBudgetTokens: 200,
               durationMs: 640,
               status: "success",
             },
-          ],
+          ] as unknown as PromptRun["modelCalls"],
         } as Partial<PromptRun>)}
         onUndo={vi.fn()}
       />,
@@ -77,6 +79,8 @@ describe("TurnDeltaPanel", () => {
     expect(screen.getAllByText(/telemetry-provider \/ mock-narrator/i)).toHaveLength(2);
     expect(screen.getByText(/30 input.*5 output.*35 total/i)).toBeInTheDocument();
     expect(screen.getByText(/40 input.*10 output.*50 total/i)).toBeInTheDocument();
+    expect(screen.getByText(/30 \/ 120 input tokens.*25%/i)).toBeInTheDocument();
+    expect(screen.getByText(/40 \/ 200 input tokens.*20%/i)).toBeInTheDocument();
     expect(screen.getByText(/120 ms/i)).toBeInTheDocument();
     expect(screen.getByText(/640 ms/i)).toBeInTheDocument();
   });

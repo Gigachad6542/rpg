@@ -12,6 +12,7 @@ import type {
   TextGenerationResponse,
   TextModelAdapter,
 } from "../../src/providers/TextModelAdapter";
+import { estimateTextTokens } from "../../src/runtime/tokenBudget";
 
 class RecordingTextAdapter implements TextModelAdapter {
   readonly id = "recording";
@@ -70,6 +71,56 @@ class ExtractionStreamingTextAdapter extends RecordingTextAdapter {
 }
 
 describe("turn pipeline", () => {
+  it("sends the visible response contract exactly once at system priority", async () => {
+    const adapter = new RecordingTextAdapter({
+      text: "A short reply.",
+      finishReason: "stop",
+      usage: { inputTokens: 20, outputTokens: 4, totalTokens: 24 },
+    });
+    const responseContract = "UNIQUE_VISIBLE_RESPONSE_CONTRACT: narrate one grounded scene.";
+
+    await runTurnPipeline({
+      ...baseRequest(adapter),
+      responseContract,
+    });
+
+    const generationRequest = adapter.requests[0];
+    const combinedRequest = [generationRequest.systemPrompt, generationRequest.prompt].filter(Boolean).join("\n\n");
+    expect(generationRequest.systemPrompt).toContain(responseContract);
+    expect(generationRequest.prompt).not.toContain(responseContract);
+    expect(combinedRequest.split(responseContract)).toHaveLength(2);
+  });
+
+  it("sets the visible output limit and counts system plus user input against the context budget", async () => {
+    const adapter = new RecordingTextAdapter({
+      text: "A short reply.",
+      finishReason: "stop",
+      usage: { inputTokens: 20, outputTokens: 4, totalTokens: 24 },
+    });
+    const maxInputTokens = 2_000;
+    const reservedOutputTokens = 200;
+
+    const result = await runTurnPipeline({
+      ...baseRequest(adapter),
+      memoryEntries: [
+        {
+          id: "memory-fill-budget",
+          text: "A long but optional continuity detail. ".repeat(1_000),
+        },
+      ],
+      tokenBudget: { maxInputTokens, reservedOutputTokens },
+    });
+
+    const generationRequest = adapter.requests[0];
+    expect(generationRequest.maxOutputTokens).toBe(reservedOutputTokens);
+    expect(result.promptRun.maxOutputTokens).toBe(reservedOutputTokens);
+
+    const actualInputTokens = estimateTextTokens(
+      [generationRequest.systemPrompt, generationRequest.prompt].filter(Boolean).join("\n\n"),
+    );
+    expect(actualInputTokens + reservedOutputTokens).toBeLessThanOrEqual(maxInputTokens);
+  });
+
   it("compiles local RPG context, calls the adapter, validates extraction, and reports run metadata", async () => {
     const adapter = new RecordingTextAdapter({
       text: [

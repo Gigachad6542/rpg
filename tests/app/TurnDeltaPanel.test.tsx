@@ -37,6 +37,49 @@ function promptRun(overrides: Partial<PromptRun> = {}): PromptRun {
 }
 
 describe("TurnDeltaPanel", () => {
+  it("summarizes both intentional model calls and expands their usage details", () => {
+    render(
+      <TurnDeltaPanel
+        run={promptRun({
+          stateChanges: [],
+          stateProposals: [],
+          modelCalls: [
+            {
+              phase: "hidden-continuity",
+              provider: "telemetry-provider",
+              model: "mock-narrator",
+              usage: { inputTokens: 30, outputTokens: 5, totalTokens: 35 },
+              durationMs: 120,
+              status: "success",
+            },
+            {
+              phase: "visible-response",
+              provider: "telemetry-provider",
+              model: "mock-narrator",
+              usage: { inputTokens: 40, outputTokens: 10, totalTokens: 50 },
+              durationMs: 640,
+              status: "success",
+            },
+          ],
+        } as Partial<PromptRun>)}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    const summary = screen.getByText(/2 model calls/i);
+    expect(summary).toHaveTextContent(/85 tokens/i);
+
+    fireEvent.click(summary);
+
+    expect(screen.getByText(/Hidden continuity/i)).toBeInTheDocument();
+    expect(screen.getByText(/Visible response/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/telemetry-provider \/ mock-narrator/i)).toHaveLength(2);
+    expect(screen.getByText(/30 input.*5 output.*35 total/i)).toBeInTheDocument();
+    expect(screen.getByText(/40 input.*10 output.*50 total/i)).toBeInTheDocument();
+    expect(screen.getByText(/120 ms/i)).toBeInTheDocument();
+    expect(screen.getByText(/640 ms/i)).toBeInTheDocument();
+  });
+
   it("shows applied and blocked proposals with provenance and supports undo", () => {
     const undo = vi.fn();
     render(<TurnDeltaPanel run={promptRun()} onUndo={undo} />);

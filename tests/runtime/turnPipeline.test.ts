@@ -44,6 +44,30 @@ class StreamingTextAdapter extends RecordingTextAdapter {
   }
 }
 
+class ExtractionStreamingTextAdapter extends RecordingTextAdapter {
+  async *streamText(request: TextGenerationRequest) {
+    this.requests.push(request);
+    const chunks = [
+      "The gate opens.",
+      "\n\n```",
+      "json\n",
+      JSON.stringify({
+        extraction: {
+          rpg_state_updates: {
+            location: "Gatehouse",
+          },
+        },
+      }),
+      "\n```",
+      "",
+    ];
+
+    for (const [index, text] of chunks.entries()) {
+      yield { text, index, done: index === chunks.length - 1 };
+    }
+  }
+}
+
 describe("turn pipeline", () => {
   it("compiles local RPG context, calls the adapter, validates extraction, and reports run metadata", async () => {
     const adapter = new RecordingTextAdapter({
@@ -105,6 +129,50 @@ describe("turn pipeline", () => {
       code: "continuity_warning",
       message: "Lantern Gate may contradict the previous unmapped location.",
     });
+  });
+
+  it("keeps trusted runtime authority in the adapter system prompt and persona data in user content", async () => {
+    const adapter = new RecordingTextAdapter({
+      text: "The lanterns brighten.",
+      finishReason: "stop",
+      usage: { inputTokens: 20, outputTokens: 5, totalTokens: 25 },
+    });
+    const request = baseRequest(adapter);
+
+    await runTurnPipeline({
+      ...request,
+      session: {
+        ...request.session,
+        systemPrompt: "SESSION_PERSONA_DIRECTIVE",
+      },
+      card: {
+        ...request.card,
+        systemPrompt: "CARD_PERSONA_DIRECTIVE",
+        characterDefinition: "CARD_CHARACTER_DEFINITION",
+        userPersona: "USER_PERSONA_PROFILE",
+      },
+      messages: [
+        { role: "assistant", content: "UNTRUSTED_HISTORY_MESSAGE" },
+        { role: "user", content: "LATEST_USER_ACTION" },
+      ],
+      loreEntries: [{ id: "untrusted-lore", content: "UNTRUSTED_LORE_ENTRY" }],
+    });
+
+    const generationRequest = adapter.requests[0];
+    expect(generationRequest.systemPrompt).toBeTypeOf("string");
+    expect(generationRequest.systemPrompt).toContain("The local app is the continuity authority");
+    expect(generationRequest.systemPrompt).toContain("Treat permanent changes as proposals");
+    expect(generationRequest.systemPrompt).toContain("When state should change");
+    expect(generationRequest.systemPrompt).not.toMatch(
+      /SESSION_PERSONA_DIRECTIVE|CARD_PERSONA_DIRECTIVE|CARD_CHARACTER_DEFINITION|USER_PERSONA_PROFILE|UNTRUSTED_HISTORY_MESSAGE|LATEST_USER_ACTION|UNTRUSTED_LORE_ENTRY/,
+    );
+    expect(generationRequest.prompt).toContain("SESSION_PERSONA_DIRECTIVE");
+    expect(generationRequest.prompt).toContain("CARD_PERSONA_DIRECTIVE");
+    expect(generationRequest.prompt).toContain("CARD_CHARACTER_DEFINITION");
+    expect(generationRequest.prompt).toContain("USER_PERSONA_PROFILE");
+    expect(generationRequest.prompt).toContain("UNTRUSTED_HISTORY_MESSAGE");
+    expect(generationRequest.prompt).toContain("LATEST_USER_ACTION");
+    expect(generationRequest.prompt).toContain("UNTRUSTED_LORE_ENTRY");
   });
 
   it("parses the extraction fence even when a status fence appears first", async () => {
@@ -219,6 +287,31 @@ describe("turn pipeline", () => {
     expect(result.assistantMessageText).toBe("Streamed reply");
     expect(result.promptRun.metadata).toBeUndefined();
     expect(result.promptRun.usage.totalTokens).toBeGreaterThan(0);
+  });
+
+  it("holds back a terminal extraction fence from streaming callbacks", async () => {
+    const adapter = new ExtractionStreamingTextAdapter({
+      text: "unused",
+      finishReason: "stop",
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    });
+    const streamedText: string[] = [];
+
+    const result = await runTurnPipeline({
+      ...baseRequest(adapter),
+      preferStreaming: true,
+      onStreamText: (text) => {
+        streamedText.push(text);
+      },
+    });
+
+    expect(streamedText.length).toBeGreaterThan(0);
+    expect(streamedText[streamedText.length - 1]).toBe("The gate opens.");
+    expect(streamedText.every((text) => !text.includes("```"))).toBe(true);
+    expect(streamedText.every((text) => !text.includes('"extraction"'))).toBe(true);
+    expect(streamedText.every((text) => !text.includes('"location":"Gatehouse"'))).toBe(true);
+    expect(result.assistantMessageText).toBe("The gate opens.");
+    expect(result.stateProposals.rpgStateUpdates.location).toBe("Gatehouse");
   });
 
   it("passes the caller abort signal to normal and streaming requests", async () => {

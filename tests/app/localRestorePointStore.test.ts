@@ -4,6 +4,7 @@ import {
   LOCAL_RESTORE_POINTS_KEY,
   loadLocalRestorePoints,
   saveLocalRestorePoints,
+  shouldPersistRestorePointsInWebviewStorage,
 } from "../../src/app/localRestorePointStore";
 import type { RestorePoint } from "../../src/runtime/restorePoints";
 
@@ -42,5 +43,10 @@ describe("local restore point store", () => {
 
     window.localStorage.setItem(LOCAL_RESTORE_POINTS_KEY, "not-json");
     expect(loadLocalRestorePoints()).toEqual([]);
+  });
+
+  it("keeps desktop restore points out of webview localStorage", () => {
+    expect(shouldPersistRestorePointsInWebviewStorage({ isDesktopRuntime: true })).toBe(false);
+    expect(shouldPersistRestorePointsInWebviewStorage({ isDesktopRuntime: false })).toBe(true);
   });
 });

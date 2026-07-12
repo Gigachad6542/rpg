@@ -10,6 +10,8 @@ describe("modal accessibility", () => {
 
     expect(screen.queryByText(/Everything runs on your machine/i)).not.toBeInTheDocument();
     expect(screen.getByText(/chat.*persona.*memory.*lore.*provider/i)).toBeInTheDocument();
+    expect(screen.getByText(/transmitted only to the provider you configure/i)).toBeInTheDocument();
+    expect(screen.queryByText(/never sent anywhere else/i)).not.toBeInTheDocument();
     const buttons = screen.getAllByRole("button");
     expect(document.activeElement).toBe(buttons[0]);
     buttons[buttons.length - 1]?.focus();

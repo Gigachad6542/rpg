@@ -39,6 +39,9 @@ describe("SettingsSection", () => {
         dataManagementStatus="Idle."
         exportRuntimeData={exportRuntimeData}
         importRuntimeData={importRuntimeData}
+        pendingImportReview={null}
+        applyRuntimeImport={vi.fn()}
+        cancelRuntimeImport={vi.fn()}
         downloadDiagnostics={downloadDiagnostics}
         restorePoints={[]}
         restoreStatus="Restore points capture automatically as you play this session."
@@ -62,7 +65,7 @@ describe("SettingsSection", () => {
     expect(exportRuntimeData).toHaveBeenCalledTimes(1);
     expect(downloadDiagnostics).toHaveBeenCalledTimes(1);
 
-    const importButton = within(dataPanel).getByRole("button", { name: /Import runtime data/i });
+    const importButton = within(dataPanel).getByRole("button", { name: /Review runtime import/i });
     expect(importButton).toBeDisabled();
     fireEvent.change(within(dataPanel).getByLabelText(/Runtime export JSON/i), {
       target: { value: '{"schema":"rpg.runtime.export"}' },
@@ -71,8 +74,43 @@ describe("SettingsSection", () => {
     fireEvent.click(importButton);
 
     expect(importRuntimeData).toHaveBeenCalledWith('{"schema":"rpg.runtime.export"}');
-    expect(within(dataPanel).getByLabelText(/Runtime export JSON/i)).toHaveValue("");
+    expect(within(dataPanel).getByLabelText(/Runtime export JSON/i)).toHaveValue('{"schema":"rpg.runtime.export"}');
     expect(within(dataPanel).getByRole("status", { name: /Data management status/i })).toHaveTextContent("Idle.");
+  });
+
+  it("requires explicit confirmation before applying a reviewed runtime import", () => {
+    const applyRuntimeImport = vi.fn();
+    const cancelRuntimeImport = vi.fn();
+    render(
+      <SettingsSection
+        runtimeSettings={{ textStreaming: false, banEmojis: false, promptDebugLogs: false, diceRollsEnabled: false, onboardingCompleted: true, accentColor: "" }}
+        setRuntimeSettings={vi.fn()}
+        personas={personas}
+        activePersonaId="persona_default"
+        selectPersona={vi.fn()}
+        addPersona={vi.fn()}
+        editPersona={vi.fn()}
+        removePersona={vi.fn()}
+        makePersonaDefault={vi.fn()}
+        promptPreview=""
+        dataManagementStatus="Import parsed. Review before applying."
+        exportRuntimeData={vi.fn()}
+        importRuntimeData={vi.fn()}
+        pendingImportReview={{ cards: 3, chats: 5, messages: 21, savedAt: "2026-07-12T00:00:00.000Z" }}
+        applyRuntimeImport={applyRuntimeImport}
+        cancelRuntimeImport={cancelRuntimeImport}
+        downloadDiagnostics={vi.fn()}
+        restorePoints={[]}
+        restoreStatus=""
+        restoreRuntimePoint={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/3 cards.*5 chats.*21 messages/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Apply reviewed import/i }));
+    expect(applyRuntimeImport).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: /Cancel import/i }));
+    expect(cancelRuntimeImport).toHaveBeenCalledTimes(1);
   });
 
   it("creates, switches, edits, and deletes personas", () => {
@@ -104,6 +142,9 @@ describe("SettingsSection", () => {
         dataManagementStatus="Idle."
         exportRuntimeData={vi.fn()}
         importRuntimeData={vi.fn()}
+        pendingImportReview={null}
+        applyRuntimeImport={vi.fn()}
+        cancelRuntimeImport={vi.fn()}
         downloadDiagnostics={vi.fn()}
         restorePoints={[]}
         restoreStatus=""

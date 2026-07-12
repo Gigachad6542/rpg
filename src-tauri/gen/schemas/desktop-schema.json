@@ -177,10 +177,28 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the archive_runtime_database command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-archive-runtime-database",
+          "markdownDescription": "Enables the archive_runtime_database command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the backup_runtime_database command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-backup-runtime-database",
+          "markdownDescription": "Enables the backup_runtime_database command without any pre-configured scope."
+        },
+        {
           "description": "Enables the delete_provider_secret command without any pre-configured scope.",
           "type": "string",
           "const": "allow-delete-provider-secret",
           "markdownDescription": "Enables the delete_provider_secret command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the download_chub_character command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-download-chub-character",
+          "markdownDescription": "Enables the download_chub_character command without any pre-configured scope."
         },
         {
           "description": "Enables the generate_text_with_stored_secret command without any pre-configured scope.",
@@ -225,10 +243,28 @@
           "markdownDescription": "Enables the store_provider_secret command without any pre-configured scope."
         },
         {
+          "description": "Denies the archive_runtime_database command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-archive-runtime-database",
+          "markdownDescription": "Denies the archive_runtime_database command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the backup_runtime_database command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-backup-runtime-database",
+          "markdownDescription": "Denies the backup_runtime_database command without any pre-configured scope."
+        },
+        {
           "description": "Denies the delete_provider_secret command without any pre-configured scope.",
           "type": "string",
           "const": "deny-delete-provider-secret",
           "markdownDescription": "Denies the delete_provider_secret command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the download_chub_character command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-download-chub-character",
+          "markdownDescription": "Denies the download_chub_character command without any pre-configured scope."
         },
         {
           "description": "Denies the generate_text_with_stored_secret command without any pre-configured scope.",

@@ -8,8 +8,10 @@ use tauri::{AppHandle, Manager};
 const DATABASE_FILENAME: &str = "local-first-ai-rpg-runtime.db";
 const LEGACY_DATABASE_FILENAME: &str = "runtime.db";
 const APP_DATA_DIR_OVERRIDE_ENV: &str = "LOCAL_FIRST_AI_RPG_RUNTIME_APP_DATA_DIR";
-const SCHEMA_VERSION: i64 = 1;
-const SCHEMA_NAME: &str = "initial_core_schema";
+/// Latest schema version. Bumped to 2 to backfill the performance indexes that
+/// were added to the v1 DDL after v1 databases already existed in the wild —
+/// the old single-shot migration skipped them for anyone on version 1.
+const SCHEMA_VERSION: i64 = 2;
 const RUNTIME_CHAT_ID: &str = "chat_local_cards_runtime";
 const RUNTIME_BRANCH_ID: &str = "branch_local_cards_runtime";
 const RUNTIME_SNAPSHOT_CHARACTER_ID: &str = "char_local_cards_runtime_snapshot";
@@ -346,45 +348,58 @@ fn configure_connection(conn: &Connection) -> RepoResult<()> {
     Ok(())
 }
 
+/// Applies every migration whose version row is absent, in order. Each
+/// migration's statements are all `IF NOT EXISTS`, so re-running a later
+/// migration against a database that happens to already have its objects is a
+/// no-op; this is what lets a v1 database created before the indexes existed
+/// converge to the same schema as a fresh install.
 fn run_migrations(conn: &mut Connection) -> RepoResult<Vec<MigrationRun>> {
     conn.execute_batch(SCHEMA_MIGRATIONS_CREATE)
         .map_err(|_| RuntimeRepositoryError::Storage)?;
-    let applied = conn
-        .query_row(
-            "SELECT version FROM schema_migrations WHERE version = ?1 LIMIT 1",
-            params![SCHEMA_VERSION],
-            |row| row.get::<_, i64>(0),
-        )
-        .optional()
-        .map_err(|_| RuntimeRepositoryError::Storage)?;
 
-    if applied.is_some() {
-        return Ok(vec![MigrationRun {
-            version: SCHEMA_VERSION,
-            name: SCHEMA_NAME,
-            status: "skipped",
-        }]);
-    }
+    let mut runs = Vec::with_capacity(MIGRATIONS.len());
+    for migration in MIGRATIONS {
+        let already_applied = conn
+            .query_row(
+                "SELECT version FROM schema_migrations WHERE version = ?1 LIMIT 1",
+                params![migration.version],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map_err(|_| RuntimeRepositoryError::Storage)?
+            .is_some();
 
-    let tx = conn
-        .transaction()
-        .map_err(|_| RuntimeRepositoryError::Storage)?;
-    for statement in SCHEMA_STATEMENTS {
-        tx.execute_batch(statement)
+        if already_applied {
+            runs.push(MigrationRun {
+                version: migration.version,
+                name: migration.name,
+                status: "skipped",
+            });
+            continue;
+        }
+
+        let tx = conn
+            .transaction()
             .map_err(|_| RuntimeRepositoryError::Storage)?;
-    }
-    tx.execute(
-        "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?1, ?2, ?3)",
-        params![SCHEMA_VERSION, SCHEMA_NAME, now_iso()],
-    )
-    .map_err(|_| RuntimeRepositoryError::Storage)?;
-    tx.commit().map_err(|_| RuntimeRepositoryError::Storage)?;
+        for statement in migration.statements {
+            tx.execute_batch(statement)
+                .map_err(|_| RuntimeRepositoryError::Storage)?;
+        }
+        tx.execute(
+            "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?1, ?2, ?3)",
+            params![migration.version, migration.name, now_iso()],
+        )
+        .map_err(|_| RuntimeRepositoryError::Storage)?;
+        tx.commit().map_err(|_| RuntimeRepositoryError::Storage)?;
 
-    Ok(vec![MigrationRun {
-        version: SCHEMA_VERSION,
-        name: SCHEMA_NAME,
-        status: "applied",
-    }])
+        runs.push(MigrationRun {
+            version: migration.version,
+            name: migration.name,
+            status: "applied",
+        });
+    }
+
+    Ok(runs)
 }
 
 fn load_runtime_snapshot_at_path(path: &Path) -> RepoResult<Option<Value>> {
@@ -2026,8 +2041,29 @@ const SCHEMA_MIGRATIONS_CREATE: &str = r#"CREATE TABLE IF NOT EXISTS schema_migr
   applied_at TEXT NOT NULL
 )"#;
 
-const SCHEMA_STATEMENTS: &[&str] = &[
-    SCHEMA_MIGRATIONS_CREATE,
+struct MigrationDef {
+    version: i64,
+    name: &'static str,
+    statements: &'static [&'static str],
+}
+
+/// Ordered migration ledger. Append new migrations; never rewrite an applied
+/// one. v1 creates the core tables; v2 backfills indexes that v1 databases in
+/// the wild are missing (they were added to the v1 DDL after release).
+const MIGRATIONS: &[MigrationDef] = &[
+    MigrationDef {
+        version: 1,
+        name: "initial_core_schema",
+        statements: SCHEMA_V1_TABLE_STATEMENTS,
+    },
+    MigrationDef {
+        version: 2,
+        name: "backfill_core_indexes",
+        statements: SCHEMA_V2_INDEX_STATEMENTS,
+    },
+];
+
+const SCHEMA_V1_TABLE_STATEMENTS: &[&str] = &[
     r#"CREATE TABLE IF NOT EXISTS profiles (
       id TEXT PRIMARY KEY,
       display_name TEXT NOT NULL,
@@ -2242,6 +2278,9 @@ const SCHEMA_STATEMENTS: &[&str] = &[
       created_at TEXT NOT NULL,
       FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE SET NULL
     )"#,
+];
+
+const SCHEMA_V2_INDEX_STATEMENTS: &[&str] = &[
     r#"CREATE INDEX IF NOT EXISTS idx_message_branches_chat_active
       ON message_branches(chat_id, is_active)"#,
     r#"CREATE INDEX IF NOT EXISTS idx_messages_chat_branch_created
@@ -2267,8 +2306,48 @@ mod tests {
         let path = temp_db_path("migrations_are_idempotent");
         let first = initialize_repository_at_path(&path).unwrap();
         let second = initialize_repository_at_path(&path).unwrap();
-        assert_eq!(first[0].status, "applied");
-        assert_eq!(second[0].status, "skipped");
+        assert_eq!(first.len(), MIGRATIONS.len());
+        assert!(first.iter().all(|run| run.status == "applied"));
+        assert!(second.iter().all(|run| run.status == "skipped"));
+        cleanup(&path);
+    }
+
+    #[test]
+    fn upgrades_a_version_1_database_by_backfilling_indexes() {
+        let path = temp_db_path("upgrades_v1_backfills_indexes");
+
+        // Simulate an old install: v1 tables present, schema_migrations records
+        // only version 1, and none of the later indexes exist.
+        {
+            let conn = Connection::open(&path).unwrap();
+            configure_connection(&conn).unwrap();
+            conn.execute_batch(SCHEMA_MIGRATIONS_CREATE).unwrap();
+            for statement in SCHEMA_V1_TABLE_STATEMENTS {
+                conn.execute_batch(statement).unwrap();
+            }
+            conn.execute(
+                "INSERT INTO schema_migrations (version, name, applied_at) VALUES (1, 'initial_core_schema', ?1)",
+                params![now_iso()],
+            )
+            .unwrap();
+            assert_eq!(count_indexes(&conn), 0);
+        }
+
+        let runs = initialize_repository_at_path(&path).unwrap();
+        let v1 = runs.iter().find(|run| run.version == 1).unwrap();
+        let v2 = runs.iter().find(|run| run.version == 2).unwrap();
+        assert_eq!(v1.status, "skipped");
+        assert_eq!(v2.status, "applied");
+
+        let conn = Connection::open(&path).unwrap();
+        assert_eq!(
+            count_indexes(&conn),
+            SCHEMA_V2_INDEX_STATEMENTS.len() as i64
+        );
+
+        // Re-running is a no-op; the upgraded database now matches a fresh one.
+        let rerun = initialize_repository_at_path(&path).unwrap();
+        assert!(rerun.iter().all(|run| run.status == "skipped"));
         cleanup(&path);
     }
 
@@ -2699,6 +2778,15 @@ mod tests {
         conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
             row.get(0)
         })
+        .unwrap()
+    }
+
+    fn count_indexes(conn: &Connection) -> i64 {
+        conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_%'",
+            [],
+            |row| row.get(0),
+        )
         .unwrap()
     }
 

@@ -15,7 +15,8 @@ pub fn run() {
             store_provider_secret,
             delete_provider_secret,
             generate_text_with_stored_secret,
-            persist_generated_image
+            persist_generated_image,
+            download_chub_character
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -325,6 +326,101 @@ async fn generate_text_with_stored_secret(
         },
         raw,
     })
+}
+
+const CHUB_DOWNLOAD_URL: &str = "https://api.chub.ai/api/characters/download";
+const MAX_CHUB_CARD_BYTES: usize = 8 * 1024 * 1024;
+const MAX_CHUB_PATH_SEGMENT_CHARS: usize = 128;
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ChubDownloadRequest {
+    full_path: String,
+    timeout_ms: Option<u64>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ChubDownloadResponse {
+    base64_data: String,
+    byte_length: usize,
+}
+
+/// Downloads a Chub character card via the fixed Chub endpoint from the Rust
+/// side. The webview CSP blocks `connect-src` to api.chub.ai, but a reqwest
+/// call is not subject to the webview CSP — so packaged desktop builds route
+/// Chub imports through here instead of widening the CSP. The endpoint is
+/// hard-coded; only the `author/name` path is user-controlled and validated.
+#[tauri::command]
+async fn download_chub_character(
+    request: ChubDownloadRequest,
+) -> Result<ChubDownloadResponse, String> {
+    use base64::Engine as _;
+
+    let full_path = validate_chub_full_path(&request.full_path)?;
+    let request_timeout = validate_request_timeout(request.timeout_ms)?;
+
+    let body = serde_json::json!({
+        "fullPath": full_path,
+        "format": "tavern",
+        "version": "main",
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(request_timeout)
+        .build()
+        .map_err(|_| "Could not initialize the Chub HTTP client.".to_string())?;
+    let response = client
+        .post(CHUB_DOWNLOAD_URL)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|_| "Chub request failed before receiving a response.".to_string())?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        return Err(format!(
+            "Chub download failed ({status}). The card may be private or the path is wrong."
+        ));
+    }
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|_| "Chub returned an unreadable response.".to_string())?;
+    if bytes.is_empty() {
+        return Err("Chub returned an empty response.".to_string());
+    }
+    if bytes.len() > MAX_CHUB_CARD_BYTES {
+        return Err("Chub character exceeds the local size limit.".to_string());
+    }
+
+    Ok(ChubDownloadResponse {
+        byte_length: bytes.len(),
+        base64_data: base64::engine::general_purpose::STANDARD.encode(&bytes),
+    })
+}
+
+/// Validates a Chub `author/name` path: exactly two non-empty segments of
+/// bounded length using the safe identifier alphabet. Prevents the fixed
+/// endpoint from being steered anywhere unexpected via the request body.
+fn validate_chub_full_path(input: &str) -> Result<String, String> {
+    let trimmed = input.trim();
+    let segments: Vec<&str> = trimmed.split('/').collect();
+    if segments.len() != 2 {
+        return Err("Chub path must be in author/name form.".to_string());
+    }
+    for segment in &segments {
+        if segment.is_empty() || segment.chars().count() > MAX_CHUB_PATH_SEGMENT_CHARS {
+            return Err("Chub path segments must be non-empty and not too long.".to_string());
+        }
+        if !segment.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        }) {
+            return Err("Chub path contains unsupported characters.".to_string());
+        }
+    }
+    Ok(format!("{}/{}", segments[0], segments[1]))
 }
 
 const GENERATED_IMAGE_DIR: &str = "generated-images";
@@ -687,6 +783,20 @@ mod tests {
 
         // Arbitrary bytes written under an image extension are rejected.
         assert!(validate_image_magic_bytes("png", b"hello").is_err());
+    }
+
+    #[test]
+    fn chub_full_path_accepts_author_name_and_rejects_junk() {
+        assert_eq!(
+            validate_chub_full_path(" mapmaker/aria ").unwrap(),
+            "mapmaker/aria"
+        );
+        assert!(validate_chub_full_path("mapmaker").is_err());
+        assert!(validate_chub_full_path("mapmaker/aria/extra").is_err());
+        assert!(validate_chub_full_path("mapmaker/").is_err());
+        assert!(validate_chub_full_path("map maker/aria").is_err());
+        assert!(validate_chub_full_path("mapmaker/../secret").is_err());
+        assert!(validate_chub_full_path(&format!("mapmaker/{}", "a".repeat(129))).is_err());
     }
 
     #[test]

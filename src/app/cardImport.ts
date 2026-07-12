@@ -417,34 +417,28 @@ export function parseChubReference(input: string): ChubReference | null {
   return { fullPath, downloadUrl: "https://api.chub.ai/api/characters/download" };
 }
 
+type ChubInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
+
 export interface FetchChubOptions extends BuildCardOptions {
   fetch?: typeof fetch;
+  /** Test seam / desktop bridge for the Tauri `download_chub_character` command. */
+  invoke?: ChubInvoke;
 }
 
 /**
- * Downloads a Chub character as a Tavern PNG and imports it. Works in the desktop
- * app; the browser preview may be blocked by CORS.
+ * Downloads a Chub character as a Tavern PNG and imports it. On the desktop app
+ * the download is routed through the Rust `download_chub_character` command: the
+ * webview CSP blocks `connect-src` to api.chub.ai, but a Rust reqwest call is not
+ * subject to the webview CSP. In the browser preview it falls back to a direct
+ * fetch (which may be blocked by CORS).
  */
 export async function fetchChubCharacterCard(input: string, options: FetchChubOptions = {}): Promise<ImportedCard> {
   const reference = parseChubReference(input);
   if (!reference) {
     throw new Error("Enter a Chub character URL (https://chub.ai/characters/author/name) or an author/name path.");
   }
-  const fetchImpl = options.fetch ?? (typeof fetch !== "undefined" ? fetch : undefined);
-  if (!fetchImpl) {
-    throw new Error("Network fetch is not available in this environment.");
-  }
 
-  const response = await fetchImpl(reference.downloadUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ fullPath: reference.fullPath, format: "tavern", version: "main" }),
-  });
-  if (!response.ok) {
-    throw new Error(`Chub download failed (${response.status}). The card may be private or the path is wrong.`);
-  }
-
-  const bytes = new Uint8Array(await response.arrayBuffer());
+  const bytes = await downloadChubCardBytes(reference, options);
   const embedded = await resolveEmbeddedAvatar(bytes, options);
   const result = importCardFromPngBytes(bytes, {
     cardId: options.cardId,
@@ -453,4 +447,38 @@ export async function fetchChubCharacterCard(input: string, options: FetchChubOp
   });
   pushAvatarWarnings(result, embedded, options);
   return result;
+}
+
+async function downloadChubCardBytes(reference: ChubReference, options: FetchChubOptions): Promise<Uint8Array> {
+  const invoke = options.invoke ?? desktopChubInvoke();
+  if (invoke) {
+    const response = await invoke<{ base64Data: string }>("download_chub_character", {
+      request: { fullPath: reference.fullPath },
+    });
+    return base64ToBytes(response.base64Data);
+  }
+
+  const fetchImpl = options.fetch ?? (typeof fetch !== "undefined" ? fetch : undefined);
+  if (!fetchImpl) {
+    throw new Error("Network fetch is not available in this environment.");
+  }
+  const response = await fetchImpl(reference.downloadUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ fullPath: reference.fullPath, format: "tavern", version: "main" }),
+  });
+  if (!response.ok) {
+    throw new Error(`Chub download failed (${response.status}). The card may be private or the path is wrong.`);
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+function desktopChubInvoke(): ChubInvoke | undefined {
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+    return undefined;
+  }
+  return async <T>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return invoke<T>(command, args);
+  };
 }

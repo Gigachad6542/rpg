@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   buildRuntimeCardFromTavern,
@@ -242,6 +242,23 @@ describe("fetchChubCharacterCard", () => {
     expect(card.id).toBe("card_chub");
     expect(card.importSource).toBe("chub");
     expect(card.name).toBe("Aria");
+  });
+
+  it("routes through the Tauri command when an invoke bridge is provided", async () => {
+    const png = makeCardPng({ chara: sampleV2Card() });
+    const base64Data = Buffer.from(png).toString("base64");
+    const invoke = vi.fn(async () => ({ base64Data, byteLength: png.byteLength }));
+
+    const { card } = await fetchChubCharacterCard("https://chub.ai/characters/mapmaker/aria", {
+      invoke: invoke as never,
+      cardId: "card_chub_desktop",
+    });
+
+    expect(card.id).toBe("card_chub_desktop");
+    expect(card.name).toBe("Aria");
+    expect(invoke).toHaveBeenCalledWith("download_chub_character", {
+      request: { fullPath: "mapmaker/aria" },
+    });
   });
 
   it("throws when the download fails", async () => {

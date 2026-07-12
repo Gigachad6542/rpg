@@ -4,11 +4,14 @@ fn main() {
             "initialize_runtime_repository",
             "load_runtime_snapshot",
             "save_runtime_snapshot",
+            "backup_runtime_database",
+            "archive_runtime_database",
             "secure_storage_status",
             "store_provider_secret",
             "delete_provider_secret",
             "generate_text_with_stored_secret",
             "persist_generated_image",
+            "download_chub_character",
         ]),
     ))
     .expect("failed to build Tauri app");

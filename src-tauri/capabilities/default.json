@@ -7,10 +7,13 @@
     "allow-initialize-runtime-repository",
     "allow-load-runtime-snapshot",
     "allow-save-runtime-snapshot",
+    "allow-backup-runtime-database",
+    "allow-archive-runtime-database",
     "allow-secure-storage-status",
     "allow-store-provider-secret",
     "allow-delete-provider-secret",
     "allow-generate-text-with-stored-secret",
-    "allow-persist-generated-image"
+    "allow-persist-generated-image",
+    "allow-download-chub-character"
   ]
 }

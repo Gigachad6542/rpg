@@ -35,4 +35,6 @@ After moving pnpm policy to the workspace config, `pnpm install --frozen-lockfil
 
 The macOS smoke script and release workflow contract are locally verified, but the DMG smoke itself has not run on a macOS runner from this checkout. Keychain round-trip automation, Apple signing/notarization, Intel or universal-binary proof, pushing, and publishing remain external owner/hosted-runner actions.
 
-The production build still reports a 551.72 kB main JavaScript chunk and a mixed static/dynamic Tauri API import warning. These are performance/packaging follow-ups, not failed release gates.
+The final packaging cleanup made the Tauri API consistently lazy-loaded and split React,
+icons, and Tauri code into stable vendor chunks. The main JavaScript chunk dropped from
+551.72 kB to 389.59 kB, clearing both production build warnings.

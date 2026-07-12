@@ -8,6 +8,18 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/lucide-react")) return "icons";
+          if (id.includes("node_modules/react") || id.includes("node_modules/scheduler")) return "react";
+          if (id.includes("node_modules/@tauri-apps")) return "tauri";
+          return undefined;
+        },
+      },
+    },
+  },
   test: {
     exclude: [...configDefaults.exclude, "tests/e2e/**"],
     environment: "jsdom",

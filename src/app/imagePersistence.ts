@@ -1,5 +1,3 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-
 export interface PersistGeneratedImageDeps {
   fetchImpl?: typeof fetch;
   invokeImpl?: <T>(command: string, args: Record<string, unknown>) => Promise<T>;
@@ -10,8 +8,8 @@ export async function syncGeneratedImageFiles(
   activeArtifactIds: string[],
   deps: Pick<PersistGeneratedImageDeps, "invokeImpl"> = {},
 ): Promise<number> {
-  const invokeImpl = deps.invokeImpl ?? invoke;
   try {
+    const invokeImpl = deps.invokeImpl ?? (await import("@tauri-apps/api/core")).invoke;
     const removed = await invokeImpl<number>("sync_generated_image_files", { activeArtifactIds });
     return typeof removed === "number" && Number.isFinite(removed) ? removed : 0;
   } catch {
@@ -38,10 +36,14 @@ export async function persistGeneratedImageLocally(
   deps: PersistGeneratedImageDeps = {},
 ): Promise<string | null> {
   const fetchImpl = deps.fetchImpl ?? fetch;
-  const invokeImpl = deps.invokeImpl ?? invoke;
-  const convertFileSrcImpl = deps.convertFileSrcImpl ?? convertFileSrc;
 
   try {
+    const tauriCore = deps.invokeImpl && deps.convertFileSrcImpl
+      ? null
+      : await import("@tauri-apps/api/core");
+    const invokeImpl = deps.invokeImpl ?? tauriCore?.invoke;
+    const convertFileSrcImpl = deps.convertFileSrcImpl ?? tauriCore?.convertFileSrc;
+    if (!invokeImpl || !convertFileSrcImpl) return null;
     const response = await fetchImpl(imageUrl);
     if (!response.ok) {
       return null;

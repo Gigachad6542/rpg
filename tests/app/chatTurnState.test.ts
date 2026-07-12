@@ -10,6 +10,7 @@ import {
   recordChatTurnVariant,
   recordRegeneratedChatVariant,
   switchChatMessageVariant,
+  undoChatTurnEffects,
 } from "../../src/app/chatTurnState";
 import { createChatSession, parseChatSessions } from "../../src/app/chatSessions";
 import type { Message, RuntimeCard } from "../../src/app/runtimeTypes";
@@ -251,5 +252,23 @@ describe("chat turn-state integration helpers", () => {
     expect(edited?.variants).toBeUndefined();
     expect(edited?.activeVariantIndex).toBeUndefined();
     expect(deriveCardForChat(baseCard, branch!).rpg?.inventory).toEqual([]);
+  });
+
+  it("undoes only the active assistant variant's state effects", () => {
+    const baseCard = card();
+    let session = initializeChatTurnState(
+      { ...createChatSession(baseCard.id, "Chat"), messages: turnMessages("a1", 0) },
+      baseCard,
+    );
+    session = recordChatTurnVariant(session, baseCard, "a1", 0, effects("torch"));
+    expect(deriveCardForChat(baseCard, session).rpg?.inventory).toEqual(["torch"]);
+
+    const undone = undoChatTurnEffects(session, baseCard, "a1");
+    expect(undone.changed).toBe(true);
+    expect(deriveCardForChat(baseCard, undone.chat).rpg?.inventory).toEqual([]);
+    expect(undone.chat.turnLineage?.ledger.a1).toBeUndefined();
+
+    const repeated = undoChatTurnEffects(undone.chat, baseCard, "a1");
+    expect(repeated.changed).toBe(false);
   });
 });

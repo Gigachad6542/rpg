@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { persistGeneratedImageLocally } from "./imagePersistence";
 import { createSnapshotSaveQueue, type SnapshotSaveQueue } from "./snapshotSaveQueue";
+import { loadLocalRestorePoints, saveLocalRestorePoints } from "./localRestorePointStore";
 import { compileImagePrompt } from "../runtime/imagePromptCompiler";
 import {
   applyHiddenContinuityToCard,
@@ -72,6 +73,7 @@ import {
   buildRuntimeDiagnostics,
   buildVersionedRuntimeExport,
   parseVersionedRuntimeExport,
+  type RuntimeExportSnapshot,
 } from "./runtimeDataBundle";
 import { RuntimeRepositoryStore, type RuntimeRepository, type RepositoryRuntimeSnapshot } from "./runtimeRepositoryStore";
 import { SettingsSection } from "./SettingsSection";
@@ -264,6 +266,14 @@ function disableLoreEntriesInPersona(
     : { ...persona, lorebooks: disableLoreEntries(persona.lorebooks, disabledEntryIds) };
 }
 
+function countImportedMessages(snapshot: RuntimeExportSnapshot): number {
+  if (!Array.isArray(snapshot.chatSessions)) return snapshot.messages.length;
+  return snapshot.chatSessions.reduce((total, chat) => {
+    const chatMessages = (chat as Record<string, unknown>).messages;
+    return total + (Array.isArray(chatMessages) ? chatMessages.length : 0);
+  }, 0);
+}
+
 export function App() {
   const [initialSnapshot] = useState(() => loadLocalRuntimeSnapshot<RuntimeCard, Message, PromptRun, ChatSession>());
   const initialRuntimeSettings = parseRuntimeSettings(initialSnapshot?.runtimeSettings);
@@ -362,8 +372,11 @@ export function App() {
   const [hydrationAttempt, setHydrationAttempt] = useState(0);
   const repositoryHydrated = hydration.phase === "ready";
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
-  const [restorePoints, setRestorePoints] = useState<RestorePoint<AppRuntimeSnapshot>[]>([]);
-  const [restoreStatus, setRestoreStatus] = useState("Restore points capture automatically as you play this session.");
+  const [restorePoints, setRestorePoints] = useState<RestorePoint<AppRuntimeSnapshot>[]>(() =>
+    loadLocalRestorePoints<AppRuntimeSnapshot>(),
+  );
+  const [restoreStatus, setRestoreStatus] = useState("Restore points persist automatically as you play.");
+  const [pendingImportSnapshot, setPendingImportSnapshot] = useState<RuntimeExportSnapshot | null>(null);
   const [pendingDeleteChatId, setPendingDeleteChatId] = useState<string | null>(null);
   const [pendingDeleteCardId, setPendingDeleteCardId] = useState<string | null>(null);
   const [newCardError, setNewCardError] = useState<string | null>(null);
@@ -504,6 +517,12 @@ export function App() {
       ),
     );
   }, [cards, chatSessions, repositoryHydrated]);
+
+  useEffect(() => {
+    if (!saveLocalRestorePoints(restorePoints)) {
+      setRestoreStatus("Restore points are available this session, but could not be persisted locally.");
+    }
+  }, [restorePoints]);
 
   useEffect(() => {
     function handleWheelZoom(event: WheelEvent) {
@@ -799,11 +818,34 @@ export function App() {
   function importRuntimeData(rawJson: string) {
     try {
       const snapshot = parseVersionedRuntimeExport(rawJson);
-      hydrateFromSnapshot(snapshot as RepositoryRuntimeSnapshot, "Imported runtime export.");
-      setDataManagementStatus(`Imported runtime export saved at ${snapshot.savedAt}.`);
+      setPendingImportSnapshot(snapshot);
+      const chats = Array.isArray(snapshot.chatSessions) ? snapshot.chatSessions.length : 0;
+      const messages = countImportedMessages(snapshot);
+      setDataManagementStatus(
+        `Import parsed: ${snapshot.cards.length} cards, ${chats} chats, ${messages} messages. Review before applying.`,
+      );
     } catch (error) {
+      setPendingImportSnapshot(null);
       setDataManagementStatus(getErrorMessage(error));
     }
+  }
+
+  function applyRuntimeImport() {
+    if (!pendingImportSnapshot) return;
+    setRestorePoints((current) =>
+      appendRestorePoint(
+        current,
+        buildRestorePoint({ id: createRuntimeEntityId("restore"), createdAt: new Date().toISOString(), snapshot: currentSnapshotRef.current }),
+      ),
+    );
+    hydrateFromSnapshot(pendingImportSnapshot as RepositoryRuntimeSnapshot, "Imported runtime export.");
+    setDataManagementStatus(`Imported runtime export saved at ${pendingImportSnapshot.savedAt}.`);
+    setPendingImportSnapshot(null);
+  }
+
+  function cancelRuntimeImport() {
+    setPendingImportSnapshot(null);
+    setDataManagementStatus("Runtime import cancelled; current data was not changed.");
   }
 
   function downloadDiagnostics() {
@@ -2687,6 +2729,14 @@ export function App() {
             dataManagementStatus={dataManagementStatus}
             exportRuntimeData={exportRuntimeData}
             importRuntimeData={importRuntimeData}
+            pendingImportReview={pendingImportSnapshot ? {
+              cards: pendingImportSnapshot.cards.length,
+              chats: pendingImportSnapshot.chatSessions?.length ?? 0,
+              messages: countImportedMessages(pendingImportSnapshot),
+              savedAt: pendingImportSnapshot.savedAt,
+            } : null}
+            applyRuntimeImport={applyRuntimeImport}
+            cancelRuntimeImport={cancelRuntimeImport}
             downloadDiagnostics={downloadDiagnostics}
             restorePoints={restorePointViews}
             restoreStatus={restoreStatus}

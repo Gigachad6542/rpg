@@ -4504,7 +4504,13 @@ describe("local-first card runtime UI", () => {
     fireEvent.change(screen.getByLabelText(/Runtime export JSON/i), {
       target: { value: JSON.stringify(bundle) },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Import runtime data/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Review runtime import/i }));
+
+    expect(screen.getByRole("status", { name: /Data management status/i })).toHaveTextContent(
+      /Review before applying/i,
+    );
+    expect(screen.queryByRole("heading", { name: /Imported Runtime Card/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Apply reviewed import/i }));
 
     expect(screen.getByRole("status", { name: /Data management status/i })).toHaveTextContent(
       /Imported runtime export/i,
@@ -4520,7 +4526,7 @@ describe("local-first card runtime UI", () => {
     fireEvent.change(screen.getByLabelText(/Runtime export JSON/i), {
       target: { value: "{bad json" },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Import runtime data/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Review runtime import/i }));
 
     expect(screen.getByRole("status", { name: /Data management status/i })).toHaveTextContent(
       /Runtime export JSON is invalid/i,

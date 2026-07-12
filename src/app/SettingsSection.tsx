@@ -18,6 +18,13 @@ export type RestorePointView = {
   timeLabel: string;
 };
 
+export type RuntimeImportReviewView = {
+  cards: number;
+  chats: number;
+  messages: number;
+  savedAt: string;
+};
+
 const ACCENT_PRESETS: Array<{ label: string; value: string }> = [
   { label: "Ember red", value: "#d83a2e" },
   { label: "Molten orange", value: "#e8722a" },
@@ -40,6 +47,9 @@ export function SettingsSection(props: {
   dataManagementStatus: string;
   exportRuntimeData: () => void;
   importRuntimeData: (rawJson: string) => void;
+  pendingImportReview: RuntimeImportReviewView | null;
+  applyRuntimeImport: () => void;
+  cancelRuntimeImport: () => void;
   downloadDiagnostics: () => void;
   restorePoints: RestorePointView[];
   restoreStatus: string;
@@ -192,13 +202,35 @@ export function SettingsSection(props: {
           type="button"
           onClick={() => {
             props.importRuntimeData(runtimeImportDraft);
-            setRuntimeImportDraft("");
           }}
           disabled={!runtimeImportDraft.trim()}
         >
           <Upload size={16} />
-          Import runtime data
+          Review runtime import
         </button>
+        {props.pendingImportReview ? (
+          <div className="import-review" role="region" aria-label="Runtime import review">
+            <p>
+              This will replace the current runtime with {props.pendingImportReview.cards} cards, {props.pendingImportReview.chats} chats, and {props.pendingImportReview.messages} messages.
+            </p>
+            <p className="panel-hint">Export saved at {props.pendingImportReview.savedAt}.</p>
+            <div className="button-row">
+              <button
+                className="primary-button compact-button"
+                type="button"
+                onClick={() => {
+                  props.applyRuntimeImport();
+                  setRuntimeImportDraft("");
+                }}
+              >
+                Apply reviewed import
+              </button>
+              <button className="secondary-button compact-button" type="button" onClick={props.cancelRuntimeImport}>
+                Cancel import
+              </button>
+            </div>
+          </div>
+        ) : null}
         <p className="status-line" role="status" aria-label="Data management status" aria-live="polite">
           {props.dataManagementStatus}
         </p>
@@ -209,7 +241,7 @@ export function SettingsSection(props: {
           <h3>Restore Points</h3>
         </div>
         <p className="panel-hint">
-          Automatic snapshots from this session. Restore one to roll the runtime back to that state.
+          Automatic snapshots persist on this device. Restore one to roll the runtime back to that state.
         </p>
         {props.restorePoints.length === 0 ? (
           <p className="empty-hint">No restore points yet — they appear as you play.</p>

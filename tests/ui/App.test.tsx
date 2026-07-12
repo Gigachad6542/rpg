@@ -627,6 +627,7 @@ describe("local-first card runtime UI", () => {
     seedRuntimeSnapshot({
       imageProviderSettings: {
         mode: "comfyui",
+        portraitGenerationMode: "auto",
         endpoint: "http://127.0.0.1:8188",
         model: "portrait-model.safetensors",
         workflowJson: JSON.stringify({

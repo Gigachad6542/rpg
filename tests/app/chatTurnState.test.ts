@@ -100,6 +100,20 @@ describe("chat turn-state integration helpers", () => {
     let session = initializeChatTurnState(createChatSession(baseCard.id, "Chat"), baseCard);
     session = { ...session, messages: turnMessages("a-old", 0) };
     session = recordChatTurnVariant(session, baseCard, "a-old", 0, effects("discarded sword", "old"));
+    session = {
+      ...session,
+      authoritativeEvents: [createStateCommittedEvent({
+        id: "event-old-state",
+        chatId: session.id,
+        branchId: session.id,
+        messageId: "a-old",
+        occurredAt: "2026-07-12T12:00:00.000Z",
+        runId: "run-old",
+        variant: { assistantMessageId: "a-old", variantIndex: 0 },
+        proposalIds: ["proposal-old"],
+        mutations: [{ type: "inventory_add", item: "discarded sword" }],
+      })],
+    };
 
     expect(deriveCardForRegeneration(baseCard, session, "a-old").rpg?.inventory).toEqual([]);
 
@@ -121,6 +135,13 @@ describe("chat turn-state integration helpers", () => {
     expect(regenerated.turnLineage?.ledger["a-old"]).toBeUndefined();
     expect(regenerated.turnLineage?.ledger["a-new"].variants.map((variant) => variant.variantIndex)).toEqual([0, 1]);
     expect(deriveCardForChat(baseCard, regenerated).rpg?.inventory).toEqual(["shield"]);
+    expect(regenerated.authoritativeEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        originEventId: "event-old-state",
+        messageId: "a-new",
+        variant: { assistantMessageId: "a-new", variantIndex: 0 },
+      }),
+    ]));
 
     const firstVariant = switchChatMessageVariant(regenerated, baseCard, "a-new", -1);
     expect(firstVariant.changed).toBe(true);

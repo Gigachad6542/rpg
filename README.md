@@ -1,4 +1,4 @@
-# rpg
+# Local-First RPG
 
 A desktop-first Tauri + React + TypeScript foundation for a local-first AI character and RPG runtime.
 

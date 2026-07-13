@@ -113,17 +113,20 @@ function hasUserContinuity(snapshot: SnapshotCandidate): boolean {
     }
   }
 
-  const cards = snapshot.cards ?? [];
-  if (cards.length > 1) {
-    return true;
-  }
-
-  return cards.some((card) => {
+  return (snapshot.cards ?? []).some((card) => {
     if (!isRecord(card)) {
       return false;
     }
-    return card.id !== "card_blank_slate_rpg" && card.name !== "Blank Slate RPG";
+    return !isBundledStarterCard(card);
   });
+}
+
+function isBundledStarterCard(card: Record<string, unknown>): boolean {
+  return (
+    card.id === "card_blank_slate_rpg" ||
+    card.name === "Blank Slate RPG" ||
+    card.id === "card_ashfall_crossing"
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BookOpen, Download, Plus, Settings2, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, BookOpen, Download, Plus, Rocket, Search, Settings2, Star, Trash2 } from "lucide-react";
 import { type CompiledPrompt } from "../runtime/promptCompiler";
 import type { LoreTriggerProvenance } from "../runtime/loreTriggerEngine";
 import type {
@@ -19,6 +19,9 @@ import { RpgStatePanel } from "./RpgStatePanel";
 import { CardImportPanel } from "./CardImportPanel";
 import type { ImportedCard } from "./cardImport";
 import { exportRuntimeCard } from "./cardExport";
+import { CREATION_TEMPLATES, applyCreationTemplate } from "./starterContent";
+import { filterAndSortCards, getCardLibraryTags } from "./libraryControls";
+import type { ReadinessItem } from "./readiness";
 
 export function CardsSection(props: {
   cards: RuntimeCard[];
@@ -27,6 +30,7 @@ export function CardsSection(props: {
   selectCard: (card: RuntimeCard) => void;
   editCard: (card: RuntimeCard) => void;
   deleteCard: (cardId: string) => void;
+  updateCardLibraryState: (cardId: string, patch: Pick<RuntimeCard, "favorite" | "archived">) => void;
   pendingDeleteCardId: string | null;
   newCard: typeof defaultNewCard;
   setNewCard: (card: typeof defaultNewCard) => void;
@@ -44,13 +48,21 @@ export function CardsSection(props: {
   updateActiveLorebook: (lorebookId: string, patch: Partial<Omit<Lorebook, "id" | "entries">>) => void;
   addLorebookEntry: (lorebookId: string, entry: NewLorebookEntry) => boolean;
   lorebookEntryError: string | null;
+  readinessItems: ReadinessItem[];
+  startMockDemo: () => void;
 }) {
   const [isCreatingCard, setIsCreatingCard] = useState(false);
+  const [query, setQuery] = useState("");
+  const [tag, setTag] = useState("");
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [includeArchived, setIncludeArchived] = useState(false);
   const totalRules = props.cards.reduce((total, card) => total + card.playerRules.length, 0);
   const totalLoreEntries = props.cards.reduce(
     (total, card) => total + card.lorebooks.reduce((entryTotal, lorebook) => entryTotal + lorebook.entries.length, 0),
     0,
   );
+  const libraryTags = getCardLibraryTags(props.cards);
+  const visibleCards = filterAndSortCards(props.cards, { query, tag, favoritesOnly, includeArchived });
 
   function submitCreateCard() {
     if (props.createCard()) {
@@ -86,15 +98,51 @@ export function CardsSection(props: {
             lore entries
           </span>
         </div>
+        <label className="field">
+          <span>Search cards</span>
+          <div className="search-input">
+            <Search size={16} />
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Name, summary, character, or tag"
+            />
+          </div>
+        </label>
+        <div className="settings-grid-two">
+          <label className="field">
+            <span>Tag</span>
+            <select value={tag} onChange={(event) => setTag(event.target.value)}>
+              <option value="">All tags</option>
+              {libraryTags.map((value) => <option value={value} key={value}>{value}</option>)}
+            </select>
+          </label>
+          <div className="field">
+            <span>Visibility</span>
+            <label className="toggle-row">
+              <input type="checkbox" checked={favoritesOnly} onChange={(event) => setFavoritesOnly(event.target.checked)} />
+              <span>Favorites only</span>
+            </label>
+            <label className="toggle-row">
+              <input type="checkbox" checked={includeArchived} onChange={(event) => setIncludeArchived(event.target.checked)} />
+              <span>Show archived</span>
+            </label>
+          </div>
+        </div>
         <div className="card-list compact-card-list">
-          {props.cards.map((card) => (
+          {visibleCards.length === 0 ? <p className="status-line">No cards match these library filters.</p> : null}
+          {visibleCards.map((card) => (
             <article
               key={card.id}
               className={`card-row compact-card-row ${props.activeCardId === card.id ? "selected" : ""}`}
             >
               <header className="card-row-header">
                 <strong>{card.name}</strong>
-                <span className={`kind-pill ${card.kind}`}>{card.kind}</span>
+                <span>
+                  {card.favorite ? <Star size={14} aria-label="Favorite" fill="currentColor" /> : null}
+                  <span className={`kind-pill ${card.kind}`}>{card.kind}</span>
+                </span>
               </header>
               <p>{card.summary}</p>
               <small>
@@ -103,7 +151,7 @@ export function CardsSection(props: {
               <div className="button-row">
                 <button className="secondary-button compact-button" type="button" onClick={() => props.selectCard(card)}>
                   <BookOpen size={16} />
-                  Open
+                  {card.id === "card_ashfall_crossing" ? "Play sample" : "Open"}
                 </button>
                 <button className="secondary-button compact-button" type="button" onClick={() => props.editCard(card)}>
                   <Settings2 size={16} />
@@ -116,6 +164,23 @@ export function CardsSection(props: {
                 <button className="secondary-button compact-button" type="button" onClick={() => exportRuntimeCard(card, "png")}>
                   <Download size={16} />
                   Export PNG
+                </button>
+                <button
+                  className="secondary-button compact-button"
+                  type="button"
+                  aria-pressed={card.favorite === true}
+                  onClick={() => props.updateCardLibraryState(card.id, { favorite: !card.favorite })}
+                >
+                  <Star size={16} fill={card.favorite ? "currentColor" : "none"} />
+                  {card.favorite ? "Unfavorite" : "Favorite"}
+                </button>
+                <button
+                  className="secondary-button compact-button"
+                  type="button"
+                  onClick={() => props.updateCardLibraryState(card.id, { archived: !card.archived })}
+                >
+                  {card.archived ? <ArchiveRestore size={16} /> : <Archive size={16} />}
+                  {card.archived ? "Restore" : "Archive"}
                 </button>
                 <button
                   className="secondary-button danger-button compact-button"
@@ -137,15 +202,51 @@ export function CardsSection(props: {
           <Plus size={17} />
           <h3>Create Card</h3>
         </div>
+        <section className="readiness-panel" aria-label="Readiness checklist">
+          <div className="section-subtitle">
+            <Rocket size={15} />
+            <strong>Ready to play</strong>
+          </div>
+          <ul className="compact-list">
+            {props.readinessItems.map((item) => (
+              <li key={item.id}>
+                <strong>{item.ready ? "Ready" : "Needs setup"}: {item.label}</strong>
+                <span>{item.detail}</span>
+              </li>
+            ))}
+          </ul>
+          <button className="primary-button full-width" type="button" onClick={props.startMockDemo}>
+            <Rocket size={16} />
+            Start mock demo
+          </button>
+          <p className="field-help">Uses the bundled sample and mock narrator. No network request or model call.</p>
+        </section>
         <CardImportPanel onImportCard={props.onImportCard} />
         <div className="card-import-divider" role="separator">
           <span>or build from scratch</span>
         </div>
         {!isCreatingCard ? (
-          <button className="primary-button full-width" type="button" onClick={() => setIsCreatingCard(true)}>
-            <Plus size={16} />
-            Start creating card
-          </button>
+          <>
+            <div className="creation-template-list" aria-label="Creation templates">
+              {CREATION_TEMPLATES.map((template) => (
+                <button
+                  className="secondary-button full-width"
+                  type="button"
+                  key={template.id}
+                  onClick={() => {
+                    props.setNewCard(applyCreationTemplate(template.id));
+                    setIsCreatingCard(true);
+                  }}
+                >
+                  <span><strong>{template.name}</strong><small>{template.description}</small></span>
+                </button>
+              ))}
+            </div>
+            <button className="primary-button full-width" type="button" onClick={() => setIsCreatingCard(true)}>
+              <Plus size={16} />
+              Start creating card
+            </button>
+          </>
         ) : (
           <>
         <label className="field">

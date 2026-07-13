@@ -188,7 +188,7 @@ function captureJsonDownloads() {
 }
 
 describe("local-first card runtime UI", () => {
-  it("starts from one blank RPG card and keeps memory out of the open", async () => {
+  it("starts with a playable sample and a blank RPG while keeping memory out of the open", async () => {
     await renderApp();
 
     expect(screen.getByRole("heading", { name: /Open a saved card/i })).toBeInTheDocument();
@@ -200,9 +200,10 @@ describe("local-first card runtime UI", () => {
 
     openCards();
     const cardLibrary = screen.getByRole("region", { name: /Card library/i });
+    expect(within(cardLibrary).getByText(/Ashfall Crossing/i)).toBeInTheDocument();
     expect(within(cardLibrary).getByText(/Blank Slate RPG/i)).toBeInTheDocument();
     expect(cardLibrary.querySelector(".compact-card-list")).toBeInTheDocument();
-    expect(within(cardLibrary).getByRole("button", { name: /Delete/i })).toBeDisabled();
+    expect(within(cardLibrary).getAllByRole("button", { name: /Delete/i })).toHaveLength(2);
     expect(screen.queryByText(/0 runs/i)).not.toBeInTheDocument();
     const createCardPanel = screen.getByRole("region", { name: /Create card/i });
     expect(within(createCardPanel).queryByLabelText(/^Name$/i)).not.toBeInTheDocument();
@@ -1822,7 +1823,7 @@ describe("local-first card runtime UI", () => {
       target: { value: "{bad json" },
     });
     fireEvent.click(screen.getByRole("button", { name: /Import to active card/i }));
-    await waitFor(() => expect(screen.getByText(/Chub lorebook JSON is invalid/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Lorebook JSON is invalid/i)).toBeInTheDocument());
 
     const brokenFile = new File(["{}"], "broken-chub-lore.json", { type: "application/json" });
     Object.defineProperty(brokenFile, "text", {
@@ -4627,11 +4628,104 @@ describe("local-first card runtime UI", () => {
     fireEvent.click(screen.getByRole("button", { name: /Download diagnostics/i }));
 
     expect(clickedDownloads).toEqual([
-      expect.stringMatching(/^rpg-runtime-.+\.json$/),
-      expect.stringMatching(/^rpg-diagnostics-.+\.json$/),
+      expect.stringMatching(/^local-first-rpg-runtime-.+\.json$/),
+      expect.stringMatching(/^local-first-rpg-diagnostics-.+\.json$/),
     ]);
     expect(createObjectUrl).toHaveBeenCalledTimes(2);
     expect(revokeObjectUrl).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts the bundled RPG through a one-click offline mock demo", async () => {
+    await renderApp();
+
+    const onboarding = screen.getByRole("dialog", { name: /Welcome to Local-First RPG/i });
+    fireEvent.click(within(onboarding).getByRole("button", { name: /Start mock demo/i }));
+
+    expect(screen.getByRole("heading", { name: /Ashfall Crossing/i })).toBeInTheDocument();
+    expect(screen.getByRole("log", { name: /Chat transcript/i })).toHaveTextContent(/Red ash hisses against the shutters/i);
+    await waitFor(() => {
+      const snapshot = JSON.parse(window.localStorage.getItem(RUNTIME_STORAGE_KEY) ?? "{}");
+      expect(snapshot.activeCardId).toBe("card_ashfall_crossing");
+      expect(snapshot.providerSettings?.mode).toBe("mock");
+    });
+  });
+
+  it("filters the card library and populates the hidden creation form from a template", async () => {
+    await renderApp();
+    openCards();
+    const cardLibrary = screen.getByRole("region", { name: /Card library/i });
+    const createCardPanel = screen.getByRole("region", { name: /Create card/i });
+
+    fireEvent.change(within(cardLibrary).getByLabelText(/Search cards/i), { target: { value: "Ashfall" } });
+    expect(within(cardLibrary).getByText(/Ashfall Crossing/i)).toBeInTheDocument();
+    expect(within(cardLibrary).queryByText(/Blank Slate RPG/i)).not.toBeInTheDocument();
+
+    fireEvent.change(within(cardLibrary).getByLabelText(/Search cards/i), { target: { value: "" } });
+    fireEvent.click(within(createCardPanel).getByRole("button", { name: /Choice-driven mystery/i }));
+    expect(within(createCardPanel).getByLabelText(/^Name$/i)).toHaveValue("New Mystery");
+    expect(within(createCardPanel).getByLabelText(/Card type/i)).toHaveValue("rpg");
+  });
+
+  it("renames, exports, archives, and restores a chat", async () => {
+    const downloads = captureJsonDownloads();
+    try {
+      await renderApp();
+      fireEvent.click(screen.getByRole("button", { name: /Start mock demo/i }));
+
+      fireEvent.click(screen.getByRole("button", { name: /^Rename$/i }));
+      fireEvent.change(screen.getByLabelText(/Chat name/i), { target: { value: "Bell Tower Lead" } });
+      fireEvent.click(screen.getByRole("button", { name: /Save name/i }));
+      expect(screen.getByLabelText(/Active chat/i)).toHaveDisplayValue("Bell Tower Lead");
+
+      fireEvent.click(screen.getByRole("button", { name: /^Export$/i }));
+      expect(downloads.clickedDownloads).toEqual([
+        expect.stringMatching(/^local-first-rpg-chat-.+\.json$/),
+      ]);
+
+      fireEvent.click(screen.getByRole("button", { name: /^Archive$/i }));
+      expect(screen.getByText(/Archived chats \(1\)/i)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: /Restore Bell Tower Lead/i }));
+      expect(screen.getByLabelText(/Active chat/i)).toHaveDisplayValue("Bell Tower Lead");
+      expect(screen.queryByText(/Archived chats \(1\)/i)).not.toBeInTheDocument();
+    } finally {
+      downloads.restore();
+    }
+  });
+
+  it("windows long transcripts and stops forced follow when the player scrolls up", async () => {
+    const messages = Array.from({ length: 130 }, (_, index) => ({
+      id: `message_${index}`,
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `Transcript message ${index}`,
+    }));
+    seedRuntimeSnapshot(
+      {
+        chatSessions: [
+          {
+            id: "chat_seeded",
+            cardId: "card_long_campaign",
+            title: "Long campaign",
+            createdAt: "2026-07-01T00:00:00.000Z",
+            updatedAt: "2026-07-01T00:00:00.000Z",
+            messages,
+          },
+        ],
+      },
+      { id: "card_long_campaign", name: "Long Campaign" },
+    );
+
+    await renderApp();
+    const transcript = screen.getByRole("log", { name: /Chat transcript/i });
+    expect(within(transcript).queryByText("Transcript message 0")).not.toBeInTheDocument();
+    expect(within(transcript).getByText("Transcript message 129")).toBeInTheDocument();
+    fireEvent.click(within(transcript).getByRole("button", { name: /Show earlier messages \(10 hidden\)/i }));
+    expect(within(transcript).getByText("Transcript message 0")).toBeInTheDocument();
+
+    Object.defineProperty(transcript, "scrollHeight", { configurable: true, value: 1_000 });
+    Object.defineProperty(transcript, "clientHeight", { configurable: true, value: 300 });
+    Object.defineProperty(transcript, "scrollTop", { configurable: true, writable: true, value: 100 });
+    fireEvent.scroll(transcript);
+    expect(within(transcript).getByRole("button", { name: /Jump to latest/i })).toBeInTheDocument();
   });
 });
 

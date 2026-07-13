@@ -1202,7 +1202,7 @@ fn upsert_snapshot_character(tx: &Transaction<'_>, snapshot: &Value) -> RepoResu
         "INSERT OR REPLACE INTO characters (id, name, description, profile_json, source, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             RUNTIME_SNAPSHOT_CHARACTER_ID,
-            "Local Cards runtime snapshot",
+            "Local-First RPG runtime snapshot",
             "Serialized card library and runtime UI state.",
             json_string(&json!({ "snapshot": snapshot })),
             "runtime-snapshot",
@@ -1582,7 +1582,7 @@ fn ensure_runtime_chat(tx: &Transaction<'_>) -> RepoResult<()> {
         "INSERT INTO chats (id, title, mode, active_branch_id, root_state_snapshot_id, metadata_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             RUNTIME_CHAT_ID,
-            "Local Cards runtime",
+            "Local-First RPG runtime",
             "rpg",
             RUNTIME_BRANCH_ID,
             Option::<String>::None,
@@ -2862,7 +2862,7 @@ mod tests {
             "INSERT INTO characters (id, name, description, profile_json, source, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 RUNTIME_SNAPSHOT_CHARACTER_ID,
-                "Local Cards runtime snapshot",
+                "Local-First RPG runtime snapshot",
                 "legacy",
                 json_string(&json!({ "snapshot": fixture_snapshot("legacy-card") })),
                 "runtime-snapshot",
@@ -2885,7 +2885,7 @@ mod tests {
             "INSERT INTO characters (id, name, description, profile_json, source, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 RUNTIME_SNAPSHOT_CHARACTER_ID,
-                "Local Cards runtime snapshot",
+                "Local-First RPG runtime snapshot",
                 "corrupt",
                 "{ this is not valid json",
                 "runtime-snapshot",
@@ -2914,7 +2914,7 @@ mod tests {
             "INSERT INTO characters (id, name, description, profile_json, source, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 RUNTIME_SNAPSHOT_CHARACTER_ID,
-                "Local Cards runtime snapshot",
+                "Local-First RPG runtime snapshot",
                 "corrupt",
                 json_string(&json!({ "snapshot": { "theme": "dark" } })),
                 "runtime-snapshot",

@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Local-First AI RPG Runtime",
+  "productName": "Local-First RPG",
   "version": "0.1.0",
   "identifier": "com.localfirst.airpgruntime",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Local-First AI RPG Runtime",
+        "title": "Local-First RPG",
         "width": 1360,
         "height": 860,
         "minWidth": 960,

@@ -9,7 +9,7 @@ import {
 } from "./cardImport";
 
 const IDLE_HINT =
-  "Import a Tavern Card (.png or .json), paste card JSON, or pull a character from Chub.";
+  "Import Tavern Character Card V1/V2/V3 exports from SillyTavern, RisuAI, or Chub; direct URL fetching is limited to Chub.";
 
 export function CardImportPanel(props: { onImportCard: (result: ImportedCard) => void }) {
   const [jsonDraft, setJsonDraft] = useState("");
@@ -78,7 +78,7 @@ export function CardImportPanel(props: { onImportCard: (result: ImportedCard) =>
       </div>
 
       <label className="field">
-        <span>Upload Tavern Card (.png / .json)</span>
+        <span>Upload Character Card (.png / .json)</span>
         <input
           type="file"
           accept=".png,.json,image/png,application/json"
@@ -114,6 +114,7 @@ export function CardImportPanel(props: { onImportCard: (result: ImportedCard) =>
         Fetch from Chub
       </button>
       <p className="import-hint">Chub fetch works in the desktop app; the browser preview may be blocked by CORS.</p>
+      <p className="import-hint">Files from SillyTavern and RisuAI are supported when exported as Tavern/Character Card V1, V2, or V3. Imported prompts are stored as text and never executed.</p>
 
       <div className="card-import-status">
         <Upload size={14} />

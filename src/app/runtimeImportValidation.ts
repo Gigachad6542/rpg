@@ -166,6 +166,8 @@ const RuntimeCardSchema = z
     characterVersion: z.string().optional(),
     avatarDataUrl: z.string().optional(),
     importSource: z.enum(["manual", "tavern-png", "tavern-json", "chub"]).optional(),
+    favorite: z.boolean().optional(),
+    archived: z.boolean().optional(),
   })
   .passthrough();
 
@@ -178,6 +180,7 @@ const ChatSessionSchema = z
     branchedFromMessageId: z.string().optional(),
     createdAt: z.string().optional(),
     updatedAt: z.string().optional(),
+    archived: z.boolean().optional(),
     messages: z.array(MessageSchema).optional(),
     turnLineage: z.record(z.unknown()).optional(),
     authoritativeEvents: z.array(z.record(z.unknown())).max(10_000).optional(),

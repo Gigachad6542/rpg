@@ -63,6 +63,17 @@ export function InstructionsPanel(props: {
           />
         </label>
       </div>
+      <label className="field">
+        <span>Tags</span>
+        <input
+          value={(props.activeCard.tags ?? []).join(", ")}
+          onChange={(event) => props.updateActiveCard({
+            tags: event.target.value.split(",").map((tag) => tag.replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 32),
+          })}
+          placeholder="mystery, fantasy, favorite campaign"
+        />
+        <span className="field-help">Comma-separated; used by library search and filters.</span>
+      </label>
       <label className="toggle-row">
         <input
           type="checkbox"

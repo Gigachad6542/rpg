@@ -28,7 +28,7 @@ export interface RuntimeExportBundle {
   version: typeof RUNTIME_EXPORT_SCHEMA_VERSION;
   exportedAt: string;
   app: {
-    name: "rpg";
+    name: "rpg" | "Local-First RPG";
     exportFormat: "runtime-bundle";
   };
   snapshot: RuntimeExportSnapshot;
@@ -53,7 +53,7 @@ export interface RuntimeDiagnostics {
   version: typeof RUNTIME_DIAGNOSTICS_SCHEMA_VERSION;
   exportedAt: string;
   app: {
-    name: "rpg";
+    name: "Local-First RPG";
   };
   runtime: {
     backend: RuntimeRepositoryStoreStatus["backend"] | "unknown";
@@ -103,7 +103,7 @@ export function buildVersionedRuntimeExport(
     version: RUNTIME_EXPORT_SCHEMA_VERSION,
     exportedAt: options.exportedAt ?? new Date().toISOString(),
     app: {
-      name: "rpg",
+      name: "Local-First RPG",
       exportFormat: "runtime-bundle",
     },
     snapshot: sanitizeSnapshotForExport(snapshot),
@@ -144,7 +144,7 @@ export function buildRuntimeDiagnostics(input: RuntimeDiagnosticsInput): Runtime
     version: RUNTIME_DIAGNOSTICS_SCHEMA_VERSION,
     exportedAt: input.exportedAt ?? new Date().toISOString(),
     app: {
-      name: "rpg",
+      name: "Local-First RPG",
     },
     runtime: {
       backend: input.runtimeBackend ?? "unknown",

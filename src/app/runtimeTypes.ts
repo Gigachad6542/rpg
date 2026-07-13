@@ -57,6 +57,9 @@ export type RuntimeCard = {
   alternateGreetings?: string[];
   creatorNotes?: string;
   tags?: string[];
+  /** Local library organization. These fields never leave the device unless exported. */
+  favorite?: boolean;
+  archived?: boolean;
   creator?: string;
   characterVersion?: string;
   /** Card avatar embedded as a `data:image/png;base64,...` URL. */
@@ -178,6 +181,7 @@ export type ChatSession = {
   branchedFromMessageId?: string;
   createdAt: string;
   updatedAt: string;
+  archived?: boolean;
   messages: Message[];
   /** Immutable chat root plus per-assistant-variant state effects. */
   turnLineage?: RuntimeTurnLineage;

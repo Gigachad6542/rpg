@@ -4,7 +4,7 @@ export interface CrashDiagnostics {
   schema: "rpg.runtime.crash-diagnostics";
   version: 1;
   occurredAt: string;
-  app: { name: "rpg" };
+  app: { name: "Local-First RPG" };
   environment: { userAgent: string };
   error: {
     message: string;
@@ -36,7 +36,7 @@ export function buildCrashDiagnostics(
     schema: "rpg.runtime.crash-diagnostics",
     version: 1,
     occurredAt: options.now?.() ?? new Date().toISOString(),
-    app: { name: "rpg" },
+    app: { name: "Local-First RPG" },
     environment: {
       userAgent: redactCrashText(options.userAgent ?? globalThis.navigator?.userAgent ?? "unknown"),
     },
@@ -72,7 +72,7 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `rpg-crash-diagnostics-${diagnostics.occurredAt.replace(/[:.]/g, "-")}.json`;
+    anchor.download = `local-first-rpg-crash-diagnostics-${diagnostics.occurredAt.replace(/[:.]/g, "-")}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
   };

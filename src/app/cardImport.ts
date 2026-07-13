@@ -16,6 +16,17 @@ import { createRuntimeEntityId } from "./chatSessions";
 import { buildEmbeddableAvatarDataUrl, type EmbeddableAvatarResult } from "./avatarImage";
 
 export { AVATAR_MAX_EMBED_BYTES } from "./avatarImage";
+export const MAX_CARD_IMPORT_FILE_BYTES = 8 * 1024 * 1024;
+export const MAX_CARD_IMPORT_JSON_CHARS = 2_000_000;
+const MAX_CARD_TEXT_CHARS = 200_000;
+
+function boundedText(value: unknown, maximum = MAX_CARD_TEXT_CHARS): string {
+  return getPayloadString(value).slice(0, maximum);
+}
+
+function boundedList(value: unknown, maximumItems: number, maximumItemChars: number): string[] {
+  return getPayloadStringArray(value).slice(0, maximumItems).map((item) => item.slice(0, maximumItemChars));
+}
 
 export interface NormalizedTavernCard {
   spec: "v1" | "chara_card_v2" | "chara_card_v3";
@@ -205,13 +216,16 @@ export function extractTavernJsonFromPng(bytes: Uint8Array): string | null {
 
 /** Parses Tavern Character Card JSON (v1 flat, or v2/v3 with a `data` object). */
 export function parseTavernCardJson(jsonText: string): NormalizedTavernCard {
+  if (jsonText.length > MAX_CARD_IMPORT_JSON_CHARS) {
+    throw new Error("Character card JSON is too large (maximum 2,000,000 characters).");
+  }
   const root = parseJsonRecordOrThrow(jsonText, "Character card JSON is invalid.");
   const spec = getPayloadString(root.spec);
   const data = isRecord(root.data) ? root.data : root;
 
-  const name = getPayloadString(data.name) || getPayloadString(root.name);
-  const description = getPayloadString(data.description) || getPayloadString(root.description);
-  const firstMessage = getPayloadString(data.first_mes) || getPayloadString(root.first_mes);
+  const name = boundedText(data.name, 200) || boundedText(root.name, 200);
+  const description = boundedText(data.description) || boundedText(root.description);
+  const firstMessage = boundedText(data.first_mes) || boundedText(root.first_mes);
   if (!name && !description && !firstMessage) {
     throw new Error("This file does not look like a character card (no name, description, or greeting).");
   }
@@ -226,17 +240,17 @@ export function parseTavernCardJson(jsonText: string): NormalizedTavernCard {
     spec: spec === "chara_card_v3" ? "chara_card_v3" : spec === "chara_card_v2" ? "chara_card_v2" : "v1",
     name,
     description,
-    personality: getPayloadString(data.personality) || getPayloadString(root.personality),
-    scenario: getPayloadString(data.scenario) || getPayloadString(root.scenario),
+    personality: boundedText(data.personality) || boundedText(root.personality),
+    scenario: boundedText(data.scenario) || boundedText(root.scenario),
     firstMessage,
-    exampleDialogs: getPayloadString(data.mes_example) || getPayloadString(root.mes_example),
-    systemPrompt: getPayloadString(data.system_prompt),
-    postHistoryInstructions: getPayloadString(data.post_history_instructions),
-    creatorNotes: getPayloadString(data.creator_notes) || getPayloadString(root.creator_notes),
-    alternateGreetings: getPayloadStringArray(data.alternate_greetings),
-    tags: getPayloadStringArray(data.tags),
-    creator: getPayloadString(data.creator),
-    characterVersion: getPayloadString(data.character_version),
+    exampleDialogs: boundedText(data.mes_example) || boundedText(root.mes_example),
+    systemPrompt: boundedText(data.system_prompt),
+    postHistoryInstructions: boundedText(data.post_history_instructions),
+    creatorNotes: boundedText(data.creator_notes, 20_000) || boundedText(root.creator_notes, 20_000),
+    alternateGreetings: boundedList(data.alternate_greetings, 32, 50_000),
+    tags: boundedList(data.tags, 32, 48),
+    creator: boundedText(data.creator, 200),
+    characterVersion: boundedText(data.character_version, 100),
     characterBook,
   };
 }
@@ -320,6 +334,9 @@ export function buildRuntimeCardFromTavern(
 // --- top-level import entry points -----------------------------------------
 
 export function importCardFromPngBytes(bytes: Uint8Array, options: BuildCardOptions = {}): ImportedCard {
+  if (bytes.byteLength > MAX_CARD_IMPORT_FILE_BYTES) {
+    throw new Error("Character card file is too large (maximum 8 MiB).");
+  }
   const jsonText = extractTavernJsonFromPng(bytes);
   if (!jsonText) {
     throw new Error("No character data found in this PNG. Export it as a Character Card (V2/V3) PNG first.");
@@ -368,6 +385,9 @@ function pushAvatarWarnings(result: ImportedCard, embedded: EmbeddableAvatarResu
 }
 
 export async function importCardFromFile(file: File, options: BuildCardOptions = {}): Promise<ImportedCard> {
+  if (file.size > MAX_CARD_IMPORT_FILE_BYTES) {
+    throw new Error("Character card file is too large (maximum 8 MiB).");
+  }
   const isPng = /\.png$/i.test(file.name) || file.type === "image/png";
   if (isPng) {
     const bytes = await readFileAsBytes(file);
@@ -398,6 +418,9 @@ export function parseChubReference(input: string): ChubReference | null {
   if (/^https?:\/\//i.test(trimmed)) {
     try {
       const url = new URL(trimmed);
+      if (url.protocol !== "https:" || (url.hostname !== "chub.ai" && url.hostname !== "www.chub.ai")) {
+        return null;
+      }
       const parts = url.pathname.split("/").filter(Boolean);
       const anchor = parts.findIndex((part) => part === "characters" || part === "lorebooks");
       const relevant = anchor >= 0 ? parts.slice(anchor + 1) : parts;
@@ -470,7 +493,15 @@ async function downloadChubCardBytes(reference: ChubReference, options: FetchChu
   if (!response.ok) {
     throw new Error(`Chub download failed (${response.status}). The card may be private or the path is wrong.`);
   }
-  return new Uint8Array(await response.arrayBuffer());
+  const declaredLength = Number(response.headers?.get?.("content-length") ?? 0);
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_CARD_IMPORT_FILE_BYTES) {
+    throw new Error("Chub character exceeds the local size limit.");
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > MAX_CARD_IMPORT_FILE_BYTES) {
+    throw new Error("Chub character exceeds the local size limit.");
+  }
+  return bytes;
 }
 
 function desktopChubInvoke(): ChubInvoke | undefined {

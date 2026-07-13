@@ -2,7 +2,11 @@ import { type ChangeEvent, useState } from "react";
 import { BookOpen, Download, Layers3, Search, Upload } from "lucide-react";
 import type { Lorebook, RuntimeCard } from "./runtimeTypes";
 import { getErrorMessage, readFileAsText } from "./appUtils";
-import { exportLorebookAsChubJson, parseChubLorebookPayload } from "./lorebookIo";
+import {
+  MAX_LOREBOOK_IMPORT_JSON_CHARS,
+  exportLorebookAsChubJson,
+  parseCompatibleLorebookPayload,
+} from "./lorebookIo";
 
 export function GlobalLorebooksSection(props: {
   cards: RuntimeCard[];
@@ -13,7 +17,7 @@ export function GlobalLorebooksSection(props: {
 }) {
   const [query, setQuery] = useState("");
   const [importDraft, setImportDraft] = useState("");
-  const [importStatus, setImportStatus] = useState("Paste a Chub-compatible lorebook JSON export to import it.");
+  const [importStatus, setImportStatus] = useState("Paste a SillyTavern, Chub, RisuAI, or Character Card lorebook JSON export.");
   const activeCard = props.cards.find((card) => card.id === props.activeCardId) ?? null;
   const allLorebooks = props.cards.flatMap((card) =>
     card.lorebooks.map((lorebook) => ({
@@ -36,13 +40,13 @@ export function GlobalLorebooksSection(props: {
     : allLorebooks;
   const totalEntries = allLorebooks.reduce((total, item) => total + item.lorebook.entries.length, 0);
 
-  function importChubJson() {
+  function importLorebookJson() {
     if (!activeCard) {
       setImportStatus("Open a card before importing lorebooks.");
       return;
     }
     try {
-      const lorebook = parseChubLorebookPayload(importDraft);
+      const lorebook = parseCompatibleLorebookPayload(importDraft);
       props.importLorebookToActiveCard(lorebook);
       setImportDraft("");
       setImportStatus(`Imported ${lorebook.name} into ${activeCard.name}.`);
@@ -58,6 +62,9 @@ export function GlobalLorebooksSection(props: {
       return;
     }
     try {
+      if (file.size > MAX_LOREBOOK_IMPORT_JSON_CHARS) {
+        throw new Error("Lorebook file is too large (maximum 2 MB).");
+      }
       const text = await readFileAsText(file);
       setImportDraft(text);
       setImportStatus(`Loaded ${file.name}.`);
@@ -160,10 +167,10 @@ export function GlobalLorebooksSection(props: {
         </div>
       </section>
 
-      <section className="panel lorebook-import-panel" aria-label="Import Chub lorebook">
+      <section className="panel lorebook-import-panel" aria-label="Import compatible lorebook">
         <div className="section-title">
           <Upload size={17} />
-          <h3>Import From Chub</h3>
+          <h3>Import Lorebook</h3>
         </div>
         <p>
           {activeCard
@@ -175,22 +182,24 @@ export function GlobalLorebooksSection(props: {
             : "Open a card from the library before importing a lorebook."}
         </p>
         <label className="field">
-          <span>Upload Chub lorebook file</span>
-          <input type="file" accept=".json,application/json" onChange={(event) => void importChubFile(event)} />
+          <span>Upload lorebook JSON</span>
+          <input aria-label="Upload Chub lorebook file or compatible export" type="file" accept=".json,application/json" onChange={(event) => void importChubFile(event)} />
         </label>
         <label className="field">
-          <span>Chub lorebook JSON</span>
+          <span>Compatible lorebook JSON</span>
           <textarea
+            aria-label="Chub lorebook JSON and compatible imports"
             value={importDraft}
             onChange={(event) => setImportDraft(event.target.value)}
             rows={14}
             placeholder='{"name":"World Lore","entries":[{"keys":["gate"],"content":"The old gate remembers every oath."}]}'
           />
         </label>
-        <button className="primary-button full-width" type="button" onClick={importChubJson} disabled={!activeCard}>
+        <button className="primary-button full-width" type="button" onClick={importLorebookJson} disabled={!activeCard}>
           <Upload size={16} />
           Import to active card
         </button>
+        <p className="field-help">Supports SillyTavern World Info, Chub, RisuAI-style entries, and Character Card V2/V3 embedded books. Imported text stays inert and local.</p>
         <p className="status-line">{importStatus}</p>
       </section>
     </div>

@@ -209,6 +209,31 @@ describe("parseChubReference", () => {
     expect(parseChubReference("")).toBeNull();
     expect(parseChubReference("just-a-word")).toBeNull();
   });
+
+  it("rejects lookalike and non-HTTPS website URLs", () => {
+    expect(parseChubReference("https://evil.example/characters/mapmaker/aria")).toBeNull();
+    expect(parseChubReference("https://chub.ai.evil.example/characters/mapmaker/aria")).toBeNull();
+    expect(parseChubReference("http://chub.ai/characters/mapmaker/aria")).toBeNull();
+  });
+});
+
+describe("card import size limits", () => {
+  it("rejects oversized JSON before parsing", () => {
+    const oversized = JSON.stringify({ name: "Aria", description: "x".repeat(2_000_000) });
+    expect(() => importCardFromJsonText(oversized)).toThrow(/too large/i);
+  });
+
+  it("rejects oversized local files before reading them", async () => {
+    const file = {
+      name: "oversized.json",
+      type: "application/json",
+      size: 8 * 1024 * 1024 + 1,
+      text: vi.fn(async () => "{}"),
+    } as unknown as File;
+
+    await expect(importCardFromFile(file)).rejects.toThrow(/maximum 8 MiB/i);
+    expect(file.text).not.toHaveBeenCalled();
+  });
 });
 
 describe("oversized avatar handling", () => {

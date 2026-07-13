@@ -1,4 +1,4 @@
-import { KeyRound, Library, MessageSquareText, Sparkles } from "lucide-react";
+import { KeyRound, Library, MessageSquareText, Rocket, Sparkles } from "lucide-react";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
 
 type OnboardingStep = {
@@ -29,6 +29,7 @@ export function OnboardingOverlay(props: {
   onAddApiKey: () => void;
   onOpenCards: () => void;
   onDismiss: () => void;
+  onStartMockDemo?: () => void;
 }) {
   const dialogRef = useDialogFocusTrap<HTMLDivElement>();
   return (
@@ -39,7 +40,7 @@ export function OnboardingOverlay(props: {
             <Sparkles size={16} />
             First run
           </span>
-          <h2 id="onboarding-title">Welcome to your local RPG runtime</h2>
+          <h2 id="onboarding-title">Welcome to Local-First RPG</h2>
           <p>Your runtime data stays local unless you use a hosted model provider. Chat, persona, memory, lore, and state needed for a response are sent to the provider you configure.</p>
         </div>
         <ol className="onboarding-steps">
@@ -59,9 +60,22 @@ export function OnboardingOverlay(props: {
           ))}
         </ol>
         <div className="onboarding-actions">
+          {props.onStartMockDemo ? (
+            <button
+              type="button"
+              className="primary-button compact-button"
+              onClick={() => {
+                props.onStartMockDemo?.();
+                props.onDismiss();
+              }}
+            >
+              <Rocket size={16} />
+              Start mock demo
+            </button>
+          ) : null}
           <button
             type="button"
-            className="primary-button compact-button"
+            className="secondary-button compact-button"
             onClick={() => {
               props.onAddApiKey();
               props.onDismiss();

@@ -155,6 +155,7 @@ import {
 } from "./appUtils";
 import {
   buildWriteForMeDraft,
+  buildChatExportPayload,
   advanceChatSessionRollingSummary,
   cloneMessagesForBranch,
   createChatSession,
@@ -166,6 +167,8 @@ import {
   getStartupActiveCardId,
   parseActiveChatIds,
   parseChatSessions,
+  renameChatSession,
+  setChatArchived,
   upsertChatSession,
 } from "./chatSessions";
 import {
@@ -233,11 +236,15 @@ import {
   characterPortraitNegativePrompt,
   customImageNegativePrompt,
   defaultNewCard,
+  defaultProviderSettings,
   emptyCompiledPrompt,
   initialCards,
   randomOpeningAction,
   starterMessages,
 } from "./appDefaults";
+import { PLAYABLE_SAMPLE_RPG } from "./starterContent";
+import { getReadinessChecklist } from "./readiness";
+import { APP_NAME } from "./productInfo";
 
 
 import {
@@ -899,7 +906,7 @@ export function App() {
 
   function exportRuntimeData() {
     const bundle = buildVersionedRuntimeExport(toRuntimeExportSnapshot(currentSnapshot));
-    downloadJson(`rpg-runtime-${formatDownloadTimestamp(bundle.exportedAt)}.json`, bundle);
+    downloadJson(`local-first-rpg-runtime-${formatDownloadTimestamp(bundle.exportedAt)}.json`, bundle);
     setDataManagementStatus(`Runtime export downloaded: schema v${bundle.version}.`);
   }
 
@@ -940,13 +947,14 @@ export function App() {
       imageProviderStatus,
       runtimeBackend: repositoryStoreRef.current?.getStatus().backend ?? "unknown",
     });
-    downloadJson(`rpg-diagnostics-${formatDownloadTimestamp(diagnostics.exportedAt)}.json`, diagnostics);
+    downloadJson(`local-first-rpg-diagnostics-${formatDownloadTimestamp(diagnostics.exportedAt)}.json`, diagnostics);
     setDataManagementStatus(`Diagnostics downloaded: schema v${diagnostics.version}.`);
   }
 
   function selectCard(card: RuntimeCard) {
+    const openedCard = card.archived ? { ...card, archived: false } : card;
     const selectedChat = getActiveChatForCard(card.id, chatSessions, activeChatIds);
-    const selectedCard = selectedChat ? deriveCardForChat(card, selectedChat) : card;
+    const selectedCard = selectedChat ? deriveCardForChat(openedCard, selectedChat) : openedCard;
     setCards((current) => current.map((candidate) => (candidate.id === card.id ? selectedCard : candidate)));
     setActiveCardId(card.id);
     setCardTab("chat");
@@ -963,6 +971,43 @@ export function App() {
     setPhotoArtifact(findGeneratedMapForChat(generatedMaps, card.id, activeChatIds[card.id], "photo"));
     setRuntimeRunning(true);
     ensureChatForCard(card);
+  }
+
+  function updateCardLibraryState(
+    cardId: string,
+    patch: Pick<RuntimeCard, "favorite" | "archived">,
+  ) {
+    setCards((current) => current.map((card) => card.id === cardId ? { ...card, ...patch } : card));
+    if (patch.archived && activeCardId === cardId) {
+      setActiveCardId("");
+      setSection("cards");
+    }
+  }
+
+  function startMockDemo() {
+    const existingCard = cards.find((card) => card.id === PLAYABLE_SAMPLE_RPG.id);
+    const sample = normalizeRuntimeCards([{ ...(existingCard ?? PLAYABLE_SAMPLE_RPG), archived: false }])[0];
+    const existingChat = getCardChats(sample.id, chatSessions, { includeArchived: true })[0];
+    const chat = existingChat
+      ? setChatArchived(existingChat, false)
+      : initializeChatTurnState(createChatSession(sample.id, `${sample.name} chat`), sample);
+
+    setCards((current) => current.some((card) => card.id === sample.id)
+      ? current.map((card) => card.id === sample.id ? sample : card)
+      : [sample, ...current]);
+    setChatSessions((current) => upsertChatSession(current, chat));
+    setActiveChatIds((current) => ({ ...current, [sample.id]: chat.id }));
+    setActiveCardId(sample.id);
+    setProviderSettings({ ...defaultProviderSettings });
+    setSessionApiKey("");
+    setProviderKeyStatus("Mock provider active; no API key, network request, or model call is needed.");
+    setRuntimeRunning(true);
+    setCardTab("chat");
+    setSection("runtime");
+    setRuntimeSettings((current) => ({ ...current, onboardingCompleted: true }));
+    setOnboardingDismissed(true);
+    setRuleWarning(null);
+    setDraft("");
   }
 
   function editCard(card: RuntimeCard) {
@@ -1091,7 +1136,7 @@ export function App() {
   }
 
   function ensureChatForCard(card: RuntimeCard) {
-    const existing = chatSessions.find((chat) => chat.cardId === card.id);
+    const existing = chatSessions.find((chat) => chat.cardId === card.id && !chat.archived);
     if (existing) {
       setActiveChatIds((current) => ({ ...current, [card.id]: current[card.id] ?? existing.id }));
       return;
@@ -1208,6 +1253,54 @@ export function App() {
     setPhotoPrompt("");
     setDraft("");
     setRuleWarning(null);
+  }
+
+  function renameActiveChat(title: string) {
+    if (!activeChat) return;
+    try {
+      setChatSessions((current) => upsertChatSession(current, renameChatSession(activeChat, title)));
+      setRuleWarning(null);
+    } catch (error) {
+      setRuleWarning(getErrorMessage(error));
+    }
+  }
+
+  function archiveActiveChat() {
+    if (!activeCard || !activeChat) return;
+    const remaining = getCardChats(activeCard.id, chatSessions).filter((chat) => chat.id !== activeChat.id);
+    const fallback = remaining[0] ?? initializeChatTurnState(
+      createChatSession(activeCard.id, `${activeCard.name} chat`),
+      activeCard,
+    );
+    setChatSessions((current) => {
+      const withArchive = current.map((chat) => chat.id === activeChat.id ? setChatArchived(chat, true) : chat);
+      return remaining.length > 0 ? withArchive : upsertChatSession(withArchive, fallback);
+    });
+    setActiveChatIds((current) => ({ ...current, [activeCard.id]: fallback.id }));
+    setCards((current) => current.map((card) => card.id === activeCard.id ? deriveCardForChat(card, fallback) : card));
+    setDraft("");
+    setRuleWarning(null);
+  }
+
+  function restoreArchivedChat(chatId: string) {
+    if (!activeCard) return;
+    const archived = chatSessions.find((chat) => chat.id === chatId && chat.cardId === activeCard.id && chat.archived);
+    if (!archived) return;
+    const restored = setChatArchived(archived, false);
+    setChatSessions((current) => upsertChatSession(current, restored));
+    setActiveChatIds((current) => ({ ...current, [activeCard.id]: restored.id }));
+    setCards((current) => current.map((card) => card.id === activeCard.id ? deriveCardForChat(card, restored) : card));
+    setDraft("");
+    setRuleWarning(null);
+  }
+
+  function exportActiveChat() {
+    if (!activeCard || !activeChat) return;
+    const exportedAt = new Date().toISOString();
+    downloadJson(
+      `local-first-rpg-chat-${formatDownloadTimestamp(exportedAt)}.json`,
+      buildChatExportPayload(activeChat, activeCard),
+    );
   }
 
   function deleteCard(cardId: string) {
@@ -2813,8 +2906,8 @@ export function App() {
         <div className="brand-lockup">
           <span className="brand-mark" aria-hidden="true" />
           <div>
-            <h1>Local Cards</h1>
-            <p>Character and RPG runtime</p>
+            <h1>{APP_NAME}</h1>
+            <p>Private character and RPG play</p>
           </div>
         </div>
 
@@ -2949,10 +3042,15 @@ export function App() {
               activeCard={activeCard}
               activeChat={activeChat}
               cardChats={getCardChats(activeCard.id, chatSessions)}
+              archivedChats={getCardChats(activeCard.id, chatSessions, { includeArchived: true }).filter((chat) => chat.archived)}
               selectChat={selectChat}
               startNewChat={startNewChatForActiveCard}
               branchChat={branchActiveChat}
               deleteChat={deleteActiveChat}
+              renameChat={renameActiveChat}
+              archiveChat={archiveActiveChat}
+              restoreChat={restoreArchivedChat}
+              exportChat={exportActiveChat}
               isDeleteChatPending={pendingDeleteChatId === activeChat?.id}
               personas={personas}
               activePersonaId={activePersonaId}
@@ -3012,6 +3110,7 @@ export function App() {
             selectCard={selectCard}
             editCard={editCard}
             deleteCard={deleteCard}
+            updateCardLibraryState={updateCardLibraryState}
             pendingDeleteCardId={pendingDeleteCardId}
             newCard={newCard}
             setNewCard={setNewCard}
@@ -3029,6 +3128,8 @@ export function App() {
             updateActiveLorebook={updateActiveLorebook}
             addLorebookEntry={addLorebookEntry}
             lorebookEntryError={lorebookEntryError}
+            readinessItems={getReadinessChecklist({ cards, activeCardId, providerSettings })}
+            startMockDemo={startMockDemo}
           />
         ) : null}
 
@@ -3113,6 +3214,7 @@ export function App() {
         <OnboardingOverlay
           onAddApiKey={() => setSection("providers")}
           onOpenCards={() => setSection("cards")}
+          onStartMockDemo={startMockDemo}
           onDismiss={completeOnboarding}
         />
       ) : null}

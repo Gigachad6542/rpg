@@ -21,6 +21,9 @@ export function normalizeRuntimeCards(cards: RuntimeCard[]): RuntimeCard[] {
     // Oversized avatars would make every SQLite save fail; drop them here so
     // installs that imported one before the budget existed heal on next load.
     avatarDataUrl: fitsEmbeddedAvatarBudget(card.avatarDataUrl) ? card.avatarDataUrl : undefined,
+    tags: parseStringList(card.tags).map((tag) => tag.slice(0, 48)).slice(0, 32),
+    favorite: card.favorite === true,
+    archived: card.archived === true,
     characterName: card.characterName ?? card.name ?? "",
     characterDescription: card.characterDescription ?? "",
     scenario: card.scenario ?? "",

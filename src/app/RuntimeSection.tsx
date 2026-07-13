@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Archive,
+  ArchiveRestore,
   BookOpen,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  Download,
   GitBranch,
   Image,
   Map,
@@ -45,10 +48,15 @@ export function RuntimeSection(props: {
   activeCard: RuntimeCard;
   activeChat?: ChatSession;
   cardChats: ChatSession[];
+  archivedChats: ChatSession[];
   selectChat: (chatId: string) => void;
   startNewChat: () => void;
   branchChat: () => void;
   deleteChat: () => void;
+  renameChat: (title: string) => void;
+  archiveChat: () => void;
+  restoreChat: (chatId: string) => void;
+  exportChat: () => void;
   isDeleteChatPending: boolean;
   personas: Persona[];
   activePersonaId: string;
@@ -119,19 +127,32 @@ export function RuntimeSection(props: {
   );
   const openingText = getCardOpeningText(props.activeCard);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const [messageWindowSize, setMessageWindowSize] = useState(120);
+  const [autoFollow, setAutoFollow] = useState(true);
+  const [isRenamingChat, setIsRenamingChat] = useState(false);
+  const [chatTitleDraft, setChatTitleDraft] = useState("");
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const lastMessage = props.messages[props.messages.length - 1];
   const regenerableMessageId =
     lastMessage?.role === "assistant" && props.runtimeRunning && !props.isGenerating ? lastMessage.id : null;
 
+  const windowedMessages = props.messages.slice(-messageWindowSize);
+  const hiddenMessageCount = props.messages.length - windowedMessages.length;
+
   useEffect(() => {
     const transcript = transcriptRef.current;
-    if (!transcript) {
+    if (!transcript || !autoFollow) {
       return;
     }
     transcript.scrollTop = transcript.scrollHeight;
-  }, [props.messages.length, props.isGenerating, props.activeChat?.id, props.runtimeRunning]);
+  }, [props.messages.length, props.streamingReply, props.isGenerating, props.activeChat?.id, autoFollow]);
+
+  function jumpToLatest() {
+    const transcript = transcriptRef.current;
+    if (transcript) transcript.scrollTop = transcript.scrollHeight;
+    setAutoFollow(true);
+  }
 
   return (
     <div className={`runtime-chat-layout ${showMediaPanel ? "" : "no-map"}`}>
@@ -142,7 +163,12 @@ export function RuntimeSection(props: {
             <select
               aria-label="Active chat"
               value={props.activeChat?.id ?? ""}
-              onChange={(event) => props.selectChat(event.target.value)}
+              onChange={(event) => {
+                setMessageWindowSize(120);
+                setAutoFollow(true);
+                setIsRenamingChat(false);
+                props.selectChat(event.target.value);
+              }}
             >
               {props.cardChats.map((chat) => (
                 <option value={chat.id} key={chat.id}>
@@ -179,6 +205,26 @@ export function RuntimeSection(props: {
               <GitBranch size={16} />
               Branch chat
             </button>
+            <button
+              className="secondary-button compact-button"
+              type="button"
+              onClick={() => {
+                setChatTitleDraft(props.activeChat?.title ?? "");
+                setIsRenamingChat((current) => !current);
+              }}
+              disabled={!props.activeChat}
+            >
+              <PenLine size={16} />
+              Rename
+            </button>
+            <button className="secondary-button compact-button" type="button" onClick={props.exportChat} disabled={!props.activeChat}>
+              <Download size={16} />
+              Export
+            </button>
+            <button className="secondary-button compact-button" type="button" onClick={props.archiveChat} disabled={!props.activeChat}>
+              <Archive size={16} />
+              Archive
+            </button>
             <button className="secondary-button danger-button compact-button" type="button" onClick={props.deleteChat}>
               <Trash2 size={16} />
               {props.isDeleteChatPending ? "Confirm delete chat" : "Delete chat"}
@@ -186,7 +232,62 @@ export function RuntimeSection(props: {
           </div>
         </div>
 
-        <div className="message-stream chat-transcript" role="log" aria-label="Chat transcript" ref={transcriptRef}>
+        {isRenamingChat ? (
+          <form
+            className="chat-rename-row"
+            onSubmit={(event) => {
+              event.preventDefault();
+              props.renameChat(chatTitleDraft);
+              if (chatTitleDraft.trim()) setIsRenamingChat(false);
+            }}
+          >
+            <label className="field">
+              <span>Chat name</span>
+              <input value={chatTitleDraft} maxLength={120} onChange={(event) => setChatTitleDraft(event.target.value)} autoFocus />
+            </label>
+            <button className="primary-button compact-button" type="submit">Save name</button>
+          </form>
+        ) : null}
+        {props.archivedChats.length > 0 ? (
+          <details className="archived-chat-list">
+            <summary>Archived chats ({props.archivedChats.length})</summary>
+            {props.archivedChats.map((chat) => (
+              <button className="secondary-button compact-button" type="button" key={chat.id} onClick={() => props.restoreChat(chat.id)}>
+                <ArchiveRestore size={15} />
+                Restore {chat.title}
+              </button>
+            ))}
+          </details>
+        ) : null}
+
+        <div
+          className="message-stream chat-transcript"
+          role="log"
+          aria-label="Chat transcript"
+          ref={transcriptRef}
+          onScroll={(event) => {
+            const transcript = event.currentTarget;
+            const distanceFromBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight;
+            setAutoFollow(distanceFromBottom < 80);
+          }}
+        >
+          {hiddenMessageCount > 0 ? (
+            <button
+              className="secondary-button compact-button transcript-history-button"
+              type="button"
+              onClick={() => {
+                setAutoFollow(false);
+                setMessageWindowSize((current) => current + 120);
+              }}
+            >
+              Show earlier messages ({hiddenMessageCount} hidden)
+            </button>
+          ) : null}
+          {!autoFollow ? (
+            <button className="secondary-button compact-button jump-latest-button" type="button" onClick={jumpToLatest}>
+              Jump to latest
+            </button>
+          ) : null}
           {!props.runtimeRunning ? (
             <section className="runtime-stopped" aria-label="Runtime stopped">
               <Power size={26} />
@@ -215,7 +316,7 @@ export function RuntimeSection(props: {
               />
             </article>
           ) : null}
-          {props.messages.map((message) => (
+          {windowedMessages.map((message) => (
             <article
               key={message.id}
               className={`message ${message.role === "assistant" ? "response" : "user"}`}

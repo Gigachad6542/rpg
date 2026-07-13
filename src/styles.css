@@ -2589,6 +2589,115 @@ input[type="search"] {
   border-radius: var(--radius);
 }
 
+/* Phase 3 conversion and long-library controls. */
+.readiness-panel,
+.local-provider-discovery,
+.archived-chat-list,
+.chat-rename-row {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--panel) 82%, var(--accent-soft));
+}
+
+.compact-list,
+.creation-template-list {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.compact-list li,
+.creation-template-list .secondary-button > span {
+  display: grid;
+  gap: 0.18rem;
+  text-align: left;
+}
+
+.compact-list li > span,
+.creation-template-list small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.card-row-header > span,
+.local-provider-result,
+.archived-chat-list > div {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.local-provider-result {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.local-provider-result .field {
+  flex: 1 1 15rem;
+}
+
+.advanced-provider-panel > summary,
+.advanced-settings-disclosure > summary,
+.archived-chat-list > summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.advanced-provider-panel[open] > summary,
+.advanced-settings-disclosure[open] > summary {
+  margin-bottom: 0.9rem;
+}
+
+.advanced-settings-disclosure {
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+}
+
+.chat-rename-row {
+  grid-template-columns: minmax(12rem, 1fr) auto;
+  align-items: end;
+  margin: 0 0.8rem 0.65rem;
+}
+
+.archived-chat-list {
+  margin: 0 0.8rem 0.65rem;
+}
+
+.archived-chat-list .secondary-button {
+  margin-top: 0.5rem;
+}
+
+.transcript-history-button,
+.jump-latest-button {
+  position: sticky;
+  z-index: 3;
+  margin-inline: auto;
+}
+
+.transcript-history-button {
+  top: 0.25rem;
+}
+
+.jump-latest-button {
+  top: 2.85rem;
+}
+
+.panel a.secondary-button {
+  text-decoration: none;
+}
+
+@media (max-width: 760px) {
+  .chat-rename-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .import-meta-line {
   display: flex;
   flex-wrap: wrap;

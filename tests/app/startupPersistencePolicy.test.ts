@@ -91,6 +91,23 @@ describe("startup persistence policy", () => {
     ).toBe(true);
   });
 
+  it("shows onboarding when the only content is the bundled starter library", () => {
+    expect(
+      shouldShowOnboarding({
+        onboardingCompleted: false,
+        snapshot: {
+          cards: [
+            { id: "card_ashfall_crossing", name: "Ashfall Crossing" },
+            { id: "card_blank_slate_rpg", name: "Blank Slate RPG" },
+          ],
+          chatSessions: [],
+          messages: [],
+          promptRuns: [],
+        },
+      }),
+    ).toBe(true);
+  });
+
   it("skips onboarding once it has been completed", () => {
     expect(shouldShowOnboarding({ onboardingCompleted: true, snapshot: null })).toBe(false);
   });

@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Download, History, Layers3, RotateCcw, Settings2, ShieldCheck, Upload } from "lucide-react";
+import { Download, ExternalLink, History, Info, Layers3, RotateCcw, Settings2, ShieldCheck, Upload } from "lucide-react";
 import type { Persona } from "./runtimeTypes";
 import type { HiddenContinuityMode } from "../runtime/hiddenContinuityPolicy";
 import { PersonasPanel } from "./PersonasPanel";
+import { APP_HELP_URL, APP_NAME, APP_SUPPORT_URL, APP_UPDATES_URL, APP_VERSION } from "./productInfo";
 
 export type RuntimeSettingsView = {
   textStreaming: boolean;
@@ -145,19 +146,23 @@ export function SettingsSection(props: {
             }
           />
         </label>
-        <label className="toggle-row">
-          <input
-            type="checkbox"
-            checked={props.runtimeSettings.promptDebugLogs}
-            onChange={(event) =>
-              props.setRuntimeSettings({
-                ...props.runtimeSettings,
-                promptDebugLogs: event.target.checked,
-              })
-            }
-          />
-          <span>Prompt debug logs</span>
-        </label>
+        <details className="advanced-settings-disclosure">
+          <summary>Advanced prompt diagnostics</summary>
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={props.runtimeSettings.promptDebugLogs}
+              onChange={(event) =>
+                props.setRuntimeSettings({
+                  ...props.runtimeSettings,
+                  promptDebugLogs: event.target.checked,
+                })
+              }
+            />
+            <span>Retain prompt debug logs</span>
+          </label>
+          <p className="field-help">Debug logs can contain card, persona, lore, memory, and chat context. Leave this off unless you are diagnosing a prompt.</p>
+        </details>
         <div className="field">
           <span>Accent color</span>
           <div className="accent-swatches">
@@ -204,13 +209,14 @@ export function SettingsSection(props: {
         removePersona={props.removePersona}
         makePersonaDefault={props.makePersonaDefault}
       />
-      <section className="panel" aria-label="Settings prompt preview">
-        <div className="section-title">
+      <details className="panel advanced-settings-disclosure" role="region" aria-label="Settings prompt preview (advanced)">
+        <summary className="section-title">
           <Layers3 size={17} />
-          <h3>Prompt Preview</h3>
-        </div>
+          <h3>Advanced prompt preview</h3>
+        </summary>
+        <p className="field-help">This may contain private story, persona, lore, and memory text that would be sent to the configured model.</p>
         <pre>{props.promptPreview || "(no runtime settings enabled)"}</pre>
-      </section>
+      </details>
       <section className="panel" aria-label="Runtime data management">
         <div className="section-title">
           <Download size={17} />
@@ -306,6 +312,29 @@ export function SettingsSection(props: {
         <p className="status-line" role="status" aria-label="Restore status" aria-live="polite">
           {props.restoreStatus}
         </p>
+      </section>
+      <section className="panel" aria-label="About Local-First RPG">
+        <div className="section-title">
+          <Info size={17} />
+          <h3>About {APP_NAME}</h3>
+        </div>
+        <dl className="compact-dl">
+          <div><dt>Version</dt><dd>{APP_VERSION}</dd></div>
+          <div><dt>Data</dt><dd>Local SQLite and OS keychain references</dd></div>
+          <div><dt>Updates</dt><dd>Manual, signed releases; automatic updating is not enabled.</dd></div>
+        </dl>
+        <div className="button-row">
+          <a className="secondary-button compact-button" href={APP_HELP_URL} target="_blank" rel="noreferrer">
+            <ExternalLink size={15} /> Help
+          </a>
+          <a className="secondary-button compact-button" href={APP_SUPPORT_URL} target="_blank" rel="noreferrer">
+            <ExternalLink size={15} /> Support
+          </a>
+          <a className="secondary-button compact-button" href={APP_UPDATES_URL} target="_blank" rel="noreferrer">
+            <ExternalLink size={15} /> Check for updates
+          </a>
+        </div>
+        <p className="field-help">External links open the project site. No update is downloaded or installed automatically.</p>
       </section>
     </div>
   );

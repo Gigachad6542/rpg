@@ -1,6 +1,6 @@
 # Phase 3: Competitive Conversion
 
-Status: implementation contract (2026-07-13)
+Status: implemented and locally verified (2026-07-13)
 
 ## Outcome
 
@@ -76,4 +76,3 @@ and database identifiers remain stable where renaming them would break upgrades.
 - Existing persistence/import fixtures prove old snapshots still normalize.
 - `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm audit --prod`, Rust tests,
   and Rust clippy must pass before the GREEN implementation commit.
-

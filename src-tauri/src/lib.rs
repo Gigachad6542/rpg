@@ -17,6 +17,7 @@ pub fn run() {
             generate_text_with_stored_secret,
             persist_generated_image,
             sync_generated_image_files,
+            discover_local_text_providers,
             download_chub_character
         ])
         .run(tauri::generate_context!())
@@ -337,6 +338,140 @@ async fn generate_text_with_stored_secret(
 const CHUB_DOWNLOAD_URL: &str = "https://api.chub.ai/api/characters/download";
 const MAX_CHUB_CARD_BYTES: usize = 8 * 1024 * 1024;
 const MAX_CHUB_PATH_SEGMENT_CHARS: usize = 128;
+
+const LOCAL_MODEL_DISCOVERY_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(900);
+const MAX_LOCAL_MODEL_RESPONSE_BYTES: usize = 512 * 1024;
+const MAX_DISCOVERED_LOCAL_MODELS: usize = 100;
+
+#[derive(Clone)]
+struct LocalProviderCandidate {
+    id: &'static str,
+    display_name: &'static str,
+    base_url: &'static str,
+    models_url: &'static str,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalProviderDetection {
+    id: &'static str,
+    display_name: &'static str,
+    base_url: &'static str,
+    models_url: &'static str,
+    models: Vec<String>,
+}
+
+fn local_provider_candidates() -> [LocalProviderCandidate; 4] {
+    [
+        LocalProviderCandidate {
+            id: "ollama",
+            display_name: "Ollama",
+            base_url: "http://127.0.0.1:11434/v1",
+            models_url: "http://127.0.0.1:11434/v1/models",
+        },
+        LocalProviderCandidate {
+            id: "lm-studio",
+            display_name: "LM Studio",
+            base_url: "http://127.0.0.1:1234/v1",
+            models_url: "http://127.0.0.1:1234/v1/models",
+        },
+        LocalProviderCandidate {
+            id: "llama-cpp",
+            display_name: "llama.cpp server",
+            base_url: "http://127.0.0.1:8080/v1",
+            models_url: "http://127.0.0.1:8080/v1/models",
+        },
+        LocalProviderCandidate {
+            id: "koboldcpp",
+            display_name: "KoboldCpp",
+            base_url: "http://127.0.0.1:5001/v1",
+            models_url: "http://127.0.0.1:5001/v1/models",
+        },
+    ]
+}
+
+fn parse_local_model_list(payload: &serde_json::Value) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    payload
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.get("id").and_then(serde_json::Value::as_str))
+        .map(str::trim)
+        .filter(|model| {
+            !model.is_empty()
+                && model.chars().count() <= MAX_MODEL_ID_CHARS
+                && !model.chars().any(char::is_control)
+                && seen.insert((*model).to_string())
+        })
+        .take(MAX_DISCOVERED_LOCAL_MODELS)
+        .map(str::to_string)
+        .collect()
+}
+
+/// Checks a fixed allowlist of loopback OpenAI-compatible model-list endpoints.
+/// It never scans ports, accepts renderer-provided URLs, or mutates a server.
+#[tauri::command]
+async fn discover_local_text_providers() -> Result<Vec<LocalProviderDetection>, String> {
+    let client = reqwest::Client::builder()
+        .timeout(LOCAL_MODEL_DISCOVERY_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| "Could not initialize local provider discovery.".to_string())?;
+    let mut detections = Vec::new();
+
+    for candidate in local_provider_candidates() {
+        let Ok(mut response) = client.get(candidate.models_url).send().await else {
+            continue;
+        };
+        if !response.status().is_success()
+            || response
+                .content_length()
+                .is_some_and(|length| length > MAX_LOCAL_MODEL_RESPONSE_BYTES as u64)
+        {
+            continue;
+        }
+
+        let mut bytes = Vec::new();
+        let mut too_large = false;
+        loop {
+            match response.chunk().await {
+                Ok(Some(chunk)) if bytes.len() + chunk.len() <= MAX_LOCAL_MODEL_RESPONSE_BYTES => {
+                    bytes.extend_from_slice(&chunk);
+                }
+                Ok(Some(_)) => {
+                    too_large = true;
+                    break;
+                }
+                Ok(None) => break,
+                Err(_) => {
+                    too_large = true;
+                    break;
+                }
+            }
+        }
+        if too_large {
+            continue;
+        }
+        let Ok(payload) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+            continue;
+        };
+        let models = parse_local_model_list(&payload);
+        if models.is_empty() {
+            continue;
+        }
+        detections.push(LocalProviderDetection {
+            id: candidate.id,
+            display_name: candidate.display_name,
+            base_url: candidate.base_url,
+            models_url: candidate.models_url,
+            models,
+        });
+    }
+
+    Ok(detections)
+}
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -973,6 +1108,30 @@ mod tests {
         assert!(validate_chub_full_path("map maker/aria").is_err());
         assert!(validate_chub_full_path("mapmaker/../secret").is_err());
         assert!(validate_chub_full_path(&format!("mapmaker/{}", "a".repeat(129))).is_err());
+    }
+
+    #[test]
+    fn local_provider_discovery_candidates_are_fixed_loopback_model_endpoints() {
+        for candidate in local_provider_candidates() {
+            let parsed = reqwest::Url::parse(candidate.models_url).unwrap();
+            assert_eq!(parsed.host_str(), Some("127.0.0.1"));
+            assert_eq!(parsed.path(), "/v1/models");
+            assert!(candidate.base_url.starts_with("http://127.0.0.1:"));
+        }
+    }
+
+    #[test]
+    fn local_model_lists_are_deduplicated_and_bounded() {
+        let payload = serde_json::json!({
+            "data": [
+                { "id": " qwen3:8b " },
+                { "id": "qwen3:8b" },
+                { "id": "bad\nmodel" },
+                { "id": "x".repeat(MAX_MODEL_ID_CHARS + 1) },
+                { "missing": "ignored" }
+            ]
+        });
+        assert_eq!(parse_local_model_list(&payload), vec!["qwen3:8b"]);
     }
 
     #[test]

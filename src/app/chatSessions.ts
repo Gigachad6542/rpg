@@ -46,6 +46,7 @@ export function parseChatSessions(
               typeof session.branchedFromMessageId === "string" ? session.branchedFromMessageId : undefined,
             createdAt: typeof session.createdAt === "string" ? session.createdAt : new Date().toISOString(),
             updatedAt: typeof session.updatedAt === "string" ? session.updatedAt : new Date().toISOString(),
+            archived: session.archived === true,
             messages,
             turnLineage: parseRuntimeTurnLineage(
               session.turnLineage,
@@ -96,7 +97,7 @@ export function parseActiveChatIds(
   const activeIds: Record<string, string> = {};
   for (const card of cards) {
     const stored = typeof parsed[card.id] === "string" ? parsed[card.id] : "";
-    const storedSession = chatSessions.find((session) => session.id === stored && session.cardId === card.id);
+    const storedSession = chatSessions.find((session) => session.id === stored && session.cardId === card.id && !session.archived);
     const fallback = getCardChats(card.id, chatSessions)[0];
     if (storedSession || fallback) {
       activeIds[card.id] = storedSession?.id ?? fallback.id;
@@ -159,7 +160,7 @@ export function createChatSession(
   title: string,
   options: Partial<Pick<
     ChatSession,
-    "id" | "branchOfId" | "branchedFromMessageId" | "messages" | "turnLineage" | "authoritativeEvents" | "rollingSummary"
+    "id" | "branchOfId" | "branchedFromMessageId" | "messages" | "turnLineage" | "authoritativeEvents" | "rollingSummary" | "archived"
   >> = {},
 ): ChatSession {
   const now = new Date().toISOString();
@@ -179,6 +180,7 @@ export function createChatSession(
     branchedFromMessageId: options.branchedFromMessageId,
     createdAt: now,
     updatedAt: now,
+    archived: options.archived === true,
     messages,
     ...(options.turnLineage ? { turnLineage: options.turnLineage } : {}),
     ...(options.authoritativeEvents ? { authoritativeEvents: parseAuthoritativeEventStream(options.authoritativeEvents) } : {}),
@@ -224,10 +226,45 @@ export function createRuntimeEntityId(prefix: string): string {
   return `${prefix}_${random.replace(/[^A-Za-z0-9_-]/g, "")}`;
 }
 
-export function getCardChats(cardId: string, chatSessions: ChatSession[]): ChatSession[] {
+export function getCardChats(
+  cardId: string,
+  chatSessions: ChatSession[],
+  options: { includeArchived?: boolean } = {},
+): ChatSession[] {
   return chatSessions
-    .filter((chat) => chat.cardId === cardId)
+    .filter((chat) => chat.cardId === cardId && (options.includeArchived || !chat.archived))
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+}
+
+export function renameChatSession(chat: ChatSession, title: string, now = new Date().toISOString()): ChatSession {
+  const normalizedTitle = title.replace(/\s+/g, " ").trim().slice(0, 120);
+  if (!normalizedTitle) throw new Error("Chat name cannot be empty.");
+  return { ...chat, title: normalizedTitle, updatedAt: now };
+}
+
+export function setChatArchived(chat: ChatSession, archived: boolean, now = new Date().toISOString()): ChatSession {
+  return { ...chat, archived, updatedAt: now };
+}
+
+export function buildChatExportPayload(chat: ChatSession, card: Pick<RuntimeCard, "id" | "name">) {
+  return {
+    format: "local-first-rpg-chat" as const,
+    version: 1 as const,
+    exportedAt: new Date().toISOString(),
+    card: { id: card.id, name: card.name },
+    chat: {
+      id: chat.id,
+      title: chat.title,
+      branchOfId: chat.branchOfId,
+      branchedFromMessageId: chat.branchedFromMessageId,
+      createdAt: chat.createdAt,
+      updatedAt: chat.updatedAt,
+      archived: chat.archived === true,
+      messages: chat.messages,
+      rollingSummary: chat.rollingSummary,
+      authoritativeEvents: chat.authoritativeEvents,
+    },
+  };
 }
 
 export function getActiveChatForCard(
@@ -237,7 +274,7 @@ export function getActiveChatForCard(
 ): ChatSession | undefined {
   const activeId = activeChatIds[cardId];
   return (
-    chatSessions.find((chat) => chat.id === activeId && chat.cardId === cardId) ??
+    chatSessions.find((chat) => chat.id === activeId && chat.cardId === cardId && !chat.archived) ??
     getCardChats(cardId, chatSessions)[0]
   );
 }

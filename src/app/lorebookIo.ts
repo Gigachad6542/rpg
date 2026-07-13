@@ -25,12 +25,12 @@ export function exportLorebookAsChubJson(lorebook: Lorebook, card: RuntimeCard) 
 export function buildChubLorebookPayload(lorebook: Lorebook, card: RuntimeCard) {
   return {
     name: lorebook.name,
-    description: `Exported from Local Cards for ${card.name}.`,
+    description: `Exported from Local-First RPG for ${card.name}.`,
     scan_depth: lorebook.scanDepth,
     token_budget: lorebook.tokenBudget,
     recursive_scanning: lorebook.recursiveScanning,
     extensions: {
-      source: "local-cards",
+      source: "local-first-rpg",
       card_id: card.id,
       card_name: card.name,
       chub_compatible: true,
@@ -62,7 +62,32 @@ export function buildChubLorebookPayload(lorebook: Lorebook, card: RuntimeCard) 
 }
 
 export function parseChubLorebookPayload(rawJson: string): Lorebook {
-  const payload = parseJsonRecordOrThrow(rawJson, "Chub lorebook JSON is invalid.");
+  return parseCompatibleLorebookPayload(rawJson);
+}
+
+export const MAX_LOREBOOK_IMPORT_JSON_CHARS = 2_000_000;
+export const MAX_LOREBOOK_IMPORT_ENTRIES = 2_000;
+const MAX_LOREBOOK_ENTRY_CONTENT_CHARS = 100_000;
+const MAX_LOREBOOK_KEYS_PER_ENTRY = 64;
+
+function boundedLoreList(value: unknown): string[] {
+  return getPayloadStringArray(value)
+    .slice(0, MAX_LOREBOOK_KEYS_PER_ENTRY)
+    .map((item) => item.slice(0, 500));
+}
+
+export function parseCompatibleLorebookPayload(rawJson: string): Lorebook {
+  if (rawJson.length > MAX_LOREBOOK_IMPORT_JSON_CHARS) {
+    throw new Error("Lorebook JSON is too large (maximum 2,000,000 characters).");
+  }
+  const root = parseJsonRecordOrThrow(rawJson, "Lorebook JSON is invalid.");
+  const data = isRecord(root.data) ? root.data : undefined;
+  const payload =
+    data && isRecord(data.character_book)
+      ? data.character_book
+      : isRecord(root.character_book)
+        ? root.character_book
+        : root;
   return mapChubLorebookPayload(payload);
 }
 
@@ -74,12 +99,19 @@ export function mapChubLorebookPayload(
   payload: Record<string, unknown>,
   options: { id?: string; name?: string } = {},
 ): Lorebook {
-  const entries = Array.isArray(payload.entries) ? payload.entries : [];
+  const entries = Array.isArray(payload.entries)
+    ? payload.entries
+    : isRecord(payload.entries)
+      ? Object.values(payload.entries)
+      : [];
+  if (entries.length > MAX_LOREBOOK_IMPORT_ENTRIES) {
+    throw new Error(`Too many lorebook entries (maximum ${MAX_LOREBOOK_IMPORT_ENTRIES}).`);
+  }
   const name =
     options.name ||
-    getPayloadString(payload.name) ||
-    getPayloadString(payload.title) ||
-    "Imported Chub Lorebook";
+    getPayloadString(payload.name).slice(0, 200) ||
+    getPayloadString(payload.title).slice(0, 200) ||
+    "Imported Lorebook";
   const idBase = options.id ?? `lore_import_${Date.now()}`;
 
   return {
@@ -93,22 +125,24 @@ export function mapChubLorebookPayload(
       .filter(isRecord)
       .map((entry, index): LorebookEntry => ({
         id: `${idBase}_entry_${index}`,
-        title: getPayloadString(entry.name) || getPayloadString(entry.title) || getPayloadString(entry.comment) || "Imported entry",
-        keys: getPayloadStringArray(entry.keys),
-        aliases: getPayloadStringArray(entry.aliases ?? (isRecord(entry.extensions) ? entry.extensions.aliases : undefined)),
-        secondaryKeys: getPayloadStringArray(entry.secondary_keys ?? entry.secondaryKeys),
-        content: getPayloadString(entry.content),
-        insertionOrder: getPayloadNumber(entry.insertion_order ?? entry.insertionOrder, 100, 0, 10_000),
+        title: (getPayloadString(entry.name) || getPayloadString(entry.title) || getPayloadString(entry.comment) || "Imported entry").slice(0, 300),
+        keys: boundedLoreList(entry.keys ?? entry.key),
+        aliases: boundedLoreList(entry.aliases ?? (isRecord(entry.extensions) ? entry.extensions.aliases : undefined)),
+        secondaryKeys: boundedLoreList(entry.secondary_keys ?? entry.secondaryKeys ?? entry.keysecondary),
+        content: getPayloadString(entry.content).slice(0, MAX_LOREBOOK_ENTRY_CONTENT_CHARS),
+        insertionOrder: getPayloadNumber(entry.insertion_order ?? entry.insertionOrder ?? entry.order, 100, 0, 10_000),
         priority: getPayloadNumber(entry.priority, 0, -100, 100),
-        enabled: getPayloadBoolean(entry.enabled, true),
+        enabled: "disable" in entry ? !getPayloadBoolean(entry.disable, false) : getPayloadBoolean(entry.enabled, true),
         constant: getPayloadBoolean(entry.constant, false),
         probability: getPayloadNumber(entry.probability, 100, 0, 100),
         caseSensitive: getPayloadBoolean(entry.case_sensitive ?? entry.caseSensitive, false),
-        wholeWord: getPayloadBoolean(entry.whole_word ?? entry.wholeWord, false),
+        wholeWord: getPayloadBoolean(entry.whole_word ?? entry.wholeWord ?? entry.matchWholeWords, false),
         matchMode: parseLoreMatchMode(entry.match_mode ?? entry.matchMode),
         literalMatchBehavior:
           parseLoreLiteralMatchBehavior(entry.literal_match_behavior ?? entry.literalMatchBehavior) ??
-          (("whole_word" in entry && entry.whole_word === false) || ("wholeWord" in entry && entry.wholeWord === false)
+          (("whole_word" in entry && entry.whole_word === false) ||
+          ("wholeWord" in entry && entry.wholeWord === false) ||
+          ("matchWholeWords" in entry && entry.matchWholeWords === false)
             ? "substring"
             : "boundary"),
         scanScopes: parseLoreScanScopes(entry.scan_scopes ?? entry.scanScopes),

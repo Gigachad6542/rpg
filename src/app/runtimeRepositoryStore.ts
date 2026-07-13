@@ -232,7 +232,7 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
     const promptRuns = sanitizePromptRunsForPersistence(snapshot.promptRuns, runtimeSettings);
     await this.characters.upsert({
       id: RUNTIME_SNAPSHOT_CHARACTER_ID,
-      name: "Local Cards runtime snapshot",
+      name: "Local-First RPG runtime snapshot",
       description: "Serialized card library and runtime UI state.",
       source: "runtime-snapshot",
       profile: {
@@ -561,7 +561,7 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
     if (!existing) {
       await this.chats.create({
         id: RUNTIME_CHAT_ID,
-        title: "Local Cards runtime",
+        title: "Local-First RPG runtime",
         mode: "rpg",
         branchId: RUNTIME_BRANCH_ID,
         metadata: {

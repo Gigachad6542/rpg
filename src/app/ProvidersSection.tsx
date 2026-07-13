@@ -1,9 +1,14 @@
-import { useState } from "react";
-import { Brush, KeyRound, LockKeyhole, Play, RotateCcw, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Brush, KeyRound, LockKeyhole, Play, RotateCcw, Server, X } from "lucide-react";
 import { qwen37MaxReferencePreset, recommendedLocalImageProvider } from "../providers/modelPresets";
 import { type SecureStorageStatus } from "../security/keyStorage";
 import type { ImageProviderMode, ImageProviderSettings, ProviderSettings } from "./runtimeTypes";
-import { toBoundedFloat, toBoundedNumber } from "./appUtils";
+import { getErrorMessage, toBoundedFloat, toBoundedNumber } from "./appUtils";
+import {
+  buildLocalProviderSettings,
+  discoverLocalProviders,
+  type LocalProviderDetection,
+} from "./localProviderDiscovery";
 import {
   getDefaultTextModel,
   getImageModelChoices,
@@ -41,6 +46,44 @@ export function ProvidersSection(props: {
 }) {
   const textModelChoices = getTextModelChoices(props.providerSettings);
   const imageModelChoices = getImageModelChoices(props.comfyUiCheckpointModels, props.imageProviderSettings.model);
+  const [localDetections, setLocalDetections] = useState<LocalProviderDetection[]>([]);
+  const [localModels, setLocalModels] = useState<Record<string, string>>({});
+  const [localDiscoveryStatus, setLocalDiscoveryStatus] = useState("Checking fixed loopback endpoints...");
+
+  useEffect(() => {
+    let active = true;
+    void discoverLocalProviders()
+      .then((detections) => {
+        if (!active) return;
+        setLocalDetections(detections);
+        setLocalModels(Object.fromEntries(detections.map((detection) => [detection.id, detection.models[0]])));
+        setLocalDiscoveryStatus(
+          detections.length > 0
+            ? `Found ${detections.length} local OpenAI-compatible server${detections.length === 1 ? "" : "s"}.`
+            : "No supported local server answered. Start one and refresh, or enter a loopback URL manually.",
+        );
+      })
+      .catch((error) => {
+        if (active) setLocalDiscoveryStatus(getErrorMessage(error));
+      });
+    return () => { active = false; };
+  }, []);
+
+  async function refreshLocalDiscovery() {
+    setLocalDiscoveryStatus("Checking Ollama, LM Studio, llama.cpp, and KoboldCpp on fixed loopback ports...");
+    try {
+      const detections = await discoverLocalProviders();
+      setLocalDetections(detections);
+      setLocalModels(Object.fromEntries(detections.map((detection) => [detection.id, detection.models[0]])));
+      setLocalDiscoveryStatus(
+        detections.length > 0
+          ? `Found ${detections.length} local OpenAI-compatible server${detections.length === 1 ? "" : "s"}.`
+          : "No supported local server answered. Start one and refresh, or enter a loopback URL manually.",
+      );
+    } catch (error) {
+      setLocalDiscoveryStatus(getErrorMessage(error));
+    }
+  }
 
   function updateSettings(patch: Partial<ProviderSettings>) {
     const next = { ...props.providerSettings, ...patch };
@@ -88,6 +131,43 @@ export function ProvidersSection(props: {
           <KeyRound size={17} />
           <h3>LLM Provider</h3>
         </div>
+        <section className="local-provider-discovery" aria-label="Local model server discovery">
+          <div className="section-subtitle">
+            <Server size={15} />
+            <strong>Local inference</strong>
+          </div>
+          <p className="field-help">Auto-detects Ollama, LM Studio, llama.cpp server, and KoboldCpp. Discovery only reads <code className="inline-code">/v1/models</code> on fixed loopback ports.</p>
+          <button className="secondary-button full-width" type="button" onClick={() => void refreshLocalDiscovery()}>
+            <RotateCcw size={16} />
+            Refresh local servers
+          </button>
+          {localDetections.map((detection) => (
+            <div className="local-provider-result" key={detection.id}>
+              <label className="field">
+                <span>{detection.displayName} model</span>
+                <select
+                  value={localModels[detection.id] ?? detection.models[0]}
+                  onChange={(event) => setLocalModels((current) => ({ ...current, [detection.id]: event.target.value }))}
+                >
+                  {detection.models.map((model) => <option value={model} key={model}>{model}</option>)}
+                </select>
+              </label>
+              <button
+                className="primary-button compact-button"
+                type="button"
+                onClick={() => {
+                  props.setProviderSettings(buildLocalProviderSettings(detection, localModels[detection.id] ?? detection.models[0]));
+                  props.setSessionApiKey("");
+                  setLocalDiscoveryStatus(`${detection.displayName} selected. Local endpoints do not require a stored key by default.`);
+                }}
+              >
+                Use {detection.displayName}
+              </button>
+            </div>
+          ))}
+          <p className="status-line" role="status" aria-live="polite">{localDiscoveryStatus}</p>
+          <p className="field-help">Model downloading and process management are intentionally not included; those require a separate signed-model and disk-safety design.</p>
+        </section>
         <p>
           Recommended: <strong>Qwen3.7-Max</strong> using model id <code className="inline-code">qwen3.7-max</code>.
           Stored desktop keys are used through the local backend; React keeps only a secret reference.
@@ -301,11 +381,11 @@ export function ProvidersSection(props: {
         ) : null}
       </section>
 
-      <section className="panel" aria-label="Image provider">
-        <div className="section-title">
+      <details className="panel advanced-provider-panel" role="region" aria-label="Image provider (advanced ComfyUI settings)">
+        <summary className="section-title">
           <Brush size={17} />
-          <h3>Image Provider</h3>
-        </div>
+          <h3>Advanced image generation (ComfyUI)</h3>
+        </summary>
         <p>
           Recommended free local path: <strong>{recommendedLocalImageProvider.displayName}</strong>. Paste a ComfyUI
           API workflow that uses <code className="inline-code">{"{{prompt}}"}</code> and{" "}
@@ -526,7 +606,7 @@ export function ProvidersSection(props: {
         <p className="status-line">
           Endpoint is restricted to loopback URLs. The app stores workflow/settings only, never image API keys.
         </p>
-      </section>
+      </details>
     </div>
   );
 }

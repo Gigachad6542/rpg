@@ -8,7 +8,7 @@ and native Keychain behavior.
 ## Download and install
 
 1. Open the repository's **Releases** page.
-2. Download `Local-First AI RPG Runtime_<version>_aarch64.dmg` together with
+2. Download `Local-First RPG_<version>_aarch64.dmg` together with
    `SHA256SUMS-macos.txt`, `release-provenance-macos.json`, and
    `sbom-macos.cdx.json`.
 3. Verify the checksum:
@@ -18,7 +18,7 @@ and native Keychain behavior.
    shasum -a 256 -c SHA256SUMS-macos.txt
    ```
 
-4. Open the DMG and drag **Local-First AI RPG Runtime** into **Applications**.
+4. Open the DMG and drag **Local-First RPG** into **Applications**.
 5. Launch it normally. A public release must not require bypassing Gatekeeper or
    removing quarantine attributes.
 

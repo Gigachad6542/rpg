@@ -14,8 +14,10 @@ import type {
   RuntimeSettings,
 } from "./runtimeTypes";
 import { createDefaultRpgPlayerRules, createInitialStoryEntities } from "./cardNormalization";
+import { PLAYABLE_SAMPLE_RPG } from "./starterContent";
 
 export const initialCards: RuntimeCard[] = [
+  PLAYABLE_SAMPLE_RPG,
   {
     id: "card_blank_slate_rpg",
     name: "Blank Slate RPG",

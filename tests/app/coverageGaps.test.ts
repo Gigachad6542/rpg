@@ -293,6 +293,32 @@ describe("app helper coverage gap characterization", () => {
       { id: "run", compiledPrompt: "" },
     ]);
     expect(sanitizePersistedProviderSettings({ apiKey: "raw" })).toBeUndefined();
+    expect(sanitizePersistedProviderSettings({
+      model: "priced-model",
+      contextWindowTokens: 32_768,
+      maxOutputTokens: 2_048,
+      pricing: {
+        model: "priced-model",
+        currency: "USD",
+        inputUsdPerMillionTokens: 1,
+        outputUsdPerMillionTokens: 2,
+        source: "user configured",
+        effectiveDate: "2026-07-12",
+        apiKey: "must-not-survive",
+      },
+    })).toEqual({
+      model: "priced-model",
+      contextWindowTokens: 32_768,
+      maxOutputTokens: 2_048,
+      pricing: {
+        model: "priced-model",
+        currency: "USD",
+        inputUsdPerMillionTokens: 1,
+        outputUsdPerMillionTokens: 2,
+        source: "user configured",
+        effectiveDate: "2026-07-12",
+      },
+    });
     expect(
       sanitizePersistedImageProviderSettings({
         mode: "comfyui",

@@ -436,7 +436,39 @@ describe("App pure helper coverage", () => {
     expect(helpers.parseRuntimeSettings({ textStreaming: false, banEmojis: true, promptDebugLogs: true })).toMatchObject({
       banEmojis: true,
       promptDebugLogs: true,
+      hiddenContinuityMode: "full",
     });
+    expect(helpers.parseRuntimeSettings({
+      hiddenContinuityMode: "economical",
+      economicalModel: "  small-model  ",
+    })).toMatchObject({
+      hiddenContinuityMode: "economical",
+      economicalModel: "small-model",
+    });
+    const configuredProvider = helpers.parseProviderSettings({
+      mode: "openai-compatible",
+      providerId: "local",
+      displayName: "Local",
+      baseUrl: "http://127.0.0.1:1234/v1",
+      model: "local-model",
+      contextWindowTokens: 65_536,
+      maxOutputTokens: 4_096,
+      pricing: {
+        model: "local-model",
+        currency: "USD",
+        inputUsdPerMillionTokens: 0.2,
+        outputUsdPerMillionTokens: 0.8,
+        source: "user configured",
+        effectiveDate: "2026-07-12",
+      },
+    });
+    expect(helpers.getConfiguredTextModelInfo(configuredProvider)).toMatchObject({
+      id: "local-model",
+      providerId: "local",
+      contextWindow: 65_536,
+      maxOutputTokens: 4_096,
+    });
+    expect(configuredProvider.pricing).toMatchObject({ model: "local-model", inputUsdPerMillionTokens: 0.2 });
     const promptRuns = [{ id: "run", compiledPrompt: "secret prompt" }];
     expect(helpers.applyPromptDebugRetention(promptRuns as any, { ...runtimeSettings, promptDebugLogs: true })).toBe(promptRuns);
     expect(helpers.applyPromptDebugRetention(promptRuns as any, { ...runtimeSettings, promptDebugLogs: false })[0].compiledPrompt).toBe("");

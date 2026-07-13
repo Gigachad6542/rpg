@@ -75,4 +75,17 @@ describe("model-call telemetry", () => {
       message: expect.not.stringContaining("Bearer "),
     });
   });
+
+  it.each([
+    "request failed with token=ghp_abcdefghijklmnopqrstuvwxyz123456",
+    "request failed with sessionToken=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.signature",
+    "request failed with clientSecret=super-private-client-value",
+    "request failed with AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE",
+    "request failed with privateKey=-----BEGIN_PRIVATE_KEY-----abc123-----END_PRIVATE_KEY-----",
+  ])("redacts common non-OpenAI credential formats from failure telemetry", (message) => {
+    const failure = classifyModelCallFailure(new Error(message));
+
+    expect(failure.message).not.toMatch(/ghp_|eyJhbGci|super-private|AKIA|BEGIN_PRIVATE_KEY|abc123/i);
+    expect(failure.message).toMatch(/REDACTED/);
+  });
 });

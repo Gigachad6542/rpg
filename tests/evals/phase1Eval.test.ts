@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
+  assertPhase1EvalReleaseThresholds,
   parsePhase1EvalCorpusJsonl,
   scorePhase1EvalCorpus,
   validateRecordedPhase1Corpus,
@@ -19,6 +20,19 @@ const REQUIRED_PROVIDER_PROFILES: EvalProviderProfile[] = [
 ];
 
 describe("Phase 1 recorded eval corpus", () => {
+  it("matches the committed scorecard and clears the explicit Phase 1 release floor", () => {
+    const turns = parsePhase1EvalCorpusJsonl(readFileSync(CORPUS_URL, "utf8"));
+    const scorecard = scorePhase1EvalCorpus(turns);
+    const baseline = JSON.parse(readFileSync(new URL("../../evals/phase1/baseline.json", import.meta.url), "utf8"));
+
+    expect(scorecard).toEqual(baseline);
+    expect(() => assertPhase1EvalReleaseThresholds(scorecard)).not.toThrow();
+    expect(() => assertPhase1EvalReleaseThresholds({
+      ...scorecard,
+      quality: { ...scorecard.quality, mutationPrecision: 0.69 },
+    })).toThrow(/mutation precision/i);
+  });
+
   it("contains 30-50 redacted turns across representative provider paths", () => {
     const rawCorpus = readFileSync(CORPUS_URL, "utf8");
     const turns = parsePhase1EvalCorpusJsonl(rawCorpus);

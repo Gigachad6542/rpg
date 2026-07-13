@@ -843,6 +843,24 @@ mod tests {
     }
 
     #[test]
+    fn provider_usage_source_distinguishes_reported_and_estimated_tokens() {
+        let complete = Some(ChatCompletionUsage {
+            prompt_tokens: Some(10),
+            completion_tokens: Some(4),
+            total_tokens: Some(14),
+        });
+        let partial = Some(ChatCompletionUsage {
+            prompt_tokens: Some(10),
+            completion_tokens: None,
+            total_tokens: None,
+        });
+
+        assert_eq!(usage_source(&complete), "provider");
+        assert_eq!(usage_source(&partial), "estimated");
+        assert_eq!(usage_source(&None), "estimated");
+    }
+
+    #[test]
     fn generated_image_persistence_validates_format_and_payload() {
         assert_eq!(validate_generated_image_format("PNG").unwrap(), "png");
         assert_eq!(validate_generated_image_format("jpeg").unwrap(), "jpg");

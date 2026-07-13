@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Message } from "../../src/app/runtimeTypes";
 import {
   advanceRollingSummary,
+  parseRollingSummary,
   reconcileRollingSummaryForHistory,
   type RollingSummaryScope,
 } from "../../src/runtime/rollingSummary";
@@ -22,6 +23,22 @@ function messages(contents: string[]): Message[] {
 }
 
 describe("rolling summaries", () => {
+  it("parses bounded persisted summaries and rejects malformed history metadata", () => {
+    const history = messages(["One", "Two", "Three", "Four", "Five"]);
+    const summary = advanceRollingSummary({
+      previous: null,
+      messages: history,
+      scope,
+      retainRecentMessages: 2,
+      maxCharacters: 1_000,
+      now: "2026-07-12T12:00:00.000Z",
+    });
+
+    expect(parseRollingSummary(JSON.parse(JSON.stringify(summary)))).toEqual(summary);
+    expect(parseRollingSummary({ ...summary, scope: { cardId: "card-a" } })).toBeNull();
+    expect(parseRollingSummary({ ...summary, coveredMessageFingerprints: ["bad"] })).toBeNull();
+  });
+
   it("summarizes only history outside the retained recent window", () => {
     const history = messages([
       "I arrive at Blackglass Harbor.",

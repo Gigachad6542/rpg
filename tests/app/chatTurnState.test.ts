@@ -17,6 +17,11 @@ import type { Message, RuntimeCard } from "../../src/app/runtimeTypes";
 import { createEmptyExtractionResult } from "../../src/runtime/extraction";
 import { createEmptyHiddenContinuityResult } from "../../src/runtime/hiddenContinuity";
 import { createRuntimeTurnEffects } from "../../src/runtime/runtimeTurnLineage";
+import {
+  createPlayerActionEvent,
+  createStateCommittedEvent,
+} from "../../src/runtime/authoritativeEventStream";
+import { advanceRollingSummary } from "../../src/runtime/rollingSummary";
 
 function card(inventory: string[] = []): RuntimeCard {
   return {
@@ -147,6 +152,72 @@ describe("chat turn-state integration helpers", () => {
 
     expect(deriveCardForChat(baseCard, parent).rpg?.inventory).toEqual(["torch"]);
     expect(deriveCardForChat(baseCard, branchOnSecond).rpg?.inventory).toEqual(["lantern"]);
+  });
+
+  it("remaps authoritative events into a branch and invalidates its parent-scoped summary", () => {
+    const baseCard = card();
+    const history = turnMessages("a-parent", 0);
+    const now = "2026-07-12T12:00:00.000Z";
+    let parent = initializeChatTurnState(createChatSession(baseCard.id, "Parent", { id: "chat-parent" }), baseCard);
+    parent = {
+      ...parent,
+      messages: history,
+      authoritativeEvents: [
+        createPlayerActionEvent({
+          id: "event-action",
+          chatId: parent.id,
+          branchId: parent.id,
+          messageId: "u1",
+          occurredAt: now,
+          action: "I choose.",
+          origin: "typed",
+        }),
+        createStateCommittedEvent({
+          id: "event-state",
+          chatId: parent.id,
+          branchId: parent.id,
+          messageId: "a-parent",
+          occurredAt: now,
+          runId: "run-parent",
+          variant: { assistantMessageId: "a-parent", variantIndex: 0 },
+          proposalIds: ["proposal-1"],
+          mutations: [{ type: "inventory_add", item: "torch" }],
+        }),
+      ],
+      rollingSummary: advanceRollingSummary({
+        previous: null,
+        messages: history,
+        scope: { cardId: baseCard.id, chatId: parent.id, branchId: parent.id },
+        retainRecentMessages: 0,
+        maxCharacters: 1_000,
+        now,
+      }) ?? undefined,
+    };
+    const branchId = "chat-branch";
+    const branchMessages = parent.messages.map((message, index) => ({
+      ...message,
+      id: `${message.id}__branch_${branchId}_${index}`,
+    }));
+    const branch = branchChatTurnState(
+      parent,
+      createChatSession(baseCard.id, "Branch", {
+        id: branchId,
+        branchOfId: parent.id,
+        messages: branchMessages,
+      }),
+      baseCard,
+    );
+
+    expect(branch.rollingSummary).toBeUndefined();
+    expect(branch.authoritativeEvents).toEqual([
+      expect.objectContaining({ originEventId: "event-action", chatId: branchId, branchId }),
+      expect.objectContaining({
+        originEventId: "event-state",
+        messageId: branchMessages[1].id,
+        variant: { assistantMessageId: branchMessages[1].id, variantIndex: 0 },
+      }),
+    ]);
+    expect(parent.authoritativeEvents?.map((event) => event.id)).toEqual(["event-action", "event-state"]);
   });
 
   it("refuses to swipe an earlier variant while dependent downstream turns remain", () => {

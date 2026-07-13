@@ -66,6 +66,21 @@ async function readStoredModelCalls(expectedCallCount: 1 | 2 = 2): Promise<Model
   return modelCalls ?? [];
 }
 
+async function readStoredActiveChat(): Promise<Record<string, unknown>> {
+  let chat: Record<string, unknown> | undefined;
+  await waitFor(() => {
+    const snapshot = JSON.parse(window.localStorage.getItem(RUNTIME_STORAGE_KEY) ?? "{}") as {
+      activeCardId?: string;
+      activeChatIds?: Record<string, string>;
+      chatSessions?: Array<Record<string, unknown>>;
+    };
+    const activeChatId = snapshot.activeCardId ? snapshot.activeChatIds?.[snapshot.activeCardId] : undefined;
+    chat = snapshot.chatSessions?.find((candidate) => candidate.id === activeChatId);
+    expect(chat).toBeDefined();
+  });
+  return chat ?? {};
+}
+
 describe("intentional two-call turn telemetry", () => {
   it("performs only the visible call when hidden continuity is off", async () => {
     const requests: TextGenerationRequest[] = [];
@@ -197,7 +212,7 @@ describe("intentional two-call turn telemetry", () => {
       const modelCalls = await readStoredModelCalls();
 
       expect(modelCalls).toEqual([
-        {
+        expect.objectContaining({
           phase: "hidden-continuity",
           provider: "telemetry-provider",
           model: "mock-narrator",
@@ -205,8 +220,11 @@ describe("intentional two-call turn telemetry", () => {
           inputBudgetTokens: expect.any(Number),
           durationMs: expect.any(Number),
           status: "success",
-        },
-        {
+          usageSource: "provider",
+          cost: expect.objectContaining({ status: "known", amountUsd: 0 }),
+          stateProposalCount: expect.any(Number),
+        }),
+        expect.objectContaining({
           phase: "visible-response",
           provider: "telemetry-provider",
           model: "mock-narrator",
@@ -214,11 +232,20 @@ describe("intentional two-call turn telemetry", () => {
           inputBudgetTokens: expect.any(Number),
           durationMs: expect.any(Number),
           status: "success",
-        },
+          usageSource: "provider",
+          cost: expect.objectContaining({ status: "known", amountUsd: 0 }),
+          stateProposalCount: expect.any(Number),
+        }),
       ]);
       expect(modelCalls.every((call) => call.durationMs >= 0)).toBe(true);
       expect(modelCalls.every((call) => call.inputBudgetTokens >= call.usage.inputTokens)).toBe(true);
       expect(screen.getByText(/2 model calls/i)).toHaveTextContent(/85 tokens/i);
+      const chat = await readStoredActiveChat();
+      expect((chat.authoritativeEvents as Array<{ kind: string }>).map((event) => event.kind)).toEqual([
+        "player_action",
+        "rule_decision",
+        "state_committed",
+      ]);
     } finally {
       providerSpy.mockRestore();
     }
@@ -278,5 +305,21 @@ describe("intentional two-call turn telemetry", () => {
     } finally {
       providerSpy.mockRestore();
     }
+  });
+
+  it("records /roll as a typed dice event without making a model call", async () => {
+    render(<App />);
+    await screen.findByText(/Repository API ready|SQLite repository ready|Repository unavailable/i);
+    fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
+    fireEvent.click(screen.getByLabelText(/Dice rolls/i));
+    fireEvent.click(screen.getByRole("button", { name: /^Cards$/i }));
+    fireEvent.click(within(screen.getByRole("region", { name: /Card library/i })).getByRole("button", { name: /^Open$/i }));
+    sendRuntimeMessage("/roll d6");
+
+    await screen.findByText(/1d6/i);
+    const chat = await readStoredActiveChat();
+    expect(chat.authoritativeEvents).toEqual([
+      expect.objectContaining({ kind: "dice_rolled", roll: expect.objectContaining({ notation: "1d6" }) }),
+    ]);
   });
 });

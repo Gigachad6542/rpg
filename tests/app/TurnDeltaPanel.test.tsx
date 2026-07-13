@@ -73,7 +73,7 @@ describe("TurnDeltaPanel", () => {
 
     fireEvent.click(summary);
 
-    expect(screen.getByText(/provider-reported when available and estimated otherwise/i)).toBeInTheDocument();
+    expect(screen.getByText(/retains its own usage, latency, cost status, failure, and proposal count/i)).toBeInTheDocument();
     expect(screen.getByText(/Continuity preparation/i)).toBeInTheDocument();
     expect(screen.getByText(/Visible response/i)).toBeInTheDocument();
     expect(screen.getAllByText(/telemetry-provider \/ mock-narrator/i)).toHaveLength(2);
@@ -83,6 +83,8 @@ describe("TurnDeltaPanel", () => {
     expect(screen.getByText(/40 \/ 200 input tokens.*20%/i)).toBeInTheDocument();
     expect(screen.getByText(/120 ms/i)).toBeInTheDocument();
     expect(screen.getByText(/640 ms/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Cost unknown/i)).toHaveLength(2);
+    expect(screen.getAllByText(/0 state proposals/i)).toHaveLength(2);
   });
 
   it("shows applied and blocked proposals with provenance and supports undo", () => {

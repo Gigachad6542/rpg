@@ -226,8 +226,25 @@ describe("runtime repository store", () => {
               model: "mock-narrator",
               usage: { inputTokens: 8, outputTokens: 2, totalTokens: 10 },
               inputBudgetTokens: 14_200,
+              effectiveContextWindowTokens: 16_000,
+              budgetSource: "model-metadata",
               durationMs: 12,
               status: "success",
+              usageSource: "provider",
+              cost: {
+                status: "known",
+                currency: "USD",
+                amountUsd: 0,
+                pricing: {
+                  model: "mock-narrator",
+                  currency: "USD",
+                  inputUsdPerMillionTokens: 0,
+                  outputUsdPerMillionTokens: 0,
+                  source: "built-in mock provider",
+                  effectiveDate: "1970-01-01",
+                },
+              },
+              stateProposalCount: 1,
             },
             {
               phase: "visible-response",
@@ -341,7 +358,16 @@ describe("runtime repository store", () => {
         totalTokens: 28,
       },
       modelCalls: [
-        { phase: "hidden-continuity", usage: { totalTokens: 10 }, inputBudgetTokens: 14_200 },
+        {
+          phase: "hidden-continuity",
+          usage: { totalTokens: 10 },
+          inputBudgetTokens: 14_200,
+          effectiveContextWindowTokens: 16_000,
+          budgetSource: "model-metadata",
+          usageSource: "provider",
+          cost: { status: "known", amountUsd: 0 },
+          stateProposalCount: 1,
+        },
         { phase: "visible-response", usage: { totalTokens: 28 }, inputBudgetTokens: 5_100 },
       ],
     });

@@ -76,6 +76,53 @@ describe("runtime import security boundaries", () => {
     expect(() => parseVersionedRuntimeExport(JSON.stringify(invalidBundle))).toThrow(/runtime export json is invalid/i);
   });
 
+  it("validates and preserves rich phase telemetry without accepting secret-bearing failures", () => {
+    const validBundle = createValidBundle();
+    validBundle.snapshot.promptRuns[0].modelCalls = [
+      {
+        phase: "visible-response",
+        provider: "local",
+        model: "local-model",
+        usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+        inputBudgetTokens: 14_200,
+        effectiveContextWindowTokens: 16_000,
+        budgetSource: "conservative-fallback",
+        durationMs: 12,
+        status: "error",
+        usageSource: "provider",
+        cost: { status: "unknown", currency: "USD" },
+        failure: { category: "provider", message: "Provider unavailable" },
+        stateProposalCount: 0,
+      },
+    ];
+
+    const parsed = parseVersionedRuntimeExport(JSON.stringify(validBundle));
+    expect(parsed.promptRuns[0].modelCalls).toEqual([
+      expect.objectContaining({
+        effectiveContextWindowTokens: 16_000,
+        budgetSource: "conservative-fallback",
+        usageSource: "provider",
+        cost: { status: "unknown", currency: "USD" },
+        failure: { category: "provider", message: "Provider unavailable" },
+        stateProposalCount: 0,
+      }),
+    ]);
+
+    const secretBundle = createValidBundle();
+    secretBundle.snapshot.promptRuns[0].modelCalls = [
+      {
+        phase: "visible-response",
+        provider: "local",
+        model: "local-model",
+        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        durationMs: 12,
+        status: "error",
+        failure: { category: "authentication", message: "Bearer sk-sensitive-import-token" },
+      },
+    ];
+    expect(() => parseVersionedRuntimeExport(JSON.stringify(secretBundle))).toThrow(/runtime export json is invalid/i);
+  });
+
   it.each([
     ["card", (snapshot: RuntimeExportSnapshot) => {
       snapshot.cards.push({ ...snapshot.cards[0] });

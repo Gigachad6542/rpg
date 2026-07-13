@@ -53,7 +53,7 @@ describe("Phase 2 hosted release controls", () => {
     const workflow = read(".github", "workflows", "release.yml");
 
     expect(workflow).toContain("hosted-ci-gate:");
-    expect(workflow).toContain("workflow_id: ci.yml");
+    expect(workflow).toMatch(/workflow_id:\s*["']?ci\.yml["']?/);
     expect(workflow).toContain("head_sha: context.sha");
     expect(workflow).toContain("conclusion === \"success\"");
     expect(workflow).toContain("needs: hosted-ci-gate");
@@ -68,6 +68,7 @@ describe("Phase 2 hosted release controls", () => {
     expect(workflow).toContain("APPLE_ID");
     expect(workflow).toContain("APPLE_PASSWORD");
     expect(workflow).toContain("APPLE_TEAM_ID");
+    expect(workflow).toContain("TAURI_BUILD_TARGET: aarch64-apple-darwin");
     expect(workflow).toContain("desktop:keychain-smoke:mac");
     expect(workflow).toContain("stapler validate");
     expect(workflow).toContain("actions/attest@v4");

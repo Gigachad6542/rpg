@@ -3,6 +3,8 @@ set -euo pipefail
 
 project_root="$(cd "$(dirname "$0")/.." && pwd)"
 bundle_root="$project_root/src-tauri/target/release/bundle/dmg"
+evidence_dir="${EVIDENCE_DIR:-$project_root/release-evidence/macos}"
+mkdir -p "$evidence_dir"
 dmg_files=("$bundle_root"/*.dmg)
 if [[ ! -f "${dmg_files[0]:-}" ]]; then
   echo "No packaged macOS DMG found under $bundle_root. Run pnpm desktop:build first." >&2
@@ -45,6 +47,16 @@ if [[ -z "$app_binary" ]]; then
   exit 1
 fi
 
+if [[ "${REQUIRE_SIGNED_RELEASE:-0}" == "1" ]]; then
+  codesign --verify --deep --strict --verbose=2 "$installed_app" \
+    >"$evidence_dir/codesign-verify.txt" 2>&1
+  codesign -dvvv "$installed_app" >"$evidence_dir/codesign-details.txt" 2>&1
+  spctl -a -vv -t exec "$installed_app" >"$evidence_dir/gatekeeper-assessment.txt" 2>&1
+else
+  printf '%s\n' "Signing checks skipped because REQUIRE_SIGNED_RELEASE is not 1." \
+    >"$evidence_dir/signing-checks-skipped.txt"
+fi
+
 database_path="$app_data_root/local-first-ai-rpg-runtime.db"
 launch_and_wait() {
   env LOCAL_FIRST_AI_RPG_RUNTIME_APP_DATA_DIR="$app_data_root" "$app_binary" >"$work_root/app.log" 2>&1 &
@@ -71,4 +83,15 @@ launch_and_wait
 sqlite3 "$database_path" "PRAGMA integrity_check;" | grep -qx "ok"
 launch_and_wait
 sqlite3 "$database_path" "PRAGMA integrity_check;" | grep -qx "ok"
-echo "Packaged macOS smoke passed: mounted DMG, copied app, and relaunched against durable SQLite data."
+cp "$work_root/app.log" "$evidence_dir/packaged-app.log"
+cat >"$evidence_dir/dmg-smoke.json" <<EOF
+{
+  "schema": "rpg.release.macos-dmg-smoke",
+  "version": 1,
+  "status": "pass",
+  "dmg": "$(basename "${dmg_files[0]}")",
+  "database": "local-first-ai-rpg-runtime.db",
+  "launches": 2
+}
+EOF
+echo "Packaged macOS smoke passed: mounted DMG, copied app, and relaunched against durable SQLite data. Evidence: $evidence_dir"

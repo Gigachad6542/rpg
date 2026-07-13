@@ -32,10 +32,10 @@ describe("release workflow", () => {
     expect(workflow).toContain("pnpm verify:release");
     expect(packageJson).toContain('"desktop:installed-smoke"');
     expect(packageJson).toContain("pnpm desktop:installed-smoke");
-    expect(workflow).toContain("Get-FileHash");
+    expect(workflow).toContain("release:provenance");
     expect(workflow).toContain("actions/upload-artifact");
     expect(workflow).toContain("gh release create");
-    expect(workflow).toContain("$releaseFiles = @($artifacts | ForEach-Object { $_.FullName }) + @($checksum)");
+    expect(workflow).toContain("$releaseFiles = @($artifacts | ForEach-Object { $_.FullName }) + @($metadata | ForEach-Object { $_.FullName })");
     expect(workflow).not.toContain("$artifacts.FullName + $checksum");
   });
 

@@ -1,15 +1,16 @@
 # Release Packaging
 
-Windows has the complete maintained release gate, including executable and
-installed clean-profile smoke tests. macOS now has routine frontend and native
-Rust compatibility verification plus tag-triggered Apple Silicon `.dmg`
-packaging. The macOS lane remains a controlled-beta lane until it mounts and
-launches the packaged app, verifies persistence and Keychain behavior, and adds
-Developer ID signing and notarization.
+Phase 2 is a fail-closed shipped-product lane. The workflow builds signed
+Windows and macOS packages from the exact release commit, retains installed-app
+evidence, and publishes only after both platforms and hosted CI pass.
 
-## Release Gate
+The lane is implemented in `.github/workflows/release.yml`; it is not proof by
+itself. A release is proven only by a successful hosted run with real signing
+credentials, a previous signed Windows MSI, and retained artifacts.
 
-Run the full release gate from a clean working tree before sharing a build:
+## Local gates
+
+Run the appropriate gate from a clean checkout:
 
 ```bash
 pnpm install --frozen-lockfile
@@ -18,64 +19,93 @@ cargo install cargo-audit --locked
 pnpm verify:release
 ```
 
-`verify:release` runs TypeScript, ESLint, Vitest coverage, frontend build, Playwright browser smoke, production dependency audit, Rust advisory audit, Rust tests, Rust clippy, the Tauri desktop package build, packaged executable smoke, and installed clean-profile smoke.
+On macOS, use `pnpm verify:release:mac`. Local unsigned builds remain useful for
+development, but they are not public release candidates.
 
-On every push to `main`/`master` and on pull requests, the `verify-macos` CI job
-runs the unit tests, frontend build, Rust tests, and Rust clippy on
-`macos-latest`. Tagged releases additionally run `pnpm verify:release:mac`, build
-the unsigned `.dmg`, mount/copy/relaunch it against isolated SQLite storage, and
-verify database integrity; the Windows-only executable and installed-profile
-smoke scripts are intentionally not run on macOS.
+`pnpm desktop:build` is a signing-aware wrapper. When
+`REQUIRE_SIGNED_RELEASE=1`, it fails before building unless the platform signing
+and notarization inputs are present. The hosted release jobs always set that
+flag.
 
-## Output
+## Hosted release contract
 
-`pnpm desktop:build` writes Tauri release output under:
+The tag or manually dispatched workflow performs these gates in order:
+
+1. Query `ci.yml` and require a successful hosted run whose `head_sha` is the
+   exact release commit.
+2. Build and verify timestamped Authenticode Windows artifacts.
+3. Download the previous stable signed MSI and run the complete packaged flow:
+   first run, provider setup, create, play, close/reopen, migration continuity,
+   backup restore, and runtime export.
+4. Build the macOS DMG with Developer ID signing and Apple notarization, validate
+   the stapled ticket and Gatekeeper acceptance, mount and relaunch the DMG, and
+   execute a native Keychain set/get/delete round trip.
+5. Generate per-platform CycloneDX SBOMs, SHA-256 manifests, commit-bound
+   provenance, and GitHub artifact attestations.
+6. Upload platform artifacts and evidence for 90 days. Only then may the tag job
+   publish the release.
+
+Required Windows configuration:
+
+- `WINDOWS_CERTIFICATE_BASE64` secret
+- `WINDOWS_CERTIFICATE_PASSWORD` secret
+- `WINDOWS_TIMESTAMP_URL` repository variable
+
+Required macOS configuration:
+
+- `APPLE_CERTIFICATE` secret
+- `APPLE_CERTIFICATE_PASSWORD` secret
+- `APPLE_ID` secret
+- `APPLE_PASSWORD` app-specific-password secret
+- `APPLE_TEAM_ID` secret
+
+Secrets must not be copied into logs, evidence, release notes, source, or test
+fixtures.
+
+## Retained evidence
+
+Windows evidence includes installer logs, screenshots, the three runtime
+exports, the product-generated startup backup hash, migration/restore assertions,
+AuthentiCode results, and `phase2-windows-product-flow.json`.
+
+macOS evidence includes DMG attach/copy/launch logs, SQLite continuity results,
+codesign and Gatekeeper results, `stapler validate`, and the native Keychain
+round-trip result. The Keychain test uses a generated fake value and deletes it
+in cleanup.
+
+Release metadata is platform-specific to prevent asset-name collisions:
 
 ```text
-src-tauri/target/release/
-src-tauri/target/release/bundle/
+SHA256SUMS-windows.txt
+release-provenance-windows.json
+sbom-windows.cdx.json
+SHA256SUMS-macos.txt
+release-provenance-macos.json
+sbom-macos.cdx.json
 ```
 
-On Windows, inspect the generated installer or app bundle under the bundle subdirectories produced by Tauri for the configured targets.
+The artifacts remain under `src-tauri/target/release/bundle/`; local evidence is
+written beneath ignored `release-evidence/`.
 
-The release workflow writes platform-specific checksum manifests at:
+## Windows packaged product flow
 
-```text
-src-tauri/target/release/bundle/SHA256SUMS-windows.txt
-src-tauri/target/release/bundle/dmg/SHA256SUMS-macos.txt
+The hosted lane supplies two real MSI files to:
+
+```powershell
+pnpm desktop:product-flow -- -PreviousMsi <old.msi> -CurrentMsi <new.msi> -EvidenceDir <dir>
 ```
 
-Tag pushes matching `v*` run `.github/workflows/release.yml`, upload Windows
-MSI/NSIS artifacts and the macOS `.dmg` with their distinct checksum manifests,
-and create or update the GitHub release.
+Each MSI is administratively extracted to its own temporary install root. The
+driver launches the packaged WebView2 application with an isolated Windows
+profile and attaches Playwright over a loopback CDP port. It uses the local mock
+provider, so no paid call or provider secret is needed. It then proves that a
+durable marker survives migration, a transient post-backup marker is removed by
+restore, the restored database is healthy, and the final exported runtime has
+the expected state.
 
-## Preflight Checklist
+## Publication and rollback
 
-- Confirm `git status --short` only contains intentional release changes.
-- Confirm `pnpm verify:release` completed in the same checkout used for packaging.
-- Confirm the `verify-macos` job passed on the release commit and the tagged
-  workflow completed `pnpm verify:release:mac` before publishing a `.dmg`.
-- Confirm any `src-tauri/.cargo/audit.toml` advisory exceptions are still upstream-pinned and documented.
-- Confirm the Playwright smoke test opened the seeded RPG card, sent a mock turn, reloaded, and restored the saved transcript after reopening the card.
-- Confirm `pnpm desktop:smoke` opened the release executable and it stayed alive through startup.
-- Confirm `pnpm desktop:installed-smoke` staged the MSI into a temporary install root, launched twice with isolated app-data paths, and created the runtime SQLite database under that clean profile.
-- Confirm release artifacts have SHA256 checksums.
-- Confirm no real API keys are present in source, tests, shell history snippets, generated diagnostics, screenshots, or release notes.
-- Confirm release notes call out any runtime export schema, local snapshot schema, database migration, provider contract, image-provider sanitizer, or desktop secret-storage behavior changes.
-- Confirm release notes state whether the build is unsigned/internal or signed/public.
-
-## Data Safety
-
-Before testing package upgrades against a real local install, close the app and copy the app database from the active app data directory. Restore by closing the app, replacing the database with the backup copy, and reopening the same or newer schema.
-
-Do not change the desktop bundle identifier, keyring service, or database filename as part of routine release packaging. Those identifiers are data-continuity contracts and need an explicit migration plan.
-
-## Signing And Distribution
-
-Unsigned builds are acceptable for controlled beta distribution when the
-release notes say so plainly. Broad public Windows distribution should use a
-documented code-signing certificate, or the release notes must explicitly
-explain the unsigned installer trust prompt and intended audience. Broad public
-macOS distribution additionally requires Developer ID signing, notarization,
-and stapling; routine macOS CI and unsigned `.dmg` packaging do not provide
-those assurances.
+Do not publish a release when either platform job, the exact-commit CI gate,
+signature validation, migration/restore flow, SBOM/provenance generation, or
+attestation fails. Follow [Updater and Rollback Policy](updater-rollback-policy.md)
+for manual updates, schema-safe rollback, and credential revocation.

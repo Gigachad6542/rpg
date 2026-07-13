@@ -2,7 +2,12 @@
 
 Audit date: 2026-07-03
 
-Current production audit: 84/100. The audit remediation blockers for share-safe exports, image-provider persistence sanitization, and stronger clean-profile startup smoke are closed in this checkout. The project is suitable for an internal or controlled beta build from the local Windows release lane. Broad public release should wait on signing, full installed-app workflow coverage, upgrade/backup validation, and a documented updater stance.
+Current production audit: 84/100. Core runtime blockers are closed. Phase 2 now
+implements the release automation for signing, full installed-app workflow
+coverage, previous-build migration and backup restoration, macOS DMG/Keychain
+proof, exact-commit CI gating, checksums, provenance, SBOMs, and attestations.
+Broad public release must still wait for that workflow to execute successfully
+with real hosted runners, signing credentials, and a previous signed build.
 
 ## Evidence Checked
 
@@ -145,3 +150,30 @@ Ship the next build as a controlled beta, not a broad public release. The code
 blockers are fixed and locally verified. Remaining risk includes release
 operations, installer trust, clean-machine validation, and unmeasured live
 narrative benefit from the optional second model call.
+
+## Phase 2 Shipped-Product Lane (2026-07-13)
+
+Implemented release gates:
+
+- Packaged Windows previous/current MSI flow covering first run, provider setup,
+  creation, play, close/reopen, state verification, database backup restore, and
+  final export.
+- Fail-closed Windows Authenticode and macOS Developer ID/notarization inputs,
+  followed by signature, stapling, and Gatekeeper verification.
+- Mounted-DMG persistence evidence and an ignored opt-in native macOS Keychain
+  set/get/delete smoke test.
+- Exact-release-commit hosted CI prerequisite, per-platform CycloneDX SBOMs,
+  SHA-256 manifests, commit-bound provenance, GitHub attestations, and retained
+  release evidence.
+- A manual updater and schema-safe rollback policy with credential revocation
+  handling. Automatic updates and downgrades remain disabled.
+
+Operational proof still required before public launch:
+
+- Run the hosted workflow with real Windows and Apple signing credentials.
+- Supply an actual previous signed Windows MSI and retain the successful
+  migration/restore report.
+- Retain the signed macOS DMG, notarization/stapling/Gatekeeper logs, mounted-DMG
+  smoke, and Keychain result.
+- Confirm the publish job ran only after both platform jobs and `ci.yml` passed
+  for the same commit SHA.

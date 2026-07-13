@@ -32,6 +32,10 @@
     "desktop:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-smoke.ps1",
     "desktop:installed-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-installed-smoke.ps1",
     "desktop:installed-smoke:mac": "bash scripts/desktop-installed-smoke-macos.sh",
+    "desktop:keychain-smoke:mac": "PHASE2_KEYCHAIN_SMOKE=1 cargo test --manifest-path src-tauri/Cargo.toml tests::os_keychain_round_trip_smoke -- --ignored --exact --nocapture",
+    "desktop:product-flow": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-product-flow.ps1",
+    "release:sbom": "node scripts/generate-release-sbom.mjs",
+    "release:provenance": "node scripts/create-release-provenance.mjs",
     "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm eval:phase1 && pnpm eval:phase1.1 && pnpm build && pnpm audit:prod && pnpm rust:test && pnpm rust:clippy",
     "verify:release": "pnpm typecheck && pnpm lint && pnpm test:coverage && pnpm eval:phase1 && pnpm eval:phase1.1 && pnpm build && pnpm e2e && pnpm audit:prod && pnpm rust:audit && pnpm rust:test && pnpm rust:clippy && pnpm desktop:build && pnpm desktop:smoke && pnpm desktop:installed-smoke",
     "verify:release:mac": "pnpm typecheck && pnpm lint && pnpm test:coverage && pnpm eval:phase1 && pnpm eval:phase1.1 && pnpm build && pnpm e2e && pnpm audit:prod && pnpm rust:audit && pnpm rust:test && pnpm rust:clippy && pnpm desktop:build && pnpm desktop:installed-smoke:mac",
@@ -39,7 +43,7 @@
     "tauri": "tauri",
     "desktop:open": "tauri dev",
     "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build"
+    "desktop:build": "node scripts/desktop-build.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

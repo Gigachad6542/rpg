@@ -820,6 +820,38 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "runs only in the signed desktop release lane against the host OS keychain"]
+    fn os_keychain_round_trip_smoke() {
+        assert_eq!(
+            std::env::var("PHASE2_KEYCHAIN_SMOKE").as_deref(),
+            Ok("1"),
+            "PHASE2_KEYCHAIN_SMOKE=1 is required for the opt-in OS keychain test"
+        );
+        let unique = format!(
+            "phase2-smoke-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time must follow the Unix epoch")
+                .as_nanos()
+        );
+        let entry = keyring_entry(&unique).expect("OS keychain entry should open");
+        let fake_secret = "phase2-fake-release-key";
+        entry
+            .set_password(fake_secret)
+            .expect("OS keychain should accept the smoke credential");
+        let stored = entry
+            .get_password()
+            .expect("OS keychain should return the smoke credential");
+        assert_eq!(stored, fake_secret);
+        entry
+            .delete_credential()
+            .expect("OS keychain smoke credential should be removed");
+        assert!(matches!(entry.get_password(), Err(keyring::Error::NoEntry)));
+        println!("OS keychain round-trip passed; the fake smoke credential was removed.");
+    }
+
+    #[test]
     fn secret_storage_key_rejects_colon_collisions() {
         assert!(secret_storage_key("a:b", "c").is_err());
         assert!(secret_storage_key("a", "b:c").is_err());

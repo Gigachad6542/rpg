@@ -1,0 +1,45 @@
+param(
+  [Parameter(Mandatory = $true)][string]$BundleRoot,
+  [Parameter(Mandatory = $true)][string]$EvidenceDir,
+  [string]$ReleaseExecutable = "src-tauri\target\release\local-first-ai-rpg-runtime.exe"
+)
+
+$ErrorActionPreference = "Stop"
+$bundlePath = (Resolve-Path -LiteralPath $BundleRoot).Path
+$releaseExePath = (Resolve-Path -LiteralPath $ReleaseExecutable).Path
+$evidencePath = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $EvidenceDir))
+New-Item -ItemType Directory -Force -Path $evidencePath | Out-Null
+
+$files = @($releaseExePath) + @(
+  Get-ChildItem -LiteralPath $bundlePath -Recurse -File |
+    Where-Object { $_.Extension -in @(".msi", ".exe") } |
+    ForEach-Object { $_.FullName }
+)
+$files = @($files | Sort-Object -Unique)
+if ($files.Count -lt 2) {
+  throw "Expected a signed release executable and at least one Windows installer."
+}
+
+$results = foreach ($file in $files) {
+  $signature = Get-AuthenticodeSignature -LiteralPath $file
+  if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+    throw "Invalid Authenticode signature for ${file}: $($signature.Status) $($signature.StatusMessage)"
+  }
+  [ordered]@{
+    file = Split-Path -Leaf $file
+    status = $signature.Status.ToString()
+    signerSubject = $signature.SignerCertificate.Subject
+    signerThumbprint = $signature.SignerCertificate.Thumbprint
+    timestampSubject = if ($signature.TimeStamperCertificate) { $signature.TimeStamperCertificate.Subject } else { $null }
+    sha256 = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+  }
+}
+
+$payload = [ordered]@{
+  schema = "rpg.release.windows-signatures"
+  version = 1
+  verifiedAt = [DateTimeOffset]::UtcNow.ToString("o")
+  files = @($results)
+}
+$payload | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $evidencePath "windows-signatures.json") -Encoding utf8
+Write-Output "Verified $($files.Count) Authenticode signatures."

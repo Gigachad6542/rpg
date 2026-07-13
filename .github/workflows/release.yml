@@ -5,17 +5,57 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      previous_release_tag:
+        description: "Previous signed release used for packaged migration proof (defaults to latest stable release)"
+        required: false
+        type: string
 
 permissions:
+  actions: read
+  attestations: write
   contents: write
+  id-token: write
 
 jobs:
+  hosted-ci-gate:
+    name: Require successful hosted CI for exact release commit
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Verify exact commit CI conclusion
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const response = await github.rest.actions.listWorkflowRuns({
+              owner,
+              repo,
+              workflow_id: "ci.yml",
+              head_sha: context.sha,
+              status: "completed",
+              per_page: 100,
+            });
+            const successful = response.data.workflow_runs.find(
+              (run) => run.head_sha === context.sha && run.conclusion === "success",
+            );
+            if (!successful) {
+              core.setFailed(`No successful ci.yml run exists for exact release commit ${context.sha}.`);
+              return;
+            }
+            core.notice(`Release commit ${context.sha} passed hosted CI in run ${successful.id}.`);
+
   windows-desktop-release:
+    needs: hosted-ci-gate
     runs-on: windows-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout exact release commit
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -33,6 +73,33 @@ jobs:
         with:
           components: clippy
 
+      - name: Import Windows signing certificate
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE_BASE64 -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
+            throw "Windows signing certificate secrets are required."
+          }
+          if (-not $env:WINDOWS_TIMESTAMP_URL) {
+            throw "Repository variable WINDOWS_TIMESTAMP_URL is required."
+          }
+          $certificatePath = Join-Path $env:RUNNER_TEMP "release-certificate.pfx"
+          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
+          try {
+            $password = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+            $certificate = Import-PfxCertificate -FilePath $certificatePath -CertStoreLocation Cert:\CurrentUser\My -Password $password
+            if (-not $certificate -or -not $certificate.HasPrivateKey) {
+              throw "Imported Windows certificate has no private key."
+            }
+            "TAURI_WINDOWS_CERTIFICATE_THUMBPRINT=$($certificate.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "TAURI_WINDOWS_TIMESTAMP_URL=$env:WINDOWS_TIMESTAMP_URL" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          } finally {
+            Remove-Item -LiteralPath $certificatePath -Force -ErrorAction SilentlyContinue
+          }
+
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
 
@@ -45,22 +112,71 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm e2e:install
 
-      - name: Verify release candidate
+      - name: Verify signed Windows release candidate
+        env:
+          REQUIRE_SIGNED_RELEASE: "1"
         run: pnpm verify:release
 
-      - name: Create checksum manifest
+      - name: Verify Authenticode signatures
         shell: pwsh
         run: |
-          $bundleRoot = "src-tauri/target/release/bundle"
-          $files = Get-ChildItem -Path $bundleRoot -Recurse -File -Include *.msi,*.exe
-          if (-not $files) {
-            throw "No Windows installer artifacts found under $bundleRoot"
-          }
-          $files | Get-FileHash -Algorithm SHA256 |
-            ForEach-Object { "$($_.Hash)  $(Split-Path -Leaf $_.Path)" } |
-            Set-Content -Path "$bundleRoot/SHA256SUMS-windows.txt" -Encoding utf8
+          ./scripts/verify-windows-signatures.ps1 `
+            -BundleRoot "src-tauri/target/release/bundle" `
+            -EvidenceDir "release-evidence/windows/signatures"
 
-      - name: Upload Windows desktop artifacts
+      - name: Download previous signed MSI
+        id: previous-release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_PREVIOUS_TAG: ${{ inputs.previous_release_tag }}
+        run: |
+          $tag = $env:REQUESTED_PREVIOUS_TAG
+          if (-not $tag) {
+            $releases = gh release list --limit 100 --json tagName,isDraft,isPrerelease,publishedAt | ConvertFrom-Json
+            $tag = $releases |
+              Where-Object { -not $_.isDraft -and -not $_.isPrerelease -and $_.tagName -ne $env:GITHUB_REF_NAME } |
+              Sort-Object publishedAt -Descending |
+              Select-Object -First 1 -ExpandProperty tagName
+          }
+          if (-not $tag) {
+            throw "A previous signed stable release is required for packaged migration proof."
+          }
+          $target = Join-Path $env:RUNNER_TEMP "previous-release"
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          gh release download $tag --pattern "*.msi" --dir $target
+          $msi = Get-ChildItem -LiteralPath $target -File -Filter "*.msi" | Select-Object -First 1
+          if (-not $msi) { throw "Previous release $tag did not contain an MSI." }
+          "previous_msi=$($msi.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "previous_tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Run previous-version migration and complete installed product flow
+        shell: pwsh
+        run: |
+          $currentMsi = Get-ChildItem -Path "src-tauri/target/release/bundle" -Recurse -File -Filter "*.msi" | Select-Object -First 1
+          if (-not $currentMsi) { throw "Current release did not produce an MSI." }
+          pnpm desktop:product-flow `
+            -PreviousMsi "${{ steps.previous-release.outputs.previous_msi }}" `
+            -CurrentMsi $currentMsi.FullName `
+            -EvidenceDir "release-evidence/windows/product-flow"
+
+      - name: Generate CycloneDX SBOM
+        run: pnpm release:sbom -- --output release-evidence/windows/sbom-windows.cdx.json
+
+      - name: Create checksummed Windows provenance
+        env:
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: pnpm release:provenance -- --platform windows --bundle-root src-tauri/target/release/bundle --sbom release-evidence/windows/sbom-windows.cdx.json --output-dir src-tauri/target/release/bundle
+
+      - name: Attest Windows artifacts and SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            src-tauri/target/release/bundle/**/*.msi
+            src-tauri/target/release/bundle/**/*.exe
+          sbom-path: release-evidence/windows/sbom-windows.cdx.json
+
+      - name: Upload Windows desktop artifacts and evidence
         uses: actions/upload-artifact@v4
         with:
           name: local-first-ai-rpg-runtime-windows
@@ -68,31 +184,20 @@ jobs:
             src-tauri/target/release/bundle/**/*.msi
             src-tauri/target/release/bundle/**/*.exe
             src-tauri/target/release/bundle/SHA256SUMS-windows.txt
+            src-tauri/target/release/bundle/release-provenance-windows.json
+            release-evidence/windows/**
           if-no-files-found: error
-          retention-days: 30
-
-      - name: Create GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $bundleRoot = "src-tauri/target/release/bundle"
-          $artifacts = Get-ChildItem -Path $bundleRoot -Recurse -File -Include *.msi,*.exe
-          $checksum = Join-Path $bundleRoot "SHA256SUMS-windows.txt"
-          $releaseFiles = @($artifacts | ForEach-Object { $_.FullName }) + @($checksum)
-          $title = "Local-First AI RPG Runtime $env:GITHUB_REF_NAME"
-          gh release create $env:GITHUB_REF_NAME $releaseFiles --generate-notes --title $title
-          if ($LASTEXITCODE -ne 0) {
-            gh release upload $env:GITHUB_REF_NAME $releaseFiles --clobber
-          }
+          retention-days: 90
 
   macos-desktop-release:
+    needs: hosted-ci-gate
     runs-on: macos-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout exact release commit
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -123,38 +228,86 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm e2e:install
 
-      - name: Verify release candidate (macOS)
+      - name: Verify signed, notarized and stapled macOS release candidate
+        env:
+          REQUIRE_SIGNED_RELEASE: "1"
+          TAURI_BUILD_TARGET: aarch64-apple-darwin
+          EVIDENCE_DIR: ${{ github.workspace }}/release-evidence/macos/dmg
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: pnpm verify:release:mac
 
-      - name: Create checksum manifest
+      - name: Run native macOS Keychain round trip
+        env:
+          PHASE2_KEYCHAIN_SMOKE: "1"
         run: |
-          bundle_root="src-tauri/target/release/bundle"
-          shopt -s nullglob
-          artifacts=("$bundle_root"/dmg/*.dmg)
-          if [ ${#artifacts[@]} -eq 0 ]; then
-            echo "No macOS .dmg artifacts found under $bundle_root" >&2
-            exit 1
-          fi
-          ( cd "$bundle_root/dmg" && shasum -a 256 *.dmg > SHA256SUMS-macos.txt )
+          mkdir -p release-evidence/macos/keychain
+          pnpm desktop:keychain-smoke:mac 2>&1 | tee release-evidence/macos/keychain/keychain-round-trip.txt
 
-      - name: Upload macOS desktop artifacts
+      - name: Validate notarization ticket and Gatekeeper acceptance
+        run: |
+          dmg="$(find src-tauri/target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)"
+          test -n "$dmg"
+          mkdir -p release-evidence/macos/notarization
+          xcrun stapler validate "$dmg" 2>&1 | tee release-evidence/macos/notarization/stapler-validate.txt
+          spctl -a -vv -t install "$dmg" 2>&1 | tee release-evidence/macos/notarization/gatekeeper-dmg.txt
+
+      - name: Generate CycloneDX SBOM
+        run: pnpm release:sbom -- --output release-evidence/macos/sbom-macos.cdx.json
+
+      - name: Create checksummed macOS provenance
+        env:
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: pnpm release:provenance -- --platform macos --bundle-root src-tauri/target/release/bundle/dmg --sbom release-evidence/macos/sbom-macos.cdx.json --output-dir src-tauri/target/release/bundle/dmg
+
+      - name: Attest macOS DMG and SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: src-tauri/target/release/bundle/dmg/*.dmg
+          sbom-path: release-evidence/macos/sbom-macos.cdx.json
+
+      - name: Upload macOS desktop artifacts and evidence
         uses: actions/upload-artifact@v4
         with:
           name: local-first-ai-rpg-runtime-macos
           path: |
             src-tauri/target/release/bundle/dmg/*.dmg
             src-tauri/target/release/bundle/dmg/SHA256SUMS-macos.txt
+            src-tauri/target/release/bundle/dmg/release-provenance-macos.json
+            release-evidence/macos/**
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
 
-      - name: Publish to GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
+  publish-release:
+    needs:
+      - hosted-ci-gate
+      - windows-desktop-release
+      - macos-desktop-release
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Publish exact-commit signed release
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          bundle_root="src-tauri/target/release/bundle"
-          shopt -s nullglob
-          files=("$bundle_root"/dmg/*.dmg "$bundle_root/dmg/SHA256SUMS-macos.txt")
-          title="Local-First AI RPG Runtime ${GITHUB_REF_NAME}"
-          gh release create "$GITHUB_REF_NAME" "${files[@]}" --generate-notes --title "$title" \
-            || gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+          $artifacts = Get-ChildItem -Path "release-assets" -Recurse -File |
+            Where-Object { $_.Extension -in @(".msi", ".exe", ".dmg") }
+          $metadata = Get-ChildItem -Path "release-assets" -Recurse -File |
+            Where-Object { $_.Name -like "SHA256SUMS-*.txt" -or $_.Name -like "release-provenance-*.json" -or $_.Name -like "sbom-*.cdx.json" }
+          if (-not $artifacts -or ($metadata | Where-Object Name -like "SHA256SUMS-*.txt").Count -ne 2) {
+            throw "Both signed platform artifact sets and checksum manifests are required."
+          }
+          $releaseFiles = @($artifacts | ForEach-Object { $_.FullName }) + @($metadata | ForEach-Object { $_.FullName })
+          $title = "Local-First AI RPG Runtime $env:GITHUB_REF_NAME"
+          gh release create $env:GITHUB_REF_NAME $releaseFiles --generate-notes --title $title --verify-tag

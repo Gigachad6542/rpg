@@ -82,6 +82,56 @@ async function readStoredActiveChat(): Promise<Record<string, unknown>> {
 }
 
 describe("intentional two-call turn telemetry", () => {
+  it("preserves visible streaming while capturing phase telemetry", async () => {
+    let generateCalls = 0;
+    let streamCalls = 0;
+    const adapter: TextModelAdapter = {
+      id: "streaming-telemetry-provider",
+      displayName: "Streaming telemetry provider",
+      async listModels(): Promise<ModelInfo[]> {
+        return [];
+      },
+      async generateText(request): Promise<TextGenerationResponse> {
+        generateCalls += 1;
+        return {
+          providerId: "streaming-telemetry-provider",
+          model: request.model,
+          text: JSON.stringify({ continuity_brief: "Keep the gate in view." }),
+          finishReason: "stop",
+          usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 },
+          usageSource: "provider",
+        };
+      },
+      async *streamText() {
+        streamCalls += 1;
+        yield { text: "Streamed visible ", index: 0, done: false };
+        yield { text: "response.", index: 1, done: false };
+        yield { text: "", index: 2, done: true };
+      },
+    };
+    const providerSpy = vi
+      .spyOn(providerConfig, "createTextProvider")
+      .mockReturnValue(adapter as ReturnType<typeof providerConfig.createTextProvider>);
+
+    try {
+      render(<App />);
+      await screen.findByText(/Repository API ready|SQLite repository ready|Repository unavailable/i);
+      fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
+      fireEvent.click(screen.getByLabelText(/Text streaming/i));
+      fireEvent.click(screen.getByRole("button", { name: /^Cards$/i }));
+      fireEvent.click(within(screen.getByRole("region", { name: /Card library/i })).getByRole("button", { name: /^Open$/i }));
+      sendRuntimeMessage("I approach the gate.");
+
+      await screen.findByText(/Streamed visible response/i);
+      const calls = await readStoredModelCalls(2);
+      expect(generateCalls).toBe(1);
+      expect(streamCalls).toBe(1);
+      expect(calls[1]).toMatchObject({ phase: "visible-response", status: "success", usageSource: "estimated" });
+    } finally {
+      providerSpy.mockRestore();
+    }
+  });
+
   it("performs only the visible call when hidden continuity is off", async () => {
     const requests: TextGenerationRequest[] = [];
     const adapter: TextModelAdapter = {

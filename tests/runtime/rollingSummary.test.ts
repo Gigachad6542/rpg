@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { Message } from "../../src/app/runtimeTypes";
 import {
   advanceRollingSummary,
+  branchRollingSummary,
+  MAX_ROLLING_SUMMARY_CHARACTERS,
   parseRollingSummary,
   reconcileRollingSummaryForHistory,
   type RollingSummaryScope,
@@ -171,5 +173,93 @@ describe("rolling summaries", () => {
 
     expect(summary?.text.length).toBeLessThanOrEqual(140);
     expect(summary?.coveredMessageIds).toEqual(["m1", "m2", "m3"]);
+  });
+
+  it("keeps newly covered facts when a capped summary advances", () => {
+    const initial = messages([
+      "Old harbor detail ".repeat(20),
+      "Old gate detail ".repeat(20),
+      "Recent one",
+      "Recent two",
+    ]);
+    const first = advanceRollingSummary({
+      previous: null,
+      messages: initial,
+      scope,
+      retainRecentMessages: 2,
+      maxCharacters: 140,
+      now: "2026-07-12T12:00:00.000Z",
+    });
+    const extended = [
+      ...initial,
+      { id: "m5", role: "user", content: "NEWEST_FACT: the moon key opens the vault." },
+      { id: "m6", role: "assistant", content: "Keep this recent." },
+    ] satisfies Message[];
+
+    const second = advanceRollingSummary({
+      previous: first,
+      messages: extended,
+      scope,
+      retainRecentMessages: 1,
+      maxCharacters: 140,
+      now: "2026-07-12T12:05:00.000Z",
+    });
+
+    expect(second?.text).toContain("NEWEST_FACT");
+    expect(second?.text.length).toBeLessThanOrEqual(140);
+    expect(second?.throughMessageId).toBe("m5");
+  });
+
+  it("compacts coverage metadata and remains parseable beyond ten thousand messages", () => {
+    const longHistory: Message[] = Array.from({ length: 10_025 }, (_, index) => ({
+      id: `long-${index}`,
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `Turn ${index}`,
+    }));
+
+    const summary = advanceRollingSummary({
+      previous: null,
+      messages: longHistory,
+      scope,
+      retainRecentMessages: 12,
+      maxCharacters: MAX_ROLLING_SUMMARY_CHARACTERS,
+      now: "2026-07-12T12:00:00.000Z",
+    });
+
+    expect(summary?.coveredMessageCount).toBe(10_013);
+    expect(summary?.coveredMessageIds.length).toBeLessThanOrEqual(512);
+    expect(parseRollingSummary(summary)).toEqual(summary);
+    expect(reconcileRollingSummaryForHistory(summary, longHistory, scope)).toEqual(summary);
+  });
+
+  it("projects a valid parent summary into an unchanged cloned branch", () => {
+    const parentMessages = messages(["Old choice", "Old outcome", "Recent choice", "Recent outcome"]);
+    const parent = advanceRollingSummary({
+      previous: null,
+      messages: parentMessages,
+      scope,
+      retainRecentMessages: 2,
+      maxCharacters: 500,
+      now: "2026-07-12T12:00:00.000Z",
+    });
+    const branchMessages = parentMessages.map((message, index) => ({ ...message, id: `branch-${index}` }));
+    const branchScope = { cardId: scope.cardId, chatId: "chat-b", branchId: "chat-b" };
+
+    const projected = branchRollingSummary(
+      parent,
+      parentMessages,
+      branchMessages,
+      branchScope,
+      "2026-07-12T12:01:00.000Z",
+    );
+
+    expect(projected?.scope).toEqual(branchScope);
+    expect(projected?.text).toBe(parent?.text);
+    expect(projected?.coveredMessageIds).toEqual(["branch-0", "branch-1"]);
+
+    branchMessages[0] = { ...branchMessages[0], content: "Edited covered choice" };
+    expect(
+      branchRollingSummary(parent, parentMessages, branchMessages, branchScope, "2026-07-12T12:01:00.000Z"),
+    ).toBeNull();
   });
 });

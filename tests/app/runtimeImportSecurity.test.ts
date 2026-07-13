@@ -121,6 +121,63 @@ describe("runtime import security boundaries", () => {
       },
     ];
     expect(() => parseVersionedRuntimeExport(JSON.stringify(secretBundle))).toThrow(/runtime export json is invalid/i);
+
+    for (const message of [
+      "clientSecret=super-private-client-value",
+      "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE",
+      "sessionToken=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature",
+    ]) {
+      const diverseSecretBundle = createValidBundle();
+      diverseSecretBundle.snapshot.promptRuns[0].modelCalls = [{
+        phase: "visible-response",
+        provider: "local",
+        model: "local-model",
+        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        durationMs: 12,
+        status: "error",
+        failure: { category: "authentication", message },
+      }];
+      expect(() => parseVersionedRuntimeExport(JSON.stringify(diverseSecretBundle))).toThrow(/runtime export json is invalid/i);
+    }
+  });
+
+  it("rejects internally inconsistent token totals and known costs", () => {
+    const inconsistentUsage = createValidBundle();
+    inconsistentUsage.snapshot.promptRuns[0].modelCalls = [{
+      phase: "visible-response",
+      provider: "openrouter",
+      model: "priced-model",
+      usage: { inputTokens: 100, outputTokens: 20, totalTokens: 999 },
+      durationMs: 12,
+      status: "success",
+      usageSource: "provider",
+    }];
+    expect(() => parseVersionedRuntimeExport(JSON.stringify(inconsistentUsage))).toThrow(/runtime export json is invalid/i);
+
+    const inconsistentCost = createValidBundle();
+    inconsistentCost.snapshot.promptRuns[0].modelCalls = [{
+      phase: "visible-response",
+      provider: "openrouter",
+      model: "priced-model",
+      usage: { inputTokens: 1_000, outputTokens: 500, totalTokens: 1_500 },
+      durationMs: 12,
+      status: "success",
+      usageSource: "provider",
+      cost: {
+        status: "known",
+        currency: "USD",
+        amountUsd: 99,
+        pricing: {
+          model: "priced-model",
+          currency: "USD",
+          inputUsdPerMillionTokens: 1,
+          outputUsdPerMillionTokens: 2,
+          source: "imported test fixture",
+          effectiveDate: "2026-07-01",
+        },
+      },
+    }];
+    expect(() => parseVersionedRuntimeExport(JSON.stringify(inconsistentCost))).toThrow(/runtime export json is invalid/i);
   });
 
   it.each([

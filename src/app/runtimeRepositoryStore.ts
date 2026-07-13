@@ -22,6 +22,10 @@ import {
 import { sanitizePersistedPersonas } from "./personas";
 import { TauriRuntimeRepositoryStore, type TauriInvoke } from "./tauriRuntimeRepositoryClient";
 import type { ModelCallRecord } from "./runtimeTypes";
+import {
+  parsePersistedModelCallRecords,
+  sanitizePromptRunModelCalls,
+} from "./modelCallRecordValidation";
 
 export const RUNTIME_CHAT_ID = "chat_local_cards_runtime";
 export const RUNTIME_BRANCH_ID = "branch_local_cards_runtime";
@@ -168,9 +172,9 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
       : undefined;
     const runtimeRowsAreAuthoritative = Boolean(chat);
     const runtimeSettings = sanitizePersistedRuntimeSettings(snapshotMeta.runtimeSettings);
-    const loadedPromptRuns = runtimeRowsAreAuthoritative
+    const loadedPromptRuns = sanitizePromptRunModelCalls(runtimeRowsAreAuthoritative
       ? promptRunRows.map(mapPromptRunRecord)
-      : (snapshotPromptRuns ?? promptRunRows.map(mapPromptRunRecord));
+      : (snapshotPromptRuns ?? promptRunRows.map(mapPromptRunRecord)));
 
     const normalizedCards = await this.overlayNormalizedCardData(snapshotMeta.cards as RuntimeCardRecord[], {
       authoritative: runtimeRowsAreAuthoritative,
@@ -362,9 +366,16 @@ export class RuntimeRepositoryStore implements RuntimeRepository {
             };
           }),
         );
+        const snapshotMemoryById = new Map(
+          getArray(card.memory)
+            .filter(isRecord)
+            .filter((memory) => typeof memory.id === "string")
+            .map((memory) => [memory.id as string, memory]),
+        );
         const cardMemories = memories
           .filter((memory) => memory.relatedCharacterIds.includes(card.id))
           .map((memory) => ({
+            ...(snapshotMemoryById.get(memory.id) ?? {}),
             id: memory.id,
             label: memory.category.replace(/^card_memory:/, "") || "Memory",
             detail: memory.text,
@@ -791,65 +802,7 @@ function readUsage(value: unknown): RuntimePromptRunRecord["usage"] | undefined 
 }
 
 function readModelCalls(value: unknown): ModelCallRecord[] | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-
-  const modelCalls = value.flatMap((item): ModelCallRecord[] => {
-    if (!isRecord(item)) {
-      return [];
-    }
-    const phase = item.phase;
-    const status = item.status;
-    const provider = item.provider;
-    const model = item.model;
-    const durationMs = item.durationMs;
-    const usage = readModelCallUsage(item.usage);
-    const rawInputBudgetTokens = item.inputBudgetTokens;
-    const inputBudgetTokens =
-      typeof rawInputBudgetTokens === "number" &&
-      Number.isFinite(rawInputBudgetTokens) &&
-      rawInputBudgetTokens >= 0
-        ? rawInputBudgetTokens
-        : undefined;
-    if (
-      (phase !== "hidden-continuity" && phase !== "visible-response") ||
-      (status !== "success" && status !== "error") ||
-      typeof provider !== "string" ||
-      typeof model !== "string" ||
-      typeof durationMs !== "number" ||
-      !Number.isFinite(durationMs) ||
-      durationMs < 0 ||
-      (rawInputBudgetTokens !== undefined && inputBudgetTokens === undefined) ||
-      !usage
-    ) {
-      return [];
-    }
-    return [{
-      phase,
-      provider,
-      model,
-      usage,
-      ...(inputBudgetTokens === undefined ? {} : { inputBudgetTokens }),
-      durationMs,
-      status,
-    }];
-  });
-
-  return modelCalls.length > 0 ? modelCalls.slice(0, 2) : undefined;
-}
-
-function readModelCallUsage(value: unknown): ModelCallRecord["usage"] | undefined {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-  const inputTokens = getNumber(value.inputTokens, -1);
-  const outputTokens = getNumber(value.outputTokens, -1);
-  const totalTokens = getNumber(value.totalTokens, -1);
-  if (inputTokens < 0 || outputTokens < 0 || totalTokens < 0) {
-    return undefined;
-  }
-  return { inputTokens, outputTokens, totalTokens };
+  return parsePersistedModelCallRecords(value);
 }
 
 function getString(value: unknown, fallback: string): string {

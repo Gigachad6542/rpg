@@ -8,6 +8,7 @@ import {
   sanitizePersistedRuntimeSettings,
   sanitizePromptRunsForPersistence,
 } from "./localRuntimeStore";
+import { sanitizePromptRunModelCalls } from "./modelCallRecordValidation";
 
 export type TauriInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
@@ -68,7 +69,12 @@ export class TauriRuntimeRepositoryStore implements RuntimeRepository {
     const response = await this.invokeImpl<LoadRuntimeSnapshotResponse>("load_runtime_snapshot", {
       databasePath: this.databasePath,
     });
-    return response.snapshot;
+    return response.snapshot
+      ? {
+          ...response.snapshot,
+          promptRuns: sanitizePromptRunModelCalls(response.snapshot.promptRuns),
+        }
+      : null;
   }
 
   async saveSnapshot(snapshot: RepositoryRuntimeSnapshot): Promise<void> {

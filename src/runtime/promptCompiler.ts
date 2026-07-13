@@ -198,7 +198,13 @@ function enforceTokenLimit(args: {
       args.includeLayerLabels,
       args.estimator,
     );
-    throw new Error(`Compiled prompt exceeds token budget (${tokenEstimate} > ${args.tokenLimit}).`);
+    const requiredLayerIds = args.includedLayers
+      .filter((layer) => layer.required !== false)
+      .map((layer) => layer.id)
+      .join(", ");
+    throw new Error(
+      `Prompt exceeds token budget because required prompt layers cannot fit (${tokenEstimate} > ${args.tokenLimit}): ${requiredLayerIds}.`,
+    );
   }
 }
 

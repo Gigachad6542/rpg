@@ -25,6 +25,7 @@ import {
   type TurnEffectRpgState,
   type TurnEffectRuntimeCard,
 } from "../app/turnEffects";
+import { parseRetrievalProvenance, type RetrievalProvenance } from "./hybridRetrieval";
 
 /** Mutable card state that belongs to a chat lineage rather than card metadata. */
 export interface RuntimeTurnState {
@@ -39,6 +40,7 @@ export interface RuntimeTurnEffects {
   extraction: ExtractionResult;
   committedAt: string;
   idSeed: string;
+  memoryRetrievalScope?: RetrievalProvenance;
 }
 
 /** Persisted immutable root plus variant-aware commits for one chat branch. */
@@ -57,6 +59,7 @@ export interface CreateRuntimeTurnEffectsInput {
   extraction: ExtractionResult;
   committedAt: string;
   idSeed: string;
+  memoryRetrievalScope?: RetrievalProvenance;
 }
 
 export function createRuntimeTurnLineage(card: RuntimeTurnCard): RuntimeTurnLineage {
@@ -114,6 +117,7 @@ export function createRuntimeTurnEffects(input: CreateRuntimeTurnEffectsInput): 
     },
     committedAt: normalizeTimestamp(input.committedAt),
     idSeed,
+    ...(input.memoryRetrievalScope ? { memoryRetrievalScope: { ...input.memoryRetrievalScope } } : {}),
   };
 }
 
@@ -154,19 +158,33 @@ export function branchRuntimeTurnLineage(
   lineage: RuntimeTurnLineage,
   sourceMessages: readonly LedgerMessage[],
   branchMessages: readonly LedgerMessage[],
+  memoryRetrievalScope?: RetrievalProvenance,
 ): RuntimeTurnLineage {
   const idMap = new Map<string, string>();
   const pairCount = Math.min(sourceMessages.length, branchMessages.length);
   for (let index = 0; index < pairCount; index += 1) {
     idMap.set(sourceMessages[index].id, branchMessages[index].id);
   }
+  const ledger = remapTurnLedger(lineage.ledger, idMap);
+  if (memoryRetrievalScope) {
+    for (const commit of Object.values(ledger)) {
+      commit.variants = commit.variants.map((variant) => ({
+        ...variant,
+        effects: { ...variant.effects, memoryRetrievalScope: { ...memoryRetrievalScope } },
+      }));
+    }
+  }
   return {
     baseState: cloneRuntimeTurnState(lineage.baseState),
-    ledger: remapTurnLedger(lineage.ledger, idMap),
+    ledger,
   };
 }
 
-export function parseRuntimeTurnLineage(value: unknown, fallbackCard: RuntimeTurnCard): RuntimeTurnLineage {
+export function parseRuntimeTurnLineage(
+  value: unknown,
+  fallbackCard: RuntimeTurnCard,
+  defaultMemoryRetrievalScope?: RetrievalProvenance,
+): RuntimeTurnLineage {
   if (!isRecord(value)) {
     return createRuntimeTurnLineage(fallbackCard);
   }
@@ -189,7 +207,12 @@ export function parseRuntimeTurnLineage(value: unknown, fallbackCard: RuntimeTur
       if (typeof variantIndex !== "number" || !Number.isInteger(variantIndex) || variantIndex < 0) {
         continue;
       }
-      const effects = parseRuntimeTurnEffects(rawVariant.effects, messageId, variantIndex);
+      const effects = parseRuntimeTurnEffects(
+        rawVariant.effects,
+        messageId,
+        variantIndex,
+        defaultMemoryRetrievalScope,
+      );
       if (!effects) {
         continue;
       }
@@ -203,7 +226,7 @@ export function parseRuntimeTurnLineage(value: unknown, fallbackCard: RuntimeTur
 
 export function captureRuntimeTurnState(card: RuntimeTurnCard): RuntimeTurnState {
   return {
-    memory: card.memory.map((entry) => ({ ...entry })),
+    memory: card.memory.map(cloneMemoryEntry),
     storyEntities: card.storyEntities.map(cloneStoryEntity),
     ...(card.rpg ? { rpg: cloneRpgState(card.rpg) } : {}),
   };
@@ -215,7 +238,7 @@ export function restoreRuntimeTurnState<Card extends RuntimeTurnCard>(
 ): Card {
   return {
     ...card,
-    memory: state.memory.map((entry) => ({ ...entry })),
+    memory: state.memory.map(cloneMemoryEntry),
     storyEntities: state.storyEntities.map(cloneStoryEntity),
     ...(state.rpg ? { rpg: cloneRpgState(state.rpg) } : { rpg: undefined }),
   };
@@ -229,6 +252,8 @@ function applyRuntimeTurnEffectsToCard<Card extends RuntimeTurnCard>(
   const options = {
     now: () => effects.committedAt,
     randomId,
+    memoryRetrievalScope: effects.memoryRetrievalScope,
+    memoryVisibility: "narrator" as const,
   };
   const withHidden = applyHiddenContinuityToCard(card, effects.hiddenContinuity, options);
   const visibleKnowledge = {
@@ -243,6 +268,7 @@ function parseRuntimeTurnEffects(
   value: unknown,
   messageId: string,
   variantIndex: number,
+  defaultMemoryRetrievalScope?: RetrievalProvenance,
 ): RuntimeTurnEffects | null {
   if (!isRecord(value)) {
     return null;
@@ -259,6 +285,7 @@ function parseRuntimeTurnEffects(
     extraction: extraction.data,
     committedAt: typeof value.committedAt === "string" ? value.committedAt : "1970-01-01T00:00:00.000Z",
     idSeed: typeof value.idSeed === "string" ? value.idSeed : `${messageId}-v${variantIndex}`,
+    memoryRetrievalScope: parseRetrievalProvenance(value.memoryRetrievalScope) ?? defaultMemoryRetrievalScope,
   });
 }
 
@@ -276,7 +303,19 @@ function parseRuntimeTurnState(value: unknown, fallbackCard: RuntimeTurnCard): R
         const id = readNonEmptyString(entry.id);
         const label = readNonEmptyString(entry.label);
         const detail = readNonEmptyString(entry.detail);
-        return id && label && detail ? [{ id, label, detail }] : [];
+        const retrievalScope = parseRetrievalProvenance(entry.retrievalScope);
+        const visibility = entry.visibility === "narrator" || entry.visibility === "player-visible" || entry.visibility === "character-private"
+          ? entry.visibility
+          : undefined;
+        return id && label && detail
+          ? [{
+              id,
+              label,
+              detail,
+              ...(retrievalScope ? { retrievalScope } : {}),
+              ...(visibility ? { visibility } : {}),
+            }]
+          : [];
       })
     : fallback.memory;
   const storyEntities = Array.isArray(value.storyEntities)
@@ -332,7 +371,7 @@ function parseRpgState(value: unknown, fallback: TurnEffectRpgState | undefined)
 
 function cloneRuntimeTurnState(state: RuntimeTurnState): RuntimeTurnState {
   return {
-    memory: state.memory.map((entry) => ({ ...entry })),
+    memory: state.memory.map(cloneMemoryEntry),
     storyEntities: state.storyEntities.map(cloneStoryEntity),
     ...(state.rpg ? { rpg: cloneRpgState(state.rpg) } : {}),
   };
@@ -344,6 +383,13 @@ function cloneStoryEntity(entity: StoryEntity): StoryEntity {
     knownFacts: [...entity.knownFacts],
     doesNotKnow: [...entity.doesNotKnow],
     notes: [...entity.notes],
+  };
+}
+
+function cloneMemoryEntry(entry: TurnEffectMemoryEntry): TurnEffectMemoryEntry {
+  return {
+    ...entry,
+    ...(entry.retrievalScope ? { retrievalScope: { ...entry.retrievalScope } } : {}),
   };
 }
 

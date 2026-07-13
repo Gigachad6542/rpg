@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Brush, KeyRound, LockKeyhole, Play, RotateCcw, X } from "lucide-react";
 import { qwen37MaxReferencePreset, recommendedLocalImageProvider } from "../providers/modelPresets";
 import { type SecureStorageStatus } from "../security/keyStorage";
@@ -42,6 +43,15 @@ export function ProvidersSection(props: {
 
   function updateSettings(patch: Partial<ProviderSettings>) {
     const next = { ...props.providerSettings, ...patch };
+    if ("contextWindowTokens" in patch && patch.contextWindowTokens === undefined) {
+      delete next.contextWindowTokens;
+    }
+    if ("maxOutputTokens" in patch && patch.maxOutputTokens === undefined) {
+      delete next.maxOutputTokens;
+    }
+    if ("pricing" in patch && patch.pricing === undefined) {
+      delete next.pricing;
+    }
     const baseUrlChanged =
       typeof patch.baseUrl === "string" &&
       normalizeProviderBaseUrlOrNull(patch.baseUrl) !== normalizeProviderBaseUrlOrNull(props.providerSettings.baseUrl);
@@ -51,6 +61,17 @@ export function ProvidersSection(props: {
       patch.mode === "mock"
     ) {
       delete next.secretReference;
+    }
+    if (typeof patch.model === "string" && patch.model !== props.providerSettings.model) {
+      if (patch.contextWindowTokens === undefined) {
+        delete next.contextWindowTokens;
+      }
+      if (patch.maxOutputTokens === undefined) {
+        delete next.maxOutputTokens;
+      }
+      if (patch.pricing === undefined) {
+        delete next.pricing;
+      }
     }
     props.setProviderSettings(next);
   }
@@ -67,9 +88,9 @@ export function ProvidersSection(props: {
           Stored desktop keys are used through the local backend; React keeps only a secret reference.
         </p>
         <p className="field-help">
-          Each completed turn intentionally makes two sequential text-model calls: continuity preparation, then the
-          visible response. Expand the model-call summary under a turn to see each call&apos;s input, output, total token
-          usage, latency, and status. Token counts are provider-reported when available and runtime estimates otherwise.
+          Full and economical continuity make two sequential text-model calls; turning hidden continuity off makes one
+          visible-response call. Expand the model-call summary under a turn to inspect phase, tokens, latency, cost,
+          failures, and state proposals. Unknown provider pricing is shown as unknown rather than zero.
         </p>
         <label className="field">
           <span>Runtime mode</span>
@@ -181,6 +202,42 @@ export function ProvidersSection(props: {
             </select>
           )}
         </label>
+        <div className="settings-grid-two">
+          <label className="field">
+            <span>Context window tokens</span>
+            <input
+              aria-label="Context window tokens"
+              type="number"
+              min={1}
+              value={props.providerSettings.contextWindowTokens ?? ""}
+              placeholder="Use model preset or 16000 fallback"
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                updateSettings({ contextWindowTokens: Number.isFinite(value) && value > 0 ? Math.floor(value) : undefined });
+              }}
+            />
+          </label>
+          <label className="field">
+            <span>Maximum output tokens</span>
+            <input
+              aria-label="Maximum output tokens"
+              type="number"
+              min={1}
+              value={props.providerSettings.maxOutputTokens ?? ""}
+              placeholder="Use model preset"
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                updateSettings({ maxOutputTokens: Number.isFinite(value) && value > 0 ? Math.floor(value) : undefined });
+              }}
+            />
+          </label>
+        </div>
+        <ModelPricingFields
+          key={`${props.providerSettings.providerId}:${props.providerSettings.model}`}
+          model={props.providerSettings.model}
+          pricing={props.providerSettings.pricing}
+          onChange={(pricing) => updateSettings({ pricing })}
+        />
         <label className="field">
           <span>Session API key</span>
           <input
@@ -456,4 +513,96 @@ export function ProvidersSection(props: {
       </section>
     </div>
   );
+}
+
+function ModelPricingFields(props: {
+  model: string;
+  pricing: ProviderSettings["pricing"];
+  onChange: (pricing: ProviderSettings["pricing"] | undefined) => void;
+}) {
+  const [inputRate, setInputRate] = useState(
+    props.pricing ? String(props.pricing.inputUsdPerMillionTokens) : "",
+  );
+  const [outputRate, setOutputRate] = useState(
+    props.pricing ? String(props.pricing.outputUsdPerMillionTokens) : "",
+  );
+
+  function updateRate(field: "input" | "output", raw: string) {
+    const nextInput = field === "input" ? raw : inputRate;
+    const nextOutput = field === "output" ? raw : outputRate;
+    setInputRate(nextInput);
+    setOutputRate(nextOutput);
+
+    const inputUsdPerMillionTokens = parsePricingRate(nextInput);
+    const outputUsdPerMillionTokens = parsePricingRate(nextOutput);
+    if (inputUsdPerMillionTokens === undefined || outputUsdPerMillionTokens === undefined) {
+      props.onChange(undefined);
+      return;
+    }
+    props.onChange({
+      model: props.model,
+      currency: "USD",
+      inputUsdPerMillionTokens,
+      outputUsdPerMillionTokens,
+      source: "user configured",
+      effectiveDate: props.pricing?.effectiveDate ?? new Date().toISOString().slice(0, 10),
+    });
+  }
+
+  function clearPricing() {
+    setInputRate("");
+    setOutputRate("");
+    props.onChange(undefined);
+  }
+
+  return (
+    <>
+      <div className="settings-grid-two">
+        <label className="field">
+          <span>Input USD / 1M tokens</span>
+          <input
+            aria-label="Input USD per million tokens"
+            type="number"
+            min={0}
+            step="0.000001"
+            value={inputRate}
+            placeholder="Unknown"
+            onChange={(event) => updateRate("input", event.target.value)}
+          />
+        </label>
+        <label className="field">
+          <span>Output USD / 1M tokens</span>
+          <input
+            aria-label="Output USD per million tokens"
+            type="number"
+            min={0}
+            step="0.000001"
+            value={outputRate}
+            placeholder="Unknown"
+            onChange={(event) => updateRate("output", event.target.value)}
+          />
+        </label>
+      </div>
+      <p className="field-help">
+        Model metadata determines context budgets. Both rates are required for an exact-model price snapshot; either blank rate reports cost as unknown.
+      </p>
+      {props.pricing ? (
+        <button
+          className="secondary-button compact-button"
+          type="button"
+          onClick={clearPricing}
+        >
+          Clear pricing snapshot
+        </button>
+      ) : null}
+    </>
+  );
+}
+
+function parsePricingRate(raw: string): number | undefined {
+  if (raw.trim() === "") {
+    return undefined;
+  }
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : undefined;
 }

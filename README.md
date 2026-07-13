@@ -28,7 +28,7 @@ Useful commands:
 | `pnpm e2e` | Run the Playwright browser smoke test. |
 | `pnpm e2e:install` | Install the Playwright Chromium browser used by the smoke test. |
 | `pnpm build` | Build the frontend bundle. |
-| `pnpm verify` | Run the local CI gate: typecheck, tests, build, npm audit, Rust tests, and clippy. |
+| `pnpm verify` | Run the local CI gate: typecheck, lint, tests, Phase 1 runtime eval, build, dependency audit, Rust tests, and clippy. |
 | `pnpm verify:release` | Run the release gate: local checks, coverage, browser smoke, audits, Rust checks, desktop packaging, executable smoke, and installed smoke. |
 | `pnpm verify:desktop` | Run `pnpm verify`, then build the desktop bundle. |
 | `pnpm desktop:smoke` | Start the release executable and fail if it exits during startup. |

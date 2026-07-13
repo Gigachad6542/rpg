@@ -5,6 +5,16 @@
 // share one definition instead of a single 7k-line file owning everything.
 
 import type { StoryEntity } from "../runtime/hiddenContinuity";
+import type { HiddenContinuityMode } from "../runtime/hiddenContinuityPolicy";
+import type {
+  ModelCallCost,
+  ModelCallFailure,
+  ModelPricingSnapshot,
+} from "../runtime/modelCallTelemetry";
+import type { ModelCallBudgetSource } from "../runtime/modelCallBudget";
+import type { AuthoritativeEventStream } from "../runtime/authoritativeEventStream";
+import type { RollingSummary } from "../runtime/rollingSummary";
+import type { HybridRetrievalVisibility, RetrievalProvenance } from "../runtime/hybridRetrieval";
 import type { LoreMatchMode, LoreScanScope } from "../runtime/loreTriggerEngine";
 import type { PlayerRuleDefinition } from "../runtime/playerRuleEngine";
 import type { RunTurnPipelineRequest } from "../runtime/turnPipeline";
@@ -137,6 +147,9 @@ export type MemoryEntry = {
   id: string;
   label: string;
   detail: string;
+  /** Persisted retrieval provenance; legacy/manual entries default to card-global. */
+  retrievalScope?: RetrievalProvenance;
+  visibility?: HybridRetrievalVisibility;
 };
 
 export type Message = {
@@ -164,6 +177,10 @@ export type ChatSession = {
   messages: Message[];
   /** Immutable chat root plus per-assistant-variant state effects. */
   turnLineage?: RuntimeTurnLineage;
+  /** Append-only typed authority log for deterministic actions, tools, and committed state. */
+  authoritativeEvents?: AuthoritativeEventStream;
+  /** Local branch-scoped summary of history outside the recent-message window. */
+  rollingSummary?: RollingSummary;
 };
 
 export type ModelCallRecord = {
@@ -177,8 +194,17 @@ export type ModelCallRecord = {
   };
   /** Maximum input-token allowance for this phase; absent on legacy prompt runs. */
   inputBudgetTokens?: number;
+  /** Effective provider/model context envelope used to derive the phase budget. */
+  effectiveContextWindowTokens?: number;
+  budgetSource?: ModelCallBudgetSource;
   durationMs: number;
   status: "success" | "error";
+  /** Provider when returned by the adapter; unavailable for failed attempts. */
+  usageSource?: "provider" | "estimated" | "unavailable";
+  cost?: ModelCallCost;
+  failure?: ModelCallFailure;
+  /** Validated state proposals attributed to this phase. */
+  stateProposalCount?: number;
 };
 
 export type PromptRun = {
@@ -211,6 +237,11 @@ export type ProviderSettings = {
   displayName: string;
   baseUrl: string;
   model: string;
+  /** Exact selected-model metadata supplied by a preset, local server, or user. */
+  contextWindowTokens?: number;
+  maxOutputTokens?: number;
+  /** User-supplied immutable price snapshot for the exact selected model. */
+  pricing?: ModelPricingSnapshot;
   secretReference?: SecretReference;
 };
 
@@ -237,6 +268,9 @@ export type RuntimeSettings = {
   banEmojis: boolean;
   promptDebugLogs: boolean;
   diceRollsEnabled: boolean;
+  /** Optional only for legacy in-memory callers; persisted settings normalize it to `full`. */
+  hiddenContinuityMode?: HiddenContinuityMode;
+  economicalModel?: string;
   onboardingCompleted: boolean;
   accentColor: string;
 };

@@ -17,13 +17,31 @@ export function TurnDeltaPanel(props: {
   const applied = proposals.filter((proposal) => proposal.applied);
   const blocked = proposals.filter((proposal) => !proposal.applied);
   const combinedTokens = modelCalls.reduce((total, call) => total + call.usage.totalTokens, 0);
+  const knownCostUsd = modelCalls.reduce(
+    (total, call) => total + (call.cost?.status === "known" ? call.cost.amountUsd : 0),
+    0,
+  );
+  const estimatedCostUsd = modelCalls.reduce((total, call) => total + getEstimatedCostUsd(call.cost), 0);
+  const estimatedCostCalls = modelCalls.filter((call) => getCostStatus(call.cost) === "estimated").length;
+  const unknownCostCalls = modelCalls.filter((call) => {
+    const status = getCostStatus(call.cost);
+    return status !== "known" && status !== "estimated";
+  }).length;
 
   return (
     <div className="turn-metadata-panels">
       {modelCalls.length > 0 ? (
         <details className="model-call-panel">
-          <summary>{modelCalls.length} model calls · {combinedTokens} tokens</summary>
-          <p className="model-call-usage-note">Token counts are provider-reported when available and estimated otherwise.</p>
+          <summary>
+            {modelCalls.length} model calls · {combinedTokens} tokens · {formatCombinedCost(
+              knownCostUsd + estimatedCostUsd,
+              estimatedCostCalls,
+              unknownCostCalls,
+            )}
+          </summary>
+          <p className="model-call-usage-note">
+            Each attempted phase retains its own usage, latency, cost status, failure, and proposal count.
+          </p>
           <ul className="model-call-list">
             {modelCalls.map((call) => (
               <li key={call.phase}>
@@ -32,11 +50,16 @@ export function TurnDeltaPanel(props: {
                   <span className={`model-call-status ${call.status}`}>{formatStatus(call.status)}</span>
                 </div>
                 <span>{call.provider} / {call.model}</span>
-                <span>{call.usage.inputTokens} input · {call.usage.outputTokens} output · {call.usage.totalTokens} total</span>
+                <span>
+                  {call.usage.inputTokens} input · {call.usage.outputTokens} output · {call.usage.totalTokens} total ({call.usageSource ?? "legacy"})
+                </span>
                 {call.inputBudgetTokens && call.inputBudgetTokens > 0 ? (
                   <span>{formatInputBudgetUsage(call.usage.inputTokens, call.inputBudgetTokens)}</span>
                 ) : null}
-                <span>{Math.round(call.durationMs)} ms</span>
+                <span>{Math.round(call.durationMs)} ms phase duration</span>
+                <span>{formatCallCost(call.cost)}</span>
+                <span>{call.stateProposalCount ?? 0} state proposals</span>
+                {call.failure ? <span>{call.failure.category}: {call.failure.message}</span> : null}
               </li>
             ))}
           </ul>
@@ -75,6 +98,40 @@ export function TurnDeltaPanel(props: {
 function formatInputBudgetUsage(inputTokens: number, inputBudgetTokens: number): string {
   const utilization = Math.round((inputTokens / inputBudgetTokens) * 100);
   return `${inputTokens} / ${inputBudgetTokens} input tokens · ${utilization}% used`;
+}
+
+function formatCombinedCost(totalCostUsd: number, estimatedCostCalls: number, unknownCostCalls: number): string {
+  const estimateLabel = estimatedCostCalls > 0 ? ` (${estimatedCostCalls} estimated)` : "";
+  const priced = `$${totalCostUsd.toFixed(6)}${estimateLabel}`;
+  return unknownCostCalls > 0 ? `${priced} + ${unknownCostCalls} unknown` : priced;
+}
+
+function formatCallCost(cost: NonNullable<PromptRun["modelCalls"]>[number]["cost"]): string;
+function formatCallCost(cost: undefined): string;
+function formatCallCost(cost: NonNullable<PromptRun["modelCalls"]>[number]["cost"] | undefined): string {
+  if (cost?.status === "known") {
+    return `$${cost.amountUsd.toFixed(6)} USD`;
+  }
+  const displayCost = cost as DisplayableCost | undefined;
+  return displayCost?.status === "estimated" && typeof displayCost.amountUsd === "number"
+    ? `$${displayCost.amountUsd.toFixed(6)} USD estimated`
+    : "Cost unknown";
+}
+
+type DisplayableCost = {
+  readonly status: string;
+  readonly amountUsd?: number;
+};
+
+function getCostStatus(cost: NonNullable<PromptRun["modelCalls"]>[number]["cost"] | undefined): string | undefined {
+  return (cost as DisplayableCost | undefined)?.status;
+}
+
+function getEstimatedCostUsd(cost: NonNullable<PromptRun["modelCalls"]>[number]["cost"] | undefined): number {
+  const displayCost = cost as DisplayableCost | undefined;
+  return displayCost?.status === "estimated" && typeof displayCost.amountUsd === "number"
+    ? displayCost.amountUsd
+    : 0;
 }
 
 function getDisplayProposals(run: PromptRun): TurnEffectProposal[] {

@@ -11,8 +11,13 @@ import {
   recordRegeneratedChatVariant,
   switchChatMessageVariant,
   undoChatTurnEffects,
+  verifyChatAuthoritativeContinuity,
 } from "../../src/app/chatTurnState";
-import { createChatSession, parseChatSessions } from "../../src/app/chatSessions";
+import {
+  advanceChatSessionRollingSummary,
+  createChatSession,
+  parseChatSessions,
+} from "../../src/app/chatSessions";
 import type { Message, RuntimeCard } from "../../src/app/runtimeTypes";
 import { createEmptyExtractionResult } from "../../src/runtime/extraction";
 import { createEmptyHiddenContinuityResult } from "../../src/runtime/hiddenContinuity";
@@ -175,7 +180,7 @@ describe("chat turn-state integration helpers", () => {
     expect(deriveCardForChat(baseCard, branchOnSecond).rpg?.inventory).toEqual(["lantern"]);
   });
 
-  it("remaps authoritative events into a branch and invalidates its parent-scoped summary", () => {
+  it("remaps authoritative events and an unchanged covered summary into a branch", () => {
     const baseCard = card();
     const history = turnMessages("a-parent", 0);
     const now = "2026-07-12T12:00:00.000Z";
@@ -229,7 +234,11 @@ describe("chat turn-state integration helpers", () => {
       baseCard,
     );
 
-    expect(branch.rollingSummary).toBeUndefined();
+    expect(branch.rollingSummary).toMatchObject({
+      scope: { cardId: baseCard.id, chatId: branchId, branchId },
+      text: parent.rollingSummary?.text,
+      coveredMessageIds: branchMessages.map((message) => message.id),
+    });
     expect(branch.authoritativeEvents).toEqual([
       expect.objectContaining({ originEventId: "event-action", chatId: branchId, branchId }),
       expect.objectContaining({
@@ -239,6 +248,53 @@ describe("chat turn-state integration helpers", () => {
       }),
     ]);
     expect(parent.authoritativeEvents?.map((event) => event.id)).toEqual(["event-action", "event-state"]);
+  });
+
+  it("drops a persisted summary that does not reconcile with its session history and scope", () => {
+    const baseCard = card();
+    const history = turnMessages();
+    const [session] = parseChatSessions(
+      [{
+        id: "chat-a",
+        cardId: baseCard.id,
+        messages: history,
+        rollingSummary: {
+          scope: { cardId: baseCard.id, chatId: "chat-a", branchId: "chat-a" },
+          text: "Injected stale summary",
+          coveredMessageIds: ["wrong-message"],
+          coveredMessageFingerprints: ["8badf00d"],
+          throughMessageId: "wrong-message",
+          updatedAt: "2026-07-12T12:00:00.000Z",
+        },
+      }],
+      [baseCard],
+      [],
+      baseCard.id,
+    );
+
+    expect(session.rollingSummary).toBeUndefined();
+  });
+
+  it("advances rolling coverage for a deterministic non-model message", () => {
+    const baseCard = card();
+    const history: Message[] = Array.from({ length: 14 }, (_, index) => ({
+      id: `m${index}`,
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `Message ${index}`,
+    }));
+    const chat = createChatSession(baseCard.id, "Dice chat", { id: "chat-dice", messages: history });
+    const first = advanceChatSessionRollingSummary(chat, history, "2026-07-12T12:00:00.000Z");
+    const diceMessage: Message = { id: "dice-1", role: "user", content: "Rolled 20" };
+    const nextMessages = [...history, diceMessage];
+    const second = advanceChatSessionRollingSummary(
+      { ...chat, rollingSummary: first },
+      nextMessages,
+      "2026-07-12T12:01:00.000Z",
+    );
+
+    expect(first?.throughMessageId).toBe("m1");
+    expect(second?.throughMessageId).toBe("m2");
+    expect(second?.text).toContain("Message 2");
   });
 
   it("refuses to swipe an earlier variant while dependent downstream turns remain", () => {
@@ -282,11 +338,26 @@ describe("chat turn-state integration helpers", () => {
       ),
     };
     session = recordChatTurnVariant(session, baseCard, "a1", 0, effects("torch"));
+    session = {
+      ...session,
+      authoritativeEvents: [createStateCommittedEvent({
+        id: "event-stale-state",
+        chatId: session.id,
+        branchId: session.id,
+        messageId: "a1",
+        occurredAt: "2026-07-12T12:00:00.000Z",
+        runId: "run-stale",
+        variant: { assistantMessageId: "a1", variantIndex: 0 },
+        proposalIds: ["proposal-stale"],
+        mutations: [{ type: "inventory_add", item: "torch" }],
+      })],
+    };
     const manuallyChanged = deriveCardForChat(baseCard, session);
     manuallyChanged.rpg = { ...manuallyChanged.rpg!, inventory: ["torch", "manual note"] };
 
     const rebased = rebaseChatTurnState(session, manuallyChanged);
     expect(rebased.turnLineage?.ledger).toEqual({});
+    expect(rebased.authoritativeEvents).toEqual([]);
     expect(deriveCardForChat(manuallyChanged, rebased).rpg?.inventory).toEqual(["torch", "manual note"]);
 
     const staleSwipe = switchChatMessageVariant(rebased, manuallyChanged, "a1", 1);
@@ -308,6 +379,32 @@ describe("chat turn-state integration helpers", () => {
     );
     parent = recordChatTurnVariant(parent, baseCard, "a1", 0, effects("torch"));
     parent = recordChatTurnVariant(parent, baseCard, "a2", 0, effects("rope"));
+    parent = {
+      ...parent,
+      authoritativeEvents: [
+        createStateCommittedEvent({
+          id: "event-a1-state",
+          chatId: parent.id,
+          branchId: parent.id,
+          messageId: "a1",
+          occurredAt: "2026-07-12T12:00:00.000Z",
+          runId: "run-a1",
+          variant: { assistantMessageId: "a1", variantIndex: 0 },
+          proposalIds: ["proposal-a1"],
+          mutations: [{ type: "inventory_add", item: "torch" }],
+        }),
+        createPlayerActionEvent({
+          id: "event-u2-action",
+          chatId: parent.id,
+          branchId: parent.id,
+          messageId: "u2",
+          occurredAt: "2026-07-12T12:01:00.000Z",
+          runId: "run-u2",
+          action: "Old choice",
+          origin: "typed",
+        }),
+      ],
+    };
 
     const branch = forkChatForMessageEdit(parent, baseCard, "u2", "New choice", "branch-edit");
     expect(branch).not.toBeNull();
@@ -315,6 +412,10 @@ describe("chat turn-state integration helpers", () => {
     expect(branch?.messages.map((message) => message.content)).toEqual(["First", "Torch", "New choice"]);
     expect(deriveCardForChat(baseCard, branch!).rpg?.inventory).toEqual(["torch"]);
     expect(deriveCardForChat(baseCard, parent).rpg?.inventory).toEqual(["torch", "rope"]);
+    expect(branch?.authoritativeEvents?.map((event) => event.kind)).toEqual(["state_committed"]);
+    expect(branch?.authoritativeEvents?.some((event) =>
+      event.kind === "player_action" && event.action === "Old choice"
+    )).toBe(false);
   });
 
   it("drops an edited assistant turn's stale effects and variant controls", () => {
@@ -337,6 +438,20 @@ describe("chat turn-state integration helpers", () => {
     );
     parent = recordChatTurnVariant(parent, baseCard, "a1", 0, effects("torch"));
     parent = recordChatTurnVariant(parent, baseCard, "a1", 1, effects("lantern"));
+    parent = {
+      ...parent,
+      authoritativeEvents: [createStateCommittedEvent({
+        id: "event-a1-state",
+        chatId: parent.id,
+        branchId: parent.id,
+        messageId: "a1",
+        occurredAt: "2026-07-12T12:00:00.000Z",
+        runId: "run-a1",
+        variant: { assistantMessageId: "a1", variantIndex: 0 },
+        proposalIds: ["proposal-a1"],
+        mutations: [{ type: "inventory_add", item: "torch" }],
+      })],
+    };
 
     const branch = forkChatForMessageEdit(parent, baseCard, "a1", "Custom outcome", "branch-assistant");
     const edited = branch?.messages[branch.messages.length - 1];
@@ -344,6 +459,46 @@ describe("chat turn-state integration helpers", () => {
     expect(edited?.variants).toBeUndefined();
     expect(edited?.activeVariantIndex).toBeUndefined();
     expect(deriveCardForChat(baseCard, branch!).rpg?.inventory).toEqual([]);
+    expect(branch?.authoritativeEvents).toEqual([]);
+  });
+
+  it("verifies complete typed RPG replay and detects divergence from the lineage", () => {
+    const baseCard = card();
+    let session = initializeChatTurnState(
+      { ...createChatSession(baseCard.id, "Chat"), messages: turnMessages("a1", 0) },
+      baseCard,
+    );
+    session = recordChatTurnVariant(session, baseCard, "a1", 0, effects("torch"));
+    const eventBase = {
+      id: "event-a1-state",
+      chatId: session.id,
+      branchId: session.id,
+      messageId: "a1",
+      occurredAt: "2026-07-12T12:00:00.000Z",
+      runId: "run-a1",
+      variant: { assistantMessageId: "a1", variantIndex: 0 },
+      proposalIds: ["proposal-a1"],
+    } as const;
+
+    const verified = {
+      ...session,
+      authoritativeEvents: [createStateCommittedEvent({
+        ...eventBase,
+        mutations: [{ type: "inventory_add", item: "torch" }],
+      })],
+    };
+    expect(verifyChatAuthoritativeContinuity(baseCard, verified)).toMatchObject({ status: "verified" });
+    expect(deriveCardForChat(baseCard, verified).rpg?.inventory).toEqual(["torch"]);
+
+    const divergent = {
+      ...session,
+      authoritativeEvents: [createStateCommittedEvent({
+        ...eventBase,
+        mutations: [{ type: "inventory_add", item: "forged crown" }],
+      })],
+    };
+    expect(verifyChatAuthoritativeContinuity(baseCard, divergent)).toMatchObject({ status: "mismatch" });
+    expect(deriveCardForChat(baseCard, divergent).rpg?.inventory).toEqual(["torch"]);
   });
 
   it("undoes only the active assistant variant's state effects", () => {

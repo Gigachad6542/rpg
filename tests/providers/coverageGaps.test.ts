@@ -92,8 +92,9 @@ describe("provider coverage gap characterization", () => {
               controller.enqueue(encoder.encode(": keepalive\n"));
               controller.enqueue(encoder.encode("data: not-json\n\n"));
               controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":""}}]}\n\n'));
-              controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"tail"}}]}\n\n'));
-              controller.close();
+               controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"tail"}}]}\n\n'));
+               controller.enqueue(encoder.encode('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n'));
+               controller.close();
             },
           }),
           { status: 200 },

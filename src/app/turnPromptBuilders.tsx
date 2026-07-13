@@ -3,10 +3,25 @@ import { type ReactNode } from "react";
 import { formatStoryEntitiesForKnowledgeBoundary } from "../runtime/hiddenContinuity";
 import { resolveModelCallBudget, type ModelCallBudget } from "../runtime/modelCallBudget";
 import { buildSceneText, orderByRelevance, selectPresentNames } from "../runtime/relevanceScoring";
+import {
+  retrieveScopedHybrid,
+  type HybridRetrievalDocument,
+} from "../runtime/hybridRetrieval";
+import { reconcileRollingSummaryForHistory, type RollingSummary } from "../runtime/rollingSummary";
 import type { LorebookEntry, Message, Persona, RuntimeCard, RuntimeSettings, TurnPromptRequest } from "./runtimeTypes";
 import { titleCase } from "./appUtils";
 import { randomOpeningAction } from "./appDefaults";
 import { formatPersonaPrompt } from "./personas";
+
+export interface TurnRetrievalContext {
+  chatId: string;
+  branchId: string;
+  rollingSummary?: RollingSummary;
+}
+
+export type TurnPromptOverrides = Partial<TurnPromptRequest> & {
+  retrievalContext?: TurnRetrievalContext;
+};
 
 export function formatDetailedCharacterDefinition(card: RuntimeCard): string {
   return [
@@ -73,8 +88,19 @@ export function buildTurnPromptRequest(
   draft: string,
   runtimeSettings: RuntimeSettings,
   activePersona: Persona | null = null,
-  overrides: Partial<TurnPromptRequest> = {},
+  overrides: TurnPromptOverrides = {},
 ): TurnPromptRequest {
+  const { retrievalContext, ...turnOverrides } = overrides;
+  const reconciledRollingSummary = retrievalContext?.rollingSummary
+    ? reconcileRollingSummaryForHistory(
+        retrievalContext.rollingSummary,
+        messages,
+        { cardId: card.id, chatId: retrievalContext.chatId, branchId: retrievalContext.branchId },
+      ) ?? undefined
+    : undefined;
+  const safeRetrievalContext = retrievalContext
+    ? { ...retrievalContext, rollingSummary: reconciledRollingSummary }
+    : undefined;
   const fallbackBudget = resolveModelCallBudget({
     providerId: "unknown",
     model: "unknown",
@@ -86,11 +112,40 @@ export function buildTurnPromptRequest(
     card.rpg?.location,
     ...(card.rpg?.quests ?? []),
   ]);
-  const orderedMemory = orderByRelevance(
-    card.memory,
-    (entry) => `${entry.label} ${entry.detail}`,
-    sceneText,
-  );
+  const lexicalMemory = orderByRelevance(card.memory, (entry) => `${entry.label} ${entry.detail}`, sceneText);
+  const lexicalLore = orderByRelevance(activeLorebookEntries, (entry) => `${entry.title} ${entry.content}`, sceneText);
+  const hybridResults = safeRetrievalContext
+    ? retrieveScopedHybrid({
+        query: sceneText,
+        documents: buildTurnRetrievalDocuments(card, activeLorebookEntries),
+        scope: {
+          cardId: card.id,
+          chatId: safeRetrievalContext.chatId,
+          branchId: safeRetrievalContext.branchId,
+          allowedSources: ["memory", "lore", "rolling-summary"],
+          allowedVisibilities: ["player-visible", "narrator"],
+        },
+        limit: 24,
+        minimumScore: 0.015,
+        sourceLimits: { memory: 12, lore: 12 },
+        maxCharacters: 12_000,
+      })
+    : [];
+  const memoryByDocumentId = new Map(card.memory.map((entry) => [`memory:${entry.id}`, entry]));
+  const loreByDocumentId = new Map(activeLorebookEntries.map((entry) => [`lore:${entry.id}`, entry]));
+  const orderedMemory = safeRetrievalContext
+    ? hybridResults.flatMap((result) => {
+        const entry = memoryByDocumentId.get(result.document.id);
+        return entry ? [entry] : [];
+      })
+    : lexicalMemory;
+  const orderedLore = safeRetrievalContext
+    ? hybridResults.flatMap((result) => {
+        const entry = loreByDocumentId.get(result.document.id);
+        return entry ? [entry] : [];
+      })
+    : lexicalLore;
+  const includedRollingSummary = safeRetrievalContext?.rollingSummary;
   const presentEntityNames = selectPresentNames(
     (card.storyEntities ?? []).map((entity) => entity.name),
     sceneText,
@@ -116,17 +171,27 @@ export function buildTurnPromptRequest(
     messages,
     latestUserMessage: draft.trim() || "(empty)",
     rules: card.playerRules,
-    memoryEntries: orderedMemory.map((entry) => ({
-      id: entry.id,
-      label: entry.label,
-      detail: entry.detail,
-    })),
-    loreEntries: activeLorebookEntries.map((entry) => ({
+    memoryEntries: [
+      ...(includedRollingSummary
+        ? [{
+            id: `rolling-summary:${includedRollingSummary.throughMessageId}`,
+            label: "Rolling branch summary",
+            detail: includedRollingSummary.text,
+          }]
+        : []),
+      ...orderedMemory.map((entry) => ({
+        id: entry.id,
+        label: entry.label,
+        detail: entry.detail,
+      })),
+    ],
+    loreEntries: orderedLore.map((entry, retrievalRank) => ({
       id: entry.id,
       title: entry.title,
       content: entry.content,
       priority: entry.priority,
       enabled: entry.enabled,
+      retrievalRank,
     })),
     rpgState: card.rpg
       ? {
@@ -146,8 +211,38 @@ export function buildTurnPromptRequest(
     ...toVisibleTurnBudget(fallbackBudget),
     responseContract: buildResponseContract(runtimeSettings),
     preferStreaming: runtimeSettings.textStreaming,
-    ...overrides,
+    ...turnOverrides,
   };
+}
+
+function buildTurnRetrievalDocuments(
+  card: RuntimeCard,
+  loreEntries: LorebookEntry[],
+): HybridRetrievalDocument[] {
+  return [
+    ...card.memory.map((entry) => {
+      const provenance = entry.retrievalScope ?? { level: "card-global" as const };
+      return {
+        id: `memory:${entry.id}`,
+        text: `${entry.label} ${entry.detail}`,
+        cardId: card.id,
+        ...(provenance.level === "card-global" ? {} : { chatId: provenance.chatId }),
+        ...(provenance.level === "branch" ? { branchId: provenance.branchId } : {}),
+        scopeLevel: provenance.level,
+        source: "memory" as const,
+        visibility: entry.visibility ?? "narrator" as const,
+      };
+    }),
+    ...loreEntries.map((entry) => ({
+      id: `lore:${entry.id}`,
+      text: `${entry.title} ${entry.keys.join(" ")} ${entry.secondaryKeys.join(" ")} ${entry.content}`,
+      cardId: card.id,
+      scopeLevel: "card-global" as const,
+      source: "lore" as const,
+      visibility: "narrator" as const,
+      priority: Math.max(entry.priority, entry.constant ? 40 : 0),
+    })),
+  ];
 }
 
 export function toVisibleTurnBudget(budget: ModelCallBudget): Pick<TurnPromptRequest, "tokenBudget" | "maxOutputTokens"> {

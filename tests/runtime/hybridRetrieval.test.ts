@@ -128,4 +128,65 @@ describe("scoped hybrid retrieval", () => {
       }),
     ).toEqual([]);
   });
+
+  it("honors persisted card-global, chat, and branch provenance", () => {
+    const documents: HybridRetrievalDocument[] = [
+      {
+        id: "global",
+        text: "The harbor gate is sealed.",
+        cardId: activeScope.cardId,
+        scopeLevel: "card-global",
+        source: "lore",
+        visibility: "narrator",
+      },
+      {
+        id: "chat",
+        text: "The harbor gate is sealed.",
+        cardId: activeScope.cardId,
+        chatId: activeScope.chatId,
+        scopeLevel: "chat",
+        source: "memory",
+        visibility: "narrator",
+      },
+      {
+        id: "wrong-branch",
+        text: "The harbor gate is sealed.",
+        cardId: activeScope.cardId,
+        chatId: activeScope.chatId,
+        branchId: "branch-other",
+        scopeLevel: "branch",
+        source: "memory",
+        visibility: "narrator",
+      },
+    ];
+
+    const results = retrieveScopedHybrid({
+      query: "harbor gate",
+      documents,
+      scope: activeScope,
+      limit: 10,
+    });
+
+    expect(results.map((result) => result.document.id)).toEqual(["global", "chat"]);
+  });
+
+  it("applies score, source-count, and character budgets instead of returning every candidate", () => {
+    const results = retrieveScopedHybrid({
+      query: "harbor gate",
+      documents: [
+        document("best-memory", "The harbor gate is sealed."),
+        document("second-memory", "The harbor gate has a silver lock."),
+        document("irrelevant", "A physician tends an injury."),
+        document("lore", "The harbor gate belongs to Rook.", { source: "lore", priority: 100 }),
+      ],
+      scope: activeScope,
+      limit: 10,
+      minimumScore: 0.01,
+      sourceLimits: { memory: 1, lore: 1 },
+      maxCharacters: 80,
+    });
+
+    expect(results.map((result) => result.document.id)).toEqual(["lore", "best-memory"]);
+    expect(results.reduce((total, result) => total + result.document.text.length, 0)).toBeLessThanOrEqual(80);
+  });
 });

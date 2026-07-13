@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Download, History, Layers3, RotateCcw, Settings2, ShieldCheck, Upload } from "lucide-react";
 import type { Persona } from "./runtimeTypes";
+import type { HiddenContinuityMode } from "../runtime/hiddenContinuityPolicy";
 import { PersonasPanel } from "./PersonasPanel";
 
 export type RuntimeSettingsView = {
@@ -8,6 +9,8 @@ export type RuntimeSettingsView = {
   banEmojis: boolean;
   promptDebugLogs: boolean;
   diceRollsEnabled: boolean;
+  hiddenContinuityMode?: HiddenContinuityMode;
+  economicalModel?: string;
   onboardingCompleted: boolean;
   accentColor: string;
 };
@@ -106,6 +109,41 @@ export function SettingsSection(props: {
             }
           />
           <span>Dice rolls (/roll in chat)</span>
+        </label>
+        <label className="field">
+          <span>Hidden continuity mode</span>
+          <select
+            aria-label="Hidden continuity mode"
+            value={props.runtimeSettings.hiddenContinuityMode ?? "full"}
+            onChange={(event) =>
+              props.setRuntimeSettings({
+                ...props.runtimeSettings,
+                hiddenContinuityMode: event.target.value as HiddenContinuityMode,
+              })
+            }
+          >
+            <option value="full">Full continuity (2 calls)</option>
+            <option value="economical">Economical continuity (2 calls)</option>
+            <option value="off">Off (1 call)</option>
+          </select>
+        </label>
+        <p className="panel-hint">
+          Full and economical modes make a hidden continuity call followed by the visible response. Off makes only the visible call.
+        </p>
+        <label className="field">
+          <span>Economical continuity model</span>
+          <input
+            aria-label="Economical continuity model"
+            value={props.runtimeSettings.economicalModel ?? ""}
+            maxLength={200}
+            placeholder="Small model id on the same provider"
+            onChange={(event) =>
+              props.setRuntimeSettings({
+                ...props.runtimeSettings,
+                economicalModel: event.target.value,
+              })
+            }
+          />
         </label>
         <label className="toggle-row">
           <input

@@ -175,6 +175,7 @@ describe("hidden continuity pass", () => {
       latestUserMessage: "LATEST_PLAYER_ACTION_SENTINEL",
       activeLoreCount: 2,
       pendingReviewProposals: ["IMPORTED_REVIEW_SENTINEL"],
+      rollingSummary: "ROLLING_BRANCH_SUMMARY_SENTINEL",
       now: () => "2026-07-01T12:00:00.000Z",
     });
 
@@ -197,6 +198,7 @@ describe("hidden continuity pass", () => {
       "IMPORTED_HISTORY_SENTINEL",
       "LATEST_PLAYER_ACTION_SENTINEL",
       "IMPORTED_REVIEW_SENTINEL",
+      "ROLLING_BRANCH_SUMMARY_SENTINEL",
     ];
     for (const sentinel of untrustedSentinels) {
       expect(generationRequest.prompt).toContain(sentinel);
@@ -340,6 +342,47 @@ describe("hidden continuity pass", () => {
     expect(result.warnings).toEqual([
       "Hidden continuity pass failed: provider rejected hidden continuity request",
     ]);
+  });
+
+  it.each([
+    ["error finish reason", "{\"continuity_brief\":\"must not apply\"}", "error" as const],
+    ["empty response", "   ", "stop" as const],
+  ])("fails open without proposals for a hidden %s", async (_label, text, finishReason) => {
+    const adapter: TextModelAdapter = {
+      id: "invalid-hidden-provider",
+      displayName: "Invalid hidden provider",
+      async listModels() {
+        return [];
+      },
+      async generateText(request) {
+        return {
+          providerId: "invalid-hidden-provider",
+          model: request.model,
+          text,
+          finishReason,
+          usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 },
+        };
+      },
+    };
+
+    const result = await runHiddenContinuityPassSafely({
+      modelAdapter: adapter,
+      model: "chosen-reasoning-model",
+      card: createCard(),
+      messages: [],
+      latestUserMessage: "I wait.",
+      activeLoreCount: 0,
+      inputBudgetTokens: 1_800,
+      maxOutputTokens: 321,
+    });
+
+    expect(result).toMatchObject({
+      continuityBrief: "",
+      memoryUpdates: [],
+      entityUpdates: [],
+      knowledgeUpdates: [],
+    });
+    expect(result.warnings.join(" ")).toMatch(/hidden continuity pass failed/i);
   });
 
   it("threads cancellation and never converts an abort into a continuity warning", async () => {

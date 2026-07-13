@@ -20,6 +20,9 @@ This folder keeps operational notes and verification evidence for `rpg`.
 
 ## Testing Evidence
 
+- [Phase 1 core-runtime TDD evidence](testing/phase-1-core-runtime-2026-07-12.tdd.md)
+  records the mode-aware call contract, typed event/retrieval continuity work,
+  36-turn runtime scorecard, adversarial review fixes, and final verification.
 - [Two-call context-correctness TDD evidence](testing/two-call-context-correctness-2026-07-12.tdd.md)
   records conservative per-model budgets, hidden/visible role separation, full token accounting,
   and persisted per-call input utilization.

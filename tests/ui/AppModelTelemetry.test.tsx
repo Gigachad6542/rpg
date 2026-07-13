@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { App } from "../../src/app/App";
 import { RUNTIME_STORAGE_KEY } from "../../src/app/localRuntimeStore";
+import type { ModelCallRecord } from "../../src/app/runtimeTypes";
 import * as providerConfig from "../../src/app/providerConfig";
 import type {
   ModelInfo,
@@ -22,20 +23,6 @@ const tauriInvokeMock = vi.hoisted(() =>
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: tauriInvokeMock,
 }));
-
-type ModelCallRecord = {
-  phase: "hidden-continuity" | "visible-response";
-  provider: string;
-  model: string;
-  usage: {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-  };
-  inputBudgetTokens: number;
-  durationMs: number;
-  status: "success" | "error";
-};
 
 async function renderAppAndOpenBlankCard() {
   render(<App />);
@@ -127,6 +114,7 @@ describe("intentional two-call turn telemetry", () => {
       expect(generateCalls).toBe(1);
       expect(streamCalls).toBe(1);
       expect(calls[1]).toMatchObject({ phase: "visible-response", status: "success", usageSource: "estimated" });
+      expect(calls[1].cost).toMatchObject({ status: "estimated" });
     } finally {
       providerSpy.mockRestore();
     }
@@ -288,7 +276,7 @@ describe("intentional two-call turn telemetry", () => {
         }),
       ]);
       expect(modelCalls.every((call) => call.durationMs >= 0)).toBe(true);
-      expect(modelCalls.every((call) => call.inputBudgetTokens >= call.usage.inputTokens)).toBe(true);
+      expect(modelCalls.every((call) => (call.inputBudgetTokens ?? 0) >= call.usage.inputTokens)).toBe(true);
       expect(screen.getByText(/2 model calls/i)).toHaveTextContent(/85 tokens/i);
       const chat = await readStoredActiveChat();
       expect((chat.authoritativeEvents as Array<{ kind: string }>).map((event) => event.kind)).toEqual([
@@ -342,6 +330,8 @@ describe("intentional two-call turn telemetry", () => {
         inputBudgetTokens: expect.any(Number),
         durationMs: expect.any(Number),
         status: "error",
+        usageSource: "unavailable",
+        cost: { status: "unknown", currency: "USD" },
       });
       expect(modelCalls[1]).toMatchObject({
         phase: "visible-response",
@@ -370,6 +360,140 @@ describe("intentional two-call turn telemetry", () => {
     const chat = await readStoredActiveChat();
     expect(chat.authoritativeEvents).toEqual([
       expect.objectContaining({ kind: "dice_rolled", roll: expect.objectContaining({ notation: "1d6" }) }),
+      expect.objectContaining({
+        kind: "tool_result",
+        toolName: "dice.roll",
+        status: "success",
+        result: expect.objectContaining({ notation: "1d6" }),
+      }),
     ]);
+  });
+
+  it("durably records a blocked action and rule decision without adding transcript text", async () => {
+    await renderAppAndOpenBlankCard();
+    sendRuntimeMessage("I teleport through walls and skip to the end.");
+
+    await screen.findByText(/movement must stay plausible/i);
+    const chat = await readStoredActiveChat();
+    const events = chat.authoritativeEvents as Array<Record<string, unknown>>;
+    expect(events.map((event) => event.kind)).toEqual(["player_action", "rule_decision"]);
+    expect(events[0]).toEqual(expect.objectContaining({
+      action: "I teleport through walls and skip to the end.",
+      runId: expect.any(String),
+    }));
+    expect(events[1]).toEqual(expect.objectContaining({
+      runId: events[0].runId,
+      decision: expect.objectContaining({ allowed: false }),
+    }));
+    expect(chat.messages).toEqual([]);
+  });
+
+  it("persists the second turn's attempt events when its visible model call fails", async () => {
+    let callIndex = 0;
+    const adapter: TextModelAdapter = {
+      id: "attempt-provider",
+      displayName: "Attempt provider",
+      async listModels(): Promise<ModelInfo[]> {
+        return [];
+      },
+      async generateText(request): Promise<TextGenerationResponse> {
+        callIndex += 1;
+        if (callIndex === 1 || callIndex === 3) {
+          return {
+            providerId: "attempt-provider",
+            model: request.model,
+            text: JSON.stringify({ continuity_brief: "Keep the gate stable." }),
+            finishReason: "stop",
+            usage: { inputTokens: 8, outputTokens: 2, totalTokens: 10 },
+          };
+        }
+        if (callIndex === 4) {
+          throw new Error("Visible provider unavailable");
+        }
+        return {
+          providerId: "attempt-provider",
+          model: request.model,
+          text: "The first turn succeeds.",
+          finishReason: "stop",
+          usage: { inputTokens: 12, outputTokens: 4, totalTokens: 16 },
+        };
+      },
+    };
+    const providerSpy = vi
+      .spyOn(providerConfig, "createTextProvider")
+      .mockReturnValue(adapter as ReturnType<typeof providerConfig.createTextProvider>);
+
+    try {
+      await renderAppAndOpenBlankCard();
+      sendRuntimeMessage("I inspect the gate.");
+      await screen.findByText(/first turn succeeds/i);
+
+      sendRuntimeMessage("I try the gate again.");
+      await screen.findByText(/Visible provider unavailable/i);
+      const chat = await readStoredActiveChat();
+      const actions = (chat.authoritativeEvents as Array<Record<string, unknown>>)
+        .filter((event) => event.kind === "player_action");
+      expect(actions).toEqual([
+        expect.objectContaining({ action: "I inspect the gate." }),
+        expect.objectContaining({ action: "I try the gate again." }),
+      ]);
+    } finally {
+      providerSpy.mockRestore();
+    }
+  });
+
+  it("keeps the original transcript while recording a failed regeneration attempt", async () => {
+    let callIndex = 0;
+    const adapter: TextModelAdapter = {
+      id: "regeneration-provider",
+      displayName: "Regeneration provider",
+      async listModels(): Promise<ModelInfo[]> {
+        return [];
+      },
+      async generateText(request): Promise<TextGenerationResponse> {
+        callIndex += 1;
+        if (callIndex === 1 || callIndex === 3) {
+          return {
+            providerId: "regeneration-provider",
+            model: request.model,
+            text: JSON.stringify({ continuity_brief: "Preserve the original gate." }),
+            finishReason: "stop",
+            usage: { inputTokens: 8, outputTokens: 2, totalTokens: 10 },
+          };
+        }
+        if (callIndex === 4) {
+          throw new Error("Regeneration unavailable");
+        }
+        return {
+          providerId: "regeneration-provider",
+          model: request.model,
+          text: "The original gate remains closed.",
+          finishReason: "stop",
+          usage: { inputTokens: 12, outputTokens: 4, totalTokens: 16 },
+        };
+      },
+    };
+    const providerSpy = vi
+      .spyOn(providerConfig, "createTextProvider")
+      .mockReturnValue(adapter as ReturnType<typeof providerConfig.createTextProvider>);
+
+    try {
+      await renderAppAndOpenBlankCard();
+      sendRuntimeMessage("I inspect the closed gate.");
+      await screen.findByText(/original gate remains closed/i);
+
+      fireEvent.click(screen.getByRole("button", { name: /Regenerate reply/i }));
+      await screen.findByText(/Regeneration unavailable/i);
+
+      const chat = await readStoredActiveChat();
+      expect(chat.messages).toEqual([
+        expect.objectContaining({ role: "user", content: "I inspect the closed gate." }),
+        expect.objectContaining({ role: "assistant", content: "The original gate remains closed." }),
+      ]);
+      expect((chat.authoritativeEvents as Array<Record<string, unknown>>)
+        .filter((event) => event.kind === "player_action")).toHaveLength(2);
+    } finally {
+      providerSpy.mockRestore();
+    }
   });
 });

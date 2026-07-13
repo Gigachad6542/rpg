@@ -45,6 +45,15 @@ export function parseProviderSettings(value?: Record<string, unknown>): Provider
   const secretReference = parseSecretReference(value?.secretReference);
   const baseUrl = typeof value?.baseUrl === "string" ? value.baseUrl : defaultProviderSettings.baseUrl;
   const normalizedBaseUrl = normalizeProviderBaseUrlOrNull(baseUrl);
+  const model =
+    typeof value?.model === "string"
+      ? value.model
+      : mode === "mock"
+        ? "mock-narrator"
+        : getDefaultTextModel(providerId);
+  const contextWindowTokens = readPositiveInteger(value?.contextWindowTokens, 4_096_000);
+  const maxOutputTokens = readPositiveInteger(value?.maxOutputTokens, contextWindowTokens ?? 1_000_000);
+  const pricing = parseModelPricing(value?.pricing, model);
   return {
     mode,
     providerId,
@@ -55,12 +64,10 @@ export function parseProviderSettings(value?: Record<string, unknown>): Provider
           ? "Mock local runtime"
           : "Alibaba Cloud Model Studio / DashScope",
     baseUrl,
-    model:
-      typeof value?.model === "string"
-        ? value.model
-        : mode === "mock"
-          ? "mock-narrator"
-          : getDefaultTextModel(providerId),
+    model,
+    ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
+    ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+    ...(pricing ? { pricing } : {}),
     secretReference:
       secretReference?.providerId === providerId && secretReference.providerBaseUrl === normalizedBaseUrl
         ? secretReference
@@ -99,6 +106,64 @@ export function getConfiguredTextModelInfo(settings: ProviderSettings): ModelInf
     id: settings.model,
     displayName: settings.model,
     providerId: settings.providerId,
+    ...(settings.contextWindowTokens === undefined ? {} : { contextWindow: settings.contextWindowTokens }),
+    ...(settings.maxOutputTokens === undefined ? {} : { maxOutputTokens: settings.maxOutputTokens }),
+  };
+}
+
+/**
+ * Resolves metadata for an explicit routed model without borrowing context
+ * limits that were entered for the selected visible model.
+ */
+export function getConfiguredTextModelInfoForModel(settings: ProviderSettings, model: string): ModelInfo {
+  if (model === settings.model) {
+    return getConfiguredTextModelInfo(settings);
+  }
+  if (settings.providerId === qwen37MaxReferencePreset.providerId && model === qwen37MaxReferencePreset.id) {
+    return { ...qwen37MaxReferencePreset };
+  }
+  return {
+    id: model,
+    displayName: model,
+    providerId: settings.providerId,
+  };
+}
+
+function readPositiveInteger(value: unknown, maximum: number): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.min(maximum, Math.floor(value))
+    : undefined;
+}
+
+function parseModelPricing(value: unknown, model: string): ProviderSettings["pricing"] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    record.model !== model ||
+    record.currency !== "USD" ||
+    typeof record.inputUsdPerMillionTokens !== "number" ||
+    !Number.isFinite(record.inputUsdPerMillionTokens) ||
+    record.inputUsdPerMillionTokens < 0 ||
+    typeof record.outputUsdPerMillionTokens !== "number" ||
+    !Number.isFinite(record.outputUsdPerMillionTokens) ||
+    record.outputUsdPerMillionTokens < 0 ||
+    typeof record.source !== "string" ||
+    record.source.length === 0 ||
+    record.source.length > 200 ||
+    typeof record.effectiveDate !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(record.effectiveDate)
+  ) {
+    return undefined;
+  }
+  return {
+    model,
+    currency: "USD",
+    inputUsdPerMillionTokens: record.inputUsdPerMillionTokens,
+    outputUsdPerMillionTokens: record.outputUsdPerMillionTokens,
+    source: record.source,
+    effectiveDate: record.effectiveDate,
   };
 }
 
@@ -240,6 +305,11 @@ export function toLocalImageQualityDimension(value: string | number): number {
 }
 
 export function parseRuntimeSettings(value?: Record<string, unknown>): RuntimeSettings {
+  const hiddenContinuityMode = value?.hiddenContinuityMode === "off" ||
+    value?.hiddenContinuityMode === "economical" ||
+    value?.hiddenContinuityMode === "full"
+    ? value.hiddenContinuityMode
+    : defaultRuntimeSettings.hiddenContinuityMode;
   return {
     textStreaming: typeof value?.textStreaming === "boolean" ? value.textStreaming : defaultRuntimeSettings.textStreaming,
     banEmojis: typeof value?.banEmojis === "boolean" ? value.banEmojis : defaultRuntimeSettings.banEmojis,
@@ -247,6 +317,11 @@ export function parseRuntimeSettings(value?: Record<string, unknown>): RuntimeSe
       typeof value?.promptDebugLogs === "boolean" ? value.promptDebugLogs : defaultRuntimeSettings.promptDebugLogs,
     diceRollsEnabled:
       typeof value?.diceRollsEnabled === "boolean" ? value.diceRollsEnabled : defaultRuntimeSettings.diceRollsEnabled,
+    hiddenContinuityMode,
+    economicalModel:
+      typeof value?.economicalModel === "string" && value.economicalModel.length <= 200
+        ? value.economicalModel.trim()
+        : defaultRuntimeSettings.economicalModel,
     onboardingCompleted:
       typeof value?.onboardingCompleted === "boolean"
         ? value.onboardingCompleted
@@ -331,16 +406,17 @@ export function createTextProvider(
   card: RuntimeCard,
   draft: string,
   activeLoreCount: number,
+  includeHiddenContinuityCall = true,
 ) {
   if (settings.mode === "mock") {
+    const visibleResponse = JSON.stringify({
+      assistant_message: buildLocalProviderResponse(card, draft, activeLoreCount),
+      extraction: buildMockExtractionProposal(card, draft),
+    });
     return new MockTextProvider({
-      responses: [
-        JSON.stringify(buildMockHiddenContinuityResponse(card, draft)),
-        JSON.stringify({
-          assistant_message: buildLocalProviderResponse(card, draft, activeLoreCount),
-          extraction: buildMockExtractionProposal(card, draft),
-        }),
-      ],
+      responses: includeHiddenContinuityCall
+        ? [JSON.stringify(buildMockHiddenContinuityResponse(card, draft)), visibleResponse]
+        : [visibleResponse],
     });
   }
 

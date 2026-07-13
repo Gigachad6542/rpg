@@ -21,6 +21,23 @@ export default defineConfig({
     },
   },
   test: {
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "app",
+          exclude: [...configDefaults.exclude, "tests/e2e/**", "tests/evals/**"],
+        },
+      },
+      {
+        test: {
+          name: "evals",
+          include: ["tests/evals/**/*.test.ts"],
+          environment: "node",
+          globals: true,
+        },
+      },
+    ],
     exclude: [...configDefaults.exclude, "tests/e2e/**"],
     environment: "jsdom",
     globals: true,

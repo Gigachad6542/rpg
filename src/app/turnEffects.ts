@@ -3,11 +3,14 @@ import type {
   HiddenContinuityResult,
   StoryEntity,
 } from "../runtime/hiddenContinuity";
+import type { HybridRetrievalVisibility, RetrievalProvenance } from "../runtime/hybridRetrieval";
 
 export interface TurnEffectMemoryEntry {
   id: string;
   label: string;
   detail: string;
+  retrievalScope?: RetrievalProvenance;
+  visibility?: HybridRetrievalVisibility;
 }
 
 export interface TurnEffectRpgState {
@@ -36,6 +39,8 @@ export interface HiddenTurnEffectRuntimeCard extends TurnEffectRuntimeCard {
 export interface TurnEffectOptions {
   now?: () => string;
   randomId?: () => string;
+  memoryRetrievalScope?: RetrievalProvenance;
+  memoryVisibility?: HybridRetrievalVisibility;
 }
 
 export interface TurnEffectPolicyContext {
@@ -356,6 +361,8 @@ function toMemoryEntry(
     id: firstString(update, ["id"]) ?? createMemoryId(index, options),
     label,
     detail,
+    ...(options.memoryRetrievalScope ? { retrievalScope: { ...options.memoryRetrievalScope } } : {}),
+    ...(options.memoryVisibility ? { visibility: options.memoryVisibility } : {}),
   };
 }
 

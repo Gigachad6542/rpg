@@ -24,6 +24,7 @@ interface StoredSecretTextResponse {
   text: string;
   finishReason: TextGenerationResponse["finishReason"];
   usage?: Partial<TextGenerationResponse["usage"]>;
+  usageSource?: "provider" | "estimated";
   raw?: unknown;
 }
 
@@ -83,6 +84,13 @@ export class TauriStoredSecretTextProvider implements TextModelAdapter {
         outputTokens,
         totalTokens: response.usage?.totalTokens ?? inputTokens + outputTokens,
       },
+      usageSource: response.usageSource ?? (
+        response.usage?.inputTokens !== undefined &&
+        response.usage.outputTokens !== undefined &&
+        response.usage.totalTokens !== undefined
+          ? "provider"
+          : "estimated"
+      ),
       raw: response.raw,
     };
   }

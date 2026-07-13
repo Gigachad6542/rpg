@@ -3,6 +3,13 @@ import type { ChatSession, Message, PromptRun, RuntimeCard } from "./runtimeType
 import type { LocalRuntimeSnapshot } from "./localRuntimeStore";
 import { isRecord } from "./appUtils";
 import { createRuntimeTurnLineage, parseRuntimeTurnLineage } from "../runtime/runtimeTurnLineage";
+import { parseAuthoritativeEventStream } from "../runtime/authoritativeEventStream";
+import {
+  advanceRollingSummary,
+  MAX_ROLLING_SUMMARY_CHARACTERS,
+  parseRollingSummary,
+  reconcileRollingSummaryForHistory,
+} from "../runtime/rollingSummary";
 
 export function parseChatSessions(
   value: unknown,
@@ -16,7 +23,7 @@ export function parseChatSessions(
         .filter(isRecord)
         .map((session): ChatSession | null => {
           const cardId = typeof session.cardId === "string" && cardIds.has(session.cardId) ? session.cardId : null;
-          if (!cardId || typeof session.id !== "string") {
+          if (!cardId || typeof session.id !== "string" || !session.id.trim()) {
             return null;
           }
           const card = cards.find((candidate) => candidate.id === cardId);
@@ -24,6 +31,12 @@ export function parseChatSessions(
             return null;
           }
           const messages = sanitizeMessages(session.messages);
+          const parsedRollingSummary = parseRollingSummary(session.rollingSummary);
+          const rollingSummary = reconcileRollingSummaryForHistory(
+            parsedRollingSummary,
+            messages,
+            { cardId, chatId: session.id, branchId: session.id },
+          ) ?? undefined;
           return {
             id: session.id,
             cardId,
@@ -34,7 +47,13 @@ export function parseChatSessions(
             createdAt: typeof session.createdAt === "string" ? session.createdAt : new Date().toISOString(),
             updatedAt: typeof session.updatedAt === "string" ? session.updatedAt : new Date().toISOString(),
             messages,
-            turnLineage: parseRuntimeTurnLineage(session.turnLineage, card),
+            turnLineage: parseRuntimeTurnLineage(
+              session.turnLineage,
+              card,
+              { level: "branch", chatId: session.id, branchId: session.id },
+            ),
+            authoritativeEvents: parseAuthoritativeEventStream(session.authoritativeEvents),
+            rollingSummary,
           };
         })
         .filter((session): session is ChatSession => Boolean(session))
@@ -138,11 +157,20 @@ export function sanitizeMessages(value: unknown): Message[] {
 export function createChatSession(
   cardId: string,
   title: string,
-  options: Partial<Pick<ChatSession, "id" | "branchOfId" | "branchedFromMessageId" | "messages" | "turnLineage">> = {},
+  options: Partial<Pick<
+    ChatSession,
+    "id" | "branchOfId" | "branchedFromMessageId" | "messages" | "turnLineage" | "authoritativeEvents" | "rollingSummary"
+  >> = {},
 ): ChatSession {
   const now = new Date().toISOString();
   const id = options.id ?? createRuntimeEntityId("chat");
   const messages = sanitizeMessages(options.messages ?? []);
+  const parsedRollingSummary = parseRollingSummary(options.rollingSummary);
+  const rollingSummary = reconcileRollingSummaryForHistory(
+    parsedRollingSummary,
+    messages,
+    { cardId, chatId: id, branchId: id },
+  ) ?? undefined;
   return {
     id,
     cardId,
@@ -153,7 +181,24 @@ export function createChatSession(
     updatedAt: now,
     messages,
     ...(options.turnLineage ? { turnLineage: options.turnLineage } : {}),
+    ...(options.authoritativeEvents ? { authoritativeEvents: parseAuthoritativeEventStream(options.authoritativeEvents) } : {}),
+    ...(rollingSummary ? { rollingSummary } : {}),
   };
+}
+
+export function advanceChatSessionRollingSummary(
+  chat: Pick<ChatSession, "id" | "cardId" | "rollingSummary">,
+  messages: Message[],
+  now: string,
+): ChatSession["rollingSummary"] {
+  return advanceRollingSummary({
+    previous: chat.rollingSummary ?? null,
+    messages,
+    scope: { cardId: chat.cardId, chatId: chat.id, branchId: chat.id },
+    retainRecentMessages: 12,
+    maxCharacters: MAX_ROLLING_SUMMARY_CHARACTERS,
+    now,
+  }) ?? undefined;
 }
 
 export function cloneMessagesForBranch(messages: Message[], branchId: string): Message[] {

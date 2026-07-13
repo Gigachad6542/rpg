@@ -70,6 +70,28 @@ class ExtractionStreamingTextAdapter extends RecordingTextAdapter {
   }
 }
 
+class TruncatedStreamingTextAdapter extends RecordingTextAdapter {
+  async *streamText(request: TextGenerationRequest) {
+    this.requests.push(request);
+    yield { text: "A partial reply", index: 0, done: false };
+  }
+}
+
+class UsageStreamingTextAdapter extends RecordingTextAdapter {
+  async *streamText(request: TextGenerationRequest) {
+    this.requests.push(request);
+    yield { text: "Usage-aware reply", index: 0, done: false };
+    yield {
+      text: "",
+      index: 1,
+      done: true,
+      finishReason: "stop" as const,
+      usage: { inputTokens: 44, outputTokens: 5, totalTokens: 49 },
+      usageSource: "provider" as const,
+    };
+  }
+}
+
 describe("turn pipeline", () => {
   it("sends the visible response contract exactly once at system priority", async () => {
     const adapter = new RecordingTextAdapter({
@@ -337,6 +359,29 @@ describe("turn pipeline", () => {
     expect(saveStateProposals).toHaveBeenCalledWith(result.stateProposals);
   });
 
+  it.each([
+    ["an error finish reason", "This response must not commit.", "error" as const],
+    ["an empty response", "   ", "stop" as const],
+  ])("fails closed for %s before persisting assistant text or state", async (_label, text, finishReason) => {
+    const adapter = new RecordingTextAdapter({
+      text,
+      finishReason,
+      usage: { inputTokens: 20, outputTokens: 3, totalTokens: 23 },
+    });
+    const savePromptRun = vi.fn();
+    const saveAssistantMessage = vi.fn();
+    const saveStateProposals = vi.fn();
+
+    await expect(runTurnPipeline({
+      ...baseRequest(adapter),
+      persistence: { savePromptRun, saveAssistantMessage, saveStateProposals },
+    })).rejects.toThrow(/provider|empty|response/i);
+
+    expect(savePromptRun).not.toHaveBeenCalled();
+    expect(saveAssistantMessage).not.toHaveBeenCalled();
+    expect(saveStateProposals).not.toHaveBeenCalled();
+  });
+
   it("uses streamText when streaming is preferred and available", async () => {
     const adapter = new StreamingTextAdapter({
       text: "unused",
@@ -389,6 +434,35 @@ describe("turn pipeline", () => {
     expect(result.stateProposals.rpgStateUpdates.location).toBe("Gatehouse");
   });
 
+  it("rejects a streaming response that ends without a terminal chunk", async () => {
+    const adapter = new TruncatedStreamingTextAdapter({
+      text: "unused",
+      finishReason: "stop",
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    });
+
+    await expect(runTurnPipeline({
+      ...baseRequest(adapter),
+      preferStreaming: true,
+    })).rejects.toThrow(/stream.*incomplete|terminal/i);
+  });
+
+  it("preserves provider-reported usage from a terminal streaming chunk", async () => {
+    const adapter = new UsageStreamingTextAdapter({
+      text: "unused",
+      finishReason: "stop",
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    });
+
+    const result = await runTurnPipeline({
+      ...baseRequest(adapter),
+      preferStreaming: true,
+    });
+
+    expect(result.promptRun.usage).toEqual({ inputTokens: 44, outputTokens: 5, totalTokens: 49 });
+    expect(result.promptRun.usageSource).toBe("provider");
+  });
+
   it("passes the caller abort signal to normal and streaming requests", async () => {
     const controller = new AbortController();
     const normal = new RecordingTextAdapter({
@@ -432,7 +506,7 @@ describe("turn pipeline", () => {
       ],
       loreEntries: [{ id: "lore-keep", content: "small lore", priority: 10 }],
       tokenBudget: {
-        maxInputTokens: 1_600,
+        maxInputTokens: 1_700,
         reservedOutputTokens: 200,
       },
       estimator: (text) => text.length,
@@ -465,7 +539,7 @@ describe("turn pipeline", () => {
         { id: "lore-trimmed", content: "oversized lore ".repeat(140), priority: 1 },
       ],
       tokenBudget: {
-        maxInputTokens: 1_600,
+        maxInputTokens: 1_700,
         reservedOutputTokens: 200,
       },
       estimator: (text) => text.length,
@@ -631,6 +705,27 @@ describe("turn pipeline", () => {
         required: true,
       }),
     ]));
+  });
+
+  it("preserves precomputed hybrid lore rank while priority-sorting unranked callers", () => {
+    const { modelAdapter: _adapter, model: _model, ...request } = baseRequest(
+      new RecordingTextAdapter({
+        text: "",
+        finishReason: "stop",
+        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      }),
+    );
+    const ranked = compileTurnPrompt({
+      ...request,
+      loreEntries: [
+        { id: "best", title: "Best match", content: "Best semantic match.", priority: 1, retrievalRank: 0 },
+        { id: "priority", title: "High priority", content: "Weaker match.", priority: 100, retrievalRank: 1 },
+      ],
+    });
+
+    expect(ranked.prompt.indexOf("[Best match | priority 1]")).toBeLessThan(
+      ranked.prompt.indexOf("[High priority | priority 100]"),
+    );
   });
 
   it("parses raw extraction payloads and ignores malformed JSON candidates", async () => {

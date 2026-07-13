@@ -271,6 +271,8 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   banEmojis: false,
   promptDebugLogs: false,
   diceRollsEnabled: false,
+  hiddenContinuityMode: "full",
+  economicalModel: "",
   onboardingCompleted: false,
   accentColor: "",
 };

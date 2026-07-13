@@ -98,6 +98,51 @@ describe("runtime repository store", () => {
     }
   });
 
+  it("drops fabricated or secret-bearing model-call telemetry loaded from the desktop repository", async () => {
+    const snapshot = createMinimalSnapshot();
+    snapshot.promptRuns = [{
+      ...createPromptRun("run_tampered", undefined),
+      modelCalls: [{
+        phase: "visible-response",
+        provider: "openrouter",
+        model: "priced-model",
+        usage: { inputTokens: 1_000, outputTokens: 500, totalTokens: 9_999 },
+        durationMs: 12,
+        status: "error",
+        usageSource: "provider",
+        cost: { status: "unknown", currency: "USD" },
+        failure: {
+          category: "authentication",
+          message: "token=ghp_abcdefghijklmnopqrstuvwxyz123456",
+        },
+      }],
+    }];
+    const invokeImpl = async <T>(command: string): Promise<T> => {
+      if (command === "initialize_runtime_repository") {
+        return {
+          backend: "tauri-sqlite",
+          schemaVersion: 1,
+          migrations: [],
+        } as T;
+      }
+      if (command === "load_runtime_snapshot") {
+        return { snapshot } as T;
+      }
+      throw new Error(`unexpected command ${command}`);
+    };
+    const restoreTauri = setTauriRuntimeForTest();
+
+    try {
+      const store = await RuntimeRepositoryStore.create({ invokeImpl } as never);
+      const loaded = await store.loadSnapshot();
+
+      expect(loaded?.promptRuns[0]).not.toHaveProperty("modelCalls");
+      expect(JSON.stringify(loaded)).not.toMatch(/ghp_|abcdefghijklmnopqrstuvwxyz123456/i);
+    } finally {
+      restoreTauri();
+    }
+  });
+
   it("saves and loads the runtime snapshot through existing repositories", async () => {
     const driver = createInMemorySqlDriver();
     await runMigrations(driver, sqliteMigrations);

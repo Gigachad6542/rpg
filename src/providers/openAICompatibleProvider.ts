@@ -125,6 +125,12 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
           outputTokens,
           totalTokens: payload.usage?.total_tokens ?? inputTokens + outputTokens,
         },
+        usageSource:
+          payload.usage?.prompt_tokens !== undefined &&
+          payload.usage.completion_tokens !== undefined &&
+          payload.usage.total_tokens !== undefined
+            ? "provider"
+            : "estimated",
         raw: payload,
       };
     } finally {
@@ -179,6 +185,8 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
       const decoder = new TextDecoder();
       let buffer = "";
       let index = 0;
+      let finishReason: TextGenerationResponse["finishReason"] | undefined;
+      let usage: TextGenerationResponse["usage"] | undefined;
 
       while (true) {
         const { done, value } = await timeout.run(reader.read());
@@ -190,17 +198,25 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
         buffer = lines.pop() ?? "";
 
         for (const line of lines) {
-          const chunkText = parseStreamLine(line);
-          if (chunkText === undefined) {
+          const event = parseStreamLine(line);
+          if (!event) {
             continue;
           }
-          if (chunkText === "[DONE]") {
-            yield { text: "", index, done: true };
+          finishReason = event.finishReason ?? finishReason;
+          usage = event.usage ?? usage;
+          if (event.doneMarker) {
+            yield {
+              text: "",
+              index,
+              done: true,
+              finishReason: finishReason ?? "stop",
+              ...(usage ? { usage, usageSource: "provider" as const } : {}),
+            };
             return;
           }
-          if (chunkText.length > 0) {
+          if (event.text.length > 0) {
             yield {
-              text: chunkText,
+              text: event.text,
               index,
               done: false,
             };
@@ -209,7 +225,39 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
         }
       }
 
-      yield { text: "", index, done: true };
+      buffer += decoder.decode();
+      if (buffer.trim()) {
+        const event = parseStreamLine(buffer);
+        if (event) {
+          finishReason = event.finishReason ?? finishReason;
+          usage = event.usage ?? usage;
+          if (event.text.length > 0) {
+            yield { text: event.text, index, done: false };
+            index += 1;
+          }
+          if (event.doneMarker) {
+            yield {
+              text: "",
+              index,
+              done: true,
+              finishReason: finishReason ?? "stop",
+              ...(usage ? { usage, usageSource: "provider" as const } : {}),
+            };
+            return;
+          }
+        }
+      }
+
+      if (!finishReason) {
+        throw new Error("OpenAI-compatible provider stream was incomplete because it ended without a terminal marker or finish reason.");
+      }
+      yield {
+        text: "",
+        index,
+        done: true,
+        finishReason,
+        ...(usage ? { usage, usageSource: "provider" as const } : {}),
+      };
     } finally {
       timeout.cleanup();
     }
@@ -365,14 +413,21 @@ function mapFinishReason(reason?: string | null): TextGenerationResponse["finish
   }
 }
 
-function parseStreamLine(line: string): string | undefined {
+interface ParsedStreamEvent {
+  text: string;
+  doneMarker: boolean;
+  finishReason?: TextGenerationResponse["finishReason"];
+  usage?: TextGenerationResponse["usage"];
+}
+
+function parseStreamLine(line: string): ParsedStreamEvent | undefined {
   const trimmed = line.trim();
   if (!trimmed.startsWith("data:")) {
     return undefined;
   }
   const data = trimmed.slice("data:".length).trim();
   if (data === "[DONE]") {
-    return "[DONE]";
+    return { text: "", doneMarker: true };
   }
 
   try {
@@ -381,10 +436,40 @@ function parseStreamLine(line: string): string | undefined {
         delta?: {
           content?: string | null;
         };
+        finish_reason?: string | null;
       }>;
+      usage?: ChatCompletionResponse["usage"];
     };
-    return parsed.choices?.[0]?.delta?.content ?? "";
+    const reportedUsage = readCompleteStreamUsage(parsed.usage);
+    const rawFinishReason = parsed.choices?.[0]?.finish_reason;
+    return {
+      text: parsed.choices?.[0]?.delta?.content ?? "",
+      doneMarker: false,
+      ...(typeof rawFinishReason === "string" ? { finishReason: mapFinishReason(rawFinishReason) } : {}),
+      ...(reportedUsage ? { usage: reportedUsage } : {}),
+    };
   } catch {
     return undefined;
   }
+}
+
+function readCompleteStreamUsage(
+  usage: ChatCompletionResponse["usage"] | undefined,
+): TextGenerationResponse["usage"] | undefined {
+  if (
+    !usage ||
+    !Number.isFinite(usage.prompt_tokens) ||
+    !Number.isFinite(usage.completion_tokens) ||
+    !Number.isFinite(usage.total_tokens) ||
+    (usage.prompt_tokens ?? -1) < 0 ||
+    (usage.completion_tokens ?? -1) < 0 ||
+    (usage.total_tokens ?? -1) < 0
+  ) {
+    return undefined;
+  }
+  return {
+    inputTokens: usage.prompt_tokens!,
+    outputTokens: usage.completion_tokens!,
+    totalTokens: usage.total_tokens!,
+  };
 }

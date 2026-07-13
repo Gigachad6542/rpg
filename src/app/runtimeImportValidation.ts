@@ -1,6 +1,14 @@
 import { z } from "zod";
+import {
+  MAX_ROLLING_SUMMARY_CHARACTERS,
+  MAX_STORED_ROLLING_SUMMARY_MESSAGES,
+} from "../runtime/rollingSummary";
 
 import type { LocalRuntimeSnapshot } from "./localRuntimeStore";
+import {
+  containsSecretLikeTelemetry,
+  isConsistentModelCallRecord,
+} from "./modelCallRecordValidation";
 
 export const RUNTIME_IMPORT_LIMITS = {
   bytes: 10 * 1024 * 1024,
@@ -84,11 +92,23 @@ const LorebookSchema = z
   })
   .passthrough();
 
+const RetrievalProvenanceSchema = z.discriminatedUnion("level", [
+  z.object({ level: z.literal("card-global") }).strict(),
+  z.object({ level: z.literal("chat"), chatId: NonEmptyIdSchema.max(256) }).strict(),
+  z.object({
+    level: z.literal("branch"),
+    chatId: NonEmptyIdSchema.max(256),
+    branchId: NonEmptyIdSchema.max(256),
+  }).strict(),
+]);
+
 const MemoryEntrySchema = z
   .object({
     id: NonEmptyIdSchema,
     label: z.string(),
     detail: z.string(),
+    retrievalScope: RetrievalProvenanceSchema.optional(),
+    visibility: z.enum(["narrator", "player-visible", "character-private"]).optional(),
   })
   .passthrough();
 
@@ -158,6 +178,21 @@ const ChatSessionSchema = z
     updatedAt: z.string().optional(),
     messages: z.array(MessageSchema).optional(),
     turnLineage: z.record(z.unknown()).optional(),
+    authoritativeEvents: z.array(z.record(z.unknown())).max(10_000).optional(),
+    rollingSummary: z.object({
+      scope: z.object({
+        cardId: NonEmptyIdSchema.max(256),
+        chatId: NonEmptyIdSchema.max(256),
+        branchId: NonEmptyIdSchema.max(256),
+      }).strict(),
+      text: z.string().min(1).max(MAX_ROLLING_SUMMARY_CHARACTERS),
+      coveredMessageIds: z.array(NonEmptyIdSchema.max(256)).min(1).max(MAX_STORED_ROLLING_SUMMARY_MESSAGES),
+      coveredMessageFingerprints: z.array(z.string().regex(/^[0-9a-f]{8}$/)).min(1).max(MAX_STORED_ROLLING_SUMMARY_MESSAGES),
+      coveredMessageCount: z.number().int().positive().max(1_000_000).optional(),
+      coverageFingerprint: z.string().regex(/^[0-9a-f]{16}$/).optional(),
+      throughMessageId: NonEmptyIdSchema.max(256),
+      updatedAt: z.string(),
+    }).strict().optional(),
   })
   .passthrough();
 
@@ -169,6 +204,39 @@ const TokenUsageSchema = z
   })
   .passthrough();
 
+const PricingSnapshotSchema = z.object({
+  model: z.string().min(1).max(300),
+  currency: z.literal("USD"),
+  inputUsdPerMillionTokens: z.number().finite().nonnegative(),
+  outputUsdPerMillionTokens: z.number().finite().nonnegative(),
+  source: z.string().min(1).max(200),
+  effectiveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+}).strict();
+
+const ModelCallCostSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("known"),
+    currency: z.literal("USD"),
+    amountUsd: z.number().finite().nonnegative(),
+    pricing: PricingSnapshotSchema,
+  }).strict(),
+  z.object({
+    status: z.literal("estimated"),
+    currency: z.literal("USD"),
+    amountUsd: z.number().finite().nonnegative(),
+    pricing: PricingSnapshotSchema,
+  }).strict(),
+  z.object({
+    status: z.literal("unknown"),
+    currency: z.literal("USD"),
+  }).strict(),
+]);
+
+const ModelCallFailureSchema = z.object({
+  category: z.enum(["aborted", "authentication", "rate-limit", "network", "validation", "provider", "unknown"]),
+  message: z.string().min(1).max(240).refine((message) => !containsSecretLikeTelemetry(message)),
+}).strict();
+
 const ModelCallSchema = z
   .object({
     phase: z.enum(["hidden-continuity", "visible-response"]),
@@ -176,10 +244,17 @@ const ModelCallSchema = z
     model: z.string(),
     usage: TokenUsageSchema,
     inputBudgetTokens: z.number().nonnegative().optional(),
+    effectiveContextWindowTokens: z.number().positive().max(4_096_000).optional(),
+    budgetSource: z.enum(["model-metadata", "conservative-fallback"]).optional(),
     durationMs: z.number().nonnegative(),
     status: z.enum(["success", "error"]),
+    usageSource: z.enum(["provider", "estimated", "unavailable"]).optional(),
+    cost: ModelCallCostSchema.optional(),
+    failure: ModelCallFailureSchema.optional(),
+    stateProposalCount: z.number().int().nonnegative().max(10_000).optional(),
   })
-  .passthrough();
+  .passthrough()
+  .refine(isConsistentModelCallRecord, { message: "Model-call telemetry is internally inconsistent." });
 
 const PromptRunSchema = z
   .object({

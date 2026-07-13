@@ -135,6 +135,7 @@ struct StoredTextGenerationResponse {
     text: String,
     finish_reason: String,
     usage: TextUsage,
+    usage_source: &'static str,
     raw: serde_json::Value,
 }
 
@@ -304,12 +305,15 @@ async fn generate_text_with_stored_secret(
         .usage
         .as_ref()
         .and_then(|usage| usage.prompt_tokens)
-        .unwrap_or_else(|| estimate_text_tokens(&request.prompt));
+        .unwrap_or_else(|| {
+            estimate_generation_input_tokens(&request.prompt, request.system_prompt.as_deref())
+        });
     let output_tokens = parsed
         .usage
         .as_ref()
         .and_then(|usage| usage.completion_tokens)
         .unwrap_or_else(|| estimate_text_tokens(&text));
+    let usage_source = usage_source(&parsed.usage);
 
     Ok(StoredTextGenerationResponse {
         provider_id,
@@ -325,6 +329,7 @@ async fn generate_text_with_stored_secret(
                 .and_then(|usage| usage.total_tokens)
                 .unwrap_or(input_tokens + output_tokens),
         },
+        usage_source,
         raw,
     })
 }
@@ -769,6 +774,28 @@ fn estimate_text_tokens(value: &str) -> u32 {
     (chars / 4).max(1)
 }
 
+fn estimate_generation_input_tokens(prompt: &str, system_prompt: Option<&str>) -> u32 {
+    let system_tokens = system_prompt
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(estimate_text_tokens)
+        .unwrap_or(0);
+    estimate_text_tokens(prompt).saturating_add(system_tokens)
+}
+
+fn usage_source(usage: &Option<ChatCompletionUsage>) -> &'static str {
+    match usage {
+        Some(usage)
+            if usage.prompt_tokens.is_some()
+                && usage.completion_tokens.is_some()
+                && usage.total_tokens.is_some() =>
+        {
+            "provider"
+        }
+        _ => "estimated",
+    }
+}
+
 fn normalize_identifier(value: &str, label: &str) -> Result<String, String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -858,6 +885,16 @@ mod tests {
         assert_eq!(usage_source(&complete), "provider");
         assert_eq!(usage_source(&partial), "estimated");
         assert_eq!(usage_source(&None), "estimated");
+    }
+
+    #[test]
+    fn estimated_generation_input_tokens_include_nonempty_system_prompt() {
+        assert_eq!(estimate_generation_input_tokens("1234", None), 1);
+        assert_eq!(estimate_generation_input_tokens("1234", Some("   ")), 1);
+        assert_eq!(
+            estimate_generation_input_tokens("1234", Some("abcdefgh")),
+            3
+        );
     }
 
     #[test]

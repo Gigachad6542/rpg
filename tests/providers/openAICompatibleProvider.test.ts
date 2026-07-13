@@ -185,6 +185,59 @@ describe("OpenAI-compatible text provider", () => {
     });
   });
 
+  it("rejects a stream that closes without a done marker or finish reason", async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'));
+        controller.close();
+      },
+    });
+    const provider = new OpenAICompatibleTextProvider({
+      baseUrl: "https://example.test/v1",
+      apiKey: "session-key",
+      fetchImpl: vi.fn(async () => new Response(stream, { status: 200 })) as unknown as typeof fetch,
+    });
+
+    await expect(async () => {
+      for await (const _chunk of provider.streamText?.({ model: "qwen3.7-max", prompt: "Hello" }) ?? []) {
+        // Exhaust the stream so terminal validation executes.
+      }
+    }).rejects.toThrow(/stream.*incomplete|terminal/i);
+  });
+
+  it("accepts a stream that closes after an explicit provider finish reason", async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"complete"}}]}\n\n'));
+        controller.enqueue(encoder.encode('data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":2,"total_tokens":10}}\n\n'));
+        controller.close();
+      },
+    });
+    const provider = new OpenAICompatibleTextProvider({
+      baseUrl: "https://example.test/v1",
+      apiKey: "session-key",
+      fetchImpl: vi.fn(async () => new Response(stream, { status: 200 })) as unknown as typeof fetch,
+    });
+
+    const chunks = [];
+    for await (const chunk of provider.streamText?.({ model: "qwen3.7-max", prompt: "Hello" }) ?? []) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toEqual([
+      expect.objectContaining({ text: "complete", done: false }),
+      expect.objectContaining({
+        text: "",
+        done: true,
+        finishReason: "stop",
+        usage: { inputTokens: 8, outputTokens: 2, totalTokens: 10 },
+        usageSource: "provider",
+      }),
+    ]);
+  });
+
   it("redacts sensitive provider error bodies", async () => {
     const fetchImpl = vi
       .fn()

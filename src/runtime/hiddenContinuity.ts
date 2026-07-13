@@ -5,6 +5,7 @@ import type {
   TextModelAdapter,
 } from "../providers/TextModelAdapter";
 import { estimateTextTokens, trimTextToTokenLimit } from "./tokenBudget";
+import type { HybridRetrievalVisibility, RetrievalProvenance } from "./hybridRetrieval";
 
 export type StoryEntityKind = "player" | "character" | "faction" | "group";
 
@@ -23,6 +24,8 @@ export interface HiddenContinuityMemoryEntry {
   id: string;
   label: string;
   detail: string;
+  retrievalScope?: RetrievalProvenance;
+  visibility?: HybridRetrievalVisibility;
 }
 
 export interface HiddenContinuityCard {
@@ -84,6 +87,7 @@ export interface HiddenContinuityRunRequest {
   latestUserMessage: string;
   activeLoreCount: number;
   pendingReviewProposals?: readonly string[];
+  rollingSummary?: string;
   inputBudgetTokens?: number;
   maxOutputTokens?: number;
   now?: () => string;
@@ -96,6 +100,7 @@ export interface HiddenContinuityPromptRequest {
   latestUserMessage: string;
   activeLoreCount: number;
   pendingReviewProposals?: readonly string[];
+  rollingSummary?: string;
   inputBudgetTokens?: number;
   now: string;
 }
@@ -103,6 +108,8 @@ export interface HiddenContinuityPromptRequest {
 export interface HiddenContinuityApplyOptions {
   now?: () => string;
   randomId?: () => string;
+  memoryRetrievalScope?: RetrievalProvenance;
+  memoryVisibility?: HybridRetrievalVisibility;
 }
 
 export const MAX_ENTITY_FACT_ENTRIES = 16;
@@ -134,6 +141,7 @@ export async function runHiddenContinuityPass(
     latestUserMessage: request.latestUserMessage,
     activeLoreCount: request.activeLoreCount,
     pendingReviewProposals: request.pendingReviewProposals,
+    rollingSummary: request.rollingSummary,
     inputBudgetTokens: request.inputBudgetTokens,
     now: request.now?.() ?? new Date().toISOString(),
   });
@@ -150,6 +158,13 @@ export async function runHiddenContinuityPass(
     },
   };
   const response = await request.modelAdapter.generateText(generationRequest);
+
+  if (response.finishReason === "error") {
+    throw new Error("Provider returned an error finish reason for hidden continuity.");
+  }
+  if (response.text.trim().length === 0) {
+    throw new Error("Provider returned an empty hidden continuity response.");
+  }
 
   return parseHiddenContinuityResponse(response.text);
 }
@@ -254,6 +269,11 @@ export function buildHiddenContinuityPrompt(request: HiddenContinuityPromptReque
     context.entityLines.pop();
     context.omittedEntities = true;
   }
+  if (!fits() && context.rollingSummary) {
+    context.rollingSummary = trimFieldUntilPromptFits(context.rollingSummary, fits, (value) => {
+      context.rollingSummary = value;
+    });
+  }
 
   if (!fits()) {
     context.includeKnownPlaces = false;
@@ -319,6 +339,7 @@ interface HiddenPromptContext {
   entityLines: string[];
   recentMessages: string[];
   reviewProposals: string[];
+  rollingSummary: string;
   includeNow: boolean;
   includeLoreCount: boolean;
   includeInventory: boolean;
@@ -351,6 +372,7 @@ function createHiddenPromptContext(request: HiddenContinuityPromptRequest): Hidd
     reviewProposals: (request.pendingReviewProposals ?? [])
       .filter((proposal) => proposal.trim())
       .map((proposal) => proposal.trim()),
+    rollingSummary: (request.rollingSummary ?? "").slice(-6_000),
     includeNow: true,
     includeLoreCount: true,
     includeInventory: true,
@@ -398,6 +420,9 @@ function renderHiddenContinuityUserPrompt(
     : context.omittedReviewProposals
       ? "Some blocked review proposals were omitted to fit the input budget."
       : "";
+  const rollingSummarySection = context.rollingSummary
+    ? `Local extractive rolling branch summary:\n${context.rollingSummary}`
+    : "";
 
   return [
     context.includeNow ? `Now: ${request.now}` : "",
@@ -408,6 +433,7 @@ function renderHiddenContinuityUserPrompt(
     entitySection,
     rpgLines.length > 0 ? `Current RPG state:\n${rpgLines.join("\n")}` : "Current RPG state: none",
     recentSection,
+    rollingSummarySection,
     reviewSection,
     `Latest visible user message:\n${context.latestUserMessage}`,
   ]
@@ -514,6 +540,8 @@ export function applyHiddenContinuityToCard<T extends HiddenContinuityCard>(
       id: update.id || createDatedId("memory", now, randomId()),
       label: update.label || "Continuity",
       detail: update.detail,
+      ...(options.memoryRetrievalScope ? { retrievalScope: { ...options.memoryRetrievalScope } } : {}),
+      ...(options.memoryVisibility ? { visibility: options.memoryVisibility } : {}),
     });
   }
 

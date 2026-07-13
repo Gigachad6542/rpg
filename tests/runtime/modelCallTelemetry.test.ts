@@ -39,6 +39,49 @@ describe("model-call telemetry", () => {
     ).toEqual({ status: "unknown", currency: "USD" });
   });
 
+  it("never reports an exact cost when usage is unavailable", () => {
+    const pricing = {
+      model: "priced-model",
+      currency: "USD" as const,
+      inputUsdPerMillionTokens: 1,
+      outputUsdPerMillionTokens: 2,
+      source: "test fixture",
+      effectiveDate: "2026-07-01",
+    };
+
+    expect(
+      calculateModelCallCost(
+        { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        pricing,
+        "unavailable",
+      ),
+    ).toEqual({ status: "unknown", currency: "USD" });
+  });
+
+  it("marks cost derived from estimated tokens as estimated", () => {
+    const pricing = {
+      model: "priced-model",
+      currency: "USD" as const,
+      inputUsdPerMillionTokens: 1,
+      outputUsdPerMillionTokens: 2,
+      source: "test fixture",
+      effectiveDate: "2026-07-01",
+    };
+
+    expect(
+      calculateModelCallCost(
+        { inputTokens: 1_000, outputTokens: 500, totalTokens: 1_500 },
+        pricing,
+        "estimated",
+      ),
+    ).toEqual({
+      status: "estimated",
+      currency: "USD",
+      amountUsd: 0.002,
+      pricing,
+    });
+  });
+
   it("recognizes zero-cost mock calls and rejects a snapshot for another model", () => {
     expect(resolveModelPricing({ providerId: "mock", model: "mock-narrator" })).toMatchObject({
       model: "mock-narrator",

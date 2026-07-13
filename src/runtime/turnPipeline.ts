@@ -1,6 +1,7 @@
 import type {
   TextGenerationRequest,
   TextGenerationResponse,
+  TextChunk,
   TextModelAdapter,
   TextUsage,
 } from "../providers/TextModelAdapter";
@@ -59,6 +60,8 @@ export interface TurnPipelineLoreEntry {
   readonly content: string;
   readonly enabled?: boolean;
   readonly priority?: number;
+  /** Optional precomputed retrieval order; lower ranks are emitted first. */
+  readonly retrievalRank?: number;
   readonly sourceIds?: readonly string[];
 }
 
@@ -149,6 +152,7 @@ export interface TurnPromptRunMetadata {
   readonly completedAt: string;
   readonly finishReason: TextGenerationResponse["finishReason"];
   readonly usage: TextUsage;
+  readonly usageSource?: TextGenerationResponse["usageSource"];
   readonly extractionValidated: boolean;
   readonly metadata?: Record<string, unknown>;
 }
@@ -213,6 +217,9 @@ export const TURN_PIPELINE_LAYER_IDS = {
   assistantPrefill: "assistant-prefill",
 } as const;
 
+const DEFAULT_KNOWLEDGE_SAFETY_BOUNDARY =
+  "Never reveal narrator-only or out-of-scope facts; characters may use only active-branch facts.";
+
 type Awaitable<T> = T | Promise<T>;
 
 interface ResolvedLatestUserMessage {
@@ -262,6 +269,8 @@ export async function runTurnPipeline(request: RunTurnPipelineRequest): Promise<
     request.preferStreaming && request.modelAdapter.streamText
       ? await collectStreamedText(request, generationRequest)
       : await request.modelAdapter.generateText(generationRequest);
+
+  assertUsableGenerationResponse(generationResponse);
 
   if (generationResponse.finishReason !== "stop") {
     warnings.push({
@@ -324,6 +333,7 @@ export async function runTurnPipeline(request: RunTurnPipelineRequest): Promise<
     completedAt,
     finishReason: generationResponse.finishReason,
     usage: generationResponse.usage,
+    usageSource: generationResponse.usageSource,
     extractionValidated: extractionValidation.success,
     metadata: request.metadata,
   };
@@ -375,7 +385,11 @@ async function collectStreamedText(
   let text = "";
   let chunkCount = 0;
   let lastVisibleText = "";
+  let terminalChunk: TextChunk | undefined;
   for await (const chunk of request.modelAdapter.streamText?.(generationRequest) ?? []) {
+    if (terminalChunk) {
+      throw new Error("Provider stream emitted data after its terminal chunk.");
+    }
     text += chunk.text;
     chunkCount = Math.max(chunkCount, chunk.index + 1);
     if (chunk.text.length > 0) {
@@ -385,27 +399,47 @@ async function collectStreamedText(
         await request.onStreamText?.(visibleText);
       }
     }
+    if (chunk.done) {
+      terminalChunk = chunk;
+    }
   }
 
-  const inputTokens = estimateTextTokens(
+  if (!terminalChunk) {
+    throw new Error("Provider stream was incomplete because it ended without a terminal chunk.");
+  }
+
+  const estimatedInputTokens = estimateTextTokens(
     [generationRequest.systemPrompt, generationRequest.prompt].filter(isNonEmptyString).join("\n\n"),
   );
-  const outputTokens = estimateTextTokens(text);
+  const estimatedOutputTokens = estimateTextTokens(text);
+  const usage = terminalChunk.usage ?? {
+    inputTokens: estimatedInputTokens,
+    outputTokens: estimatedOutputTokens,
+    totalTokens: estimatedInputTokens + estimatedOutputTokens,
+  };
   return {
     providerId: request.modelAdapter.id,
     model: request.model,
     text,
-    finishReason: "stop",
-    usage: {
-      inputTokens,
-      outputTokens,
-      totalTokens: inputTokens + outputTokens,
-    },
+    finishReason: terminalChunk.finishReason ?? "stop",
+    usage,
+    usageSource: terminalChunk.usage
+      ? terminalChunk.usageSource ?? "provider"
+      : "estimated",
     raw: {
       streamed: true,
       chunkCount,
     },
   };
+}
+
+function assertUsableGenerationResponse(response: TextGenerationResponse): void {
+  if (response.finishReason === "error") {
+    throw new Error("Provider returned an error finish reason.");
+  }
+  if (response.text.trim().length === 0) {
+    throw new Error("Provider returned an empty response.");
+  }
 }
 
 function getVisibleStreamingText(value: string): string {
@@ -473,9 +507,10 @@ export function buildTurnPromptLayers(
   const historyMessages = request.messages
     .filter((_, index) => index !== latestUserMessage.messageIndex)
     .slice(-historyLimit);
-  const knowledgeBoundaries = [request.card?.knowledgeBoundaries, request.knowledgeBoundaries]
+  const configuredKnowledgeBoundaries = [request.card?.knowledgeBoundaries, request.knowledgeBoundaries]
     .filter(isNonEmptyString)
     .join("\n\n");
+  const knowledgeBoundaries = configuredKnowledgeBoundaries || DEFAULT_KNOWLEDGE_SAFETY_BOUNDARY;
 
   return [
     createLayer({
@@ -487,7 +522,7 @@ export function buildTurnPromptLayers(
       id: TURN_PIPELINE_LAYER_IDS.modeRules,
       kind: "modeRules",
       content: formatRules(request.rules),
-      required: false,
+      required: true,
     }),
     createLayer({
       id: TURN_PIPELINE_LAYER_IDS.characterDefinition,
@@ -532,7 +567,7 @@ export function buildTurnPromptLayers(
       id: TURN_PIPELINE_LAYER_IDS.knowledgeBoundaries,
       kind: "knowledgeBoundaries",
       content: knowledgeBoundaries,
-      required: false,
+      required: true,
     }),
     createLayer({
       id: TURN_PIPELINE_LAYER_IDS.recentChatHistory,
@@ -610,7 +645,6 @@ function formatMemoryEntries(entries?: readonly TurnPipelineMemoryEntry[]): stri
 
 function formatLoreEntries(entries?: readonly TurnPipelineLoreEntry[]): string {
   return getEnabledLoreEntries(entries)
-    .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0))
     .map(formatLoreEntry)
     .join("\n\n");
 }
@@ -686,7 +720,23 @@ function getEnabledMemoryEntries(entries?: readonly TurnPipelineMemoryEntry[]): 
 }
 
 function getEnabledLoreEntries(entries?: readonly TurnPipelineLoreEntry[]): TurnPipelineLoreEntry[] {
-  return (entries ?? []).filter((entry) => entry.enabled !== false && isNonEmptyString(entry.content));
+  const enabled = (entries ?? []).filter((entry) => entry.enabled !== false && isNonEmptyString(entry.content));
+  const hasRetrievalRanks = enabled.some((entry) => Number.isFinite(entry.retrievalRank));
+  return enabled
+    .map((entry, index) => ({ entry, index }))
+    .sort((left, right) => {
+      if (hasRetrievalRanks) {
+        const leftRank = Number.isFinite(left.entry.retrievalRank)
+          ? left.entry.retrievalRank as number
+          : Number.POSITIVE_INFINITY;
+        const rightRank = Number.isFinite(right.entry.retrievalRank)
+          ? right.entry.retrievalRank as number
+          : Number.POSITIVE_INFINITY;
+        return leftRank - rightRank || left.index - right.index;
+      }
+      return (right.entry.priority ?? 0) - (left.entry.priority ?? 0) || left.index - right.index;
+    })
+    .map(({ entry }) => entry);
 }
 
 function resolveLatestUserMessage(

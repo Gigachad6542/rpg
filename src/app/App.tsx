@@ -31,11 +31,18 @@ import { compileImagePrompt } from "../runtime/imagePromptCompiler";
 import {
   applyHiddenContinuityToCard,
   buildVisibleUserMessageWithHiddenContinuity,
+  createEmptyHiddenContinuityResult,
   runHiddenContinuityPassSafely,
   type StoryEntity,
 } from "../runtime/hiddenContinuity";
 import { createRuntimeTurnEffects } from "../runtime/runtimeTurnLineage";
 import { resolveModelCallBudget } from "../runtime/modelCallBudget";
+import { resolveHiddenContinuityPlan } from "../runtime/hiddenContinuityPolicy";
+import {
+  calculateModelCallCost,
+  classifyModelCallFailure,
+  resolveModelPricing,
+} from "../runtime/modelCallTelemetry";
 import { detectKnowledgeLeaks, describeKnowledgeLeaks } from "../runtime/knowledgeLeakDetector";
 import {
   selectActiveLorebookEntriesForPreview,
@@ -43,6 +50,16 @@ import {
   validateLoreKeys,
 } from "../runtime/loreTriggerEngine";
 import { formatDiceResult, rollFromNotation } from "../runtime/diceEngine";
+import {
+  appendAuthoritativeEvent,
+  createDiceRolledEvent,
+  createPlayerActionEvent,
+  createRuleDecisionEvent,
+  createStateCommittedEvent,
+  createToolResultEvent,
+  type AuthoritativeEventStream,
+  type AuthoritativeStateMutation,
+} from "../runtime/authoritativeEventStream";
 import { parseSlashCommand } from "../runtime/slashCommands";
 import {
   appendRestorePoint,
@@ -137,6 +154,7 @@ import {
 } from "./appUtils";
 import {
   buildWriteForMeDraft,
+  advanceChatSessionRollingSummary,
   cloneMessagesForBranch,
   createChatSession,
   createRuntimeEntityId,
@@ -181,6 +199,7 @@ import {
   createTextProvider,
   getAllowedProviderBaseUrl,
   getConfiguredTextModelInfo,
+  getConfiguredTextModelInfoForModel,
   isHostedDesktopProvider,
   normalizeImageProviderQualitySettings,
   parseImageProviderSettings,
@@ -473,12 +492,23 @@ export function App() {
           deferredDraft,
           runtimeSettings,
           activePersona,
-          toVisibleTurnBudget(previewBudget),
+          {
+            ...toVisibleTurnBudget(previewBudget),
+            ...(activeChat
+              ? {
+                  retrievalContext: {
+                    chatId: activeChat.id,
+                    branchId: activeChat.id,
+                    rollingSummary: activeChat.rollingSummary,
+                  },
+                }
+              : {}),
+          },
         ),
         includeLayerLabels: true,
       });
     },
-    [activeCard, activePersona, deferredLorebookEntries, deferredDraft, messages, providerSettings, runtimeSettings],
+    [activeCard, activeChat, activePersona, deferredLorebookEntries, deferredDraft, messages, providerSettings, runtimeSettings],
   );
   const compiledPrompt = useMemo(
     () => activeCard
@@ -1480,16 +1510,54 @@ export function App() {
     if (!activeChat) {
       setActiveChatIds((current) => ({ ...current, [activeCard.id]: rollChat.id }));
     }
+    const diceRunId = createRuntimeEntityId("run");
     const diceMessage: Message = {
-      id: `dice-${createRuntimeEntityId("run")}`,
+      id: `dice-${diceRunId}`,
       role: "user",
       content: formatDiceResult(rolled),
     };
+    const occurredAt = new Date().toISOString();
+    let authoritativeEvents = appendAuthoritativeEvent(
+      rollChat.authoritativeEvents ?? [],
+      createDiceRolledEvent({
+        id: `event-${diceRunId}-dice`,
+        chatId: rollChat.id,
+        branchId: rollChat.id,
+        messageId: diceMessage.id,
+        occurredAt,
+        roll: rolled,
+      }),
+    );
+    authoritativeEvents = appendAuthoritativeEvent(
+      authoritativeEvents,
+      createToolResultEvent({
+        id: `event-${diceRunId}-tool`,
+        chatId: rollChat.id,
+        branchId: rollChat.id,
+        messageId: diceMessage.id,
+        occurredAt,
+        runId: diceRunId,
+        toolName: "dice.roll",
+        callId: diceRunId,
+        status: "success",
+        result: {
+          notation: rolled.notation,
+          count: rolled.count,
+          sides: rolled.sides,
+          modifier: rolled.modifier,
+          rolls: [...rolled.rolls],
+          total: rolled.total,
+        },
+      }),
+    );
+    const rollMessages = [...filterPersistedOpeningMessages(rollChat.messages), diceMessage];
     setChatSessions((current) =>
       upsertChatSession(current, {
         ...rollChat,
-        messages: [...filterPersistedOpeningMessages(rollChat.messages), diceMessage],
-        updatedAt: new Date().toISOString(),
+        messages: rollMessages,
+        authoritativeEvents,
+        rollingSummary: advanceChatSessionRollingSummary(rollChat, rollMessages, occurredAt),
+        updatedAt: occurredAt,
       }),
     );
     setDraft("");
@@ -1530,15 +1598,65 @@ export function App() {
 
     const visibleUserAction = (options?.actionOverride ?? draft).trim();
     const generationAction = visibleUserAction || randomOpeningAction;
-
+    const runId = createRuntimeEntityId("run");
+    const baseChat = activeChat ?? initializeChatTurnState(createChatSession(turnCard.id, `${turnCard.name} chat`), turnCard);
+    const chatMessages = options?.baseMessages ?? filterPersistedOpeningMessages(baseChat.messages);
+    const uncommittedAttemptMessages = options?.replacedAssistantMessageId ? baseChat.messages : chatMessages;
+    const userMessage: Message = {
+      id: `user-${runId}`,
+      role: "user",
+      content: generationAction,
+    };
+    const occurredAt = new Date().toISOString();
+    let authoritativeEvents: AuthoritativeEventStream = appendAuthoritativeEvent(
+      baseChat.authoritativeEvents ?? [],
+      createPlayerActionEvent({
+        id: `event-${runId}-action`,
+        chatId: baseChat.id,
+        branchId: baseChat.id,
+        messageId: userMessage.id,
+        occurredAt,
+        runId,
+        action: generationAction,
+        origin: visibleUserAction ? "typed" : "opening",
+      }),
+    );
     const validation = validatePlayerActionWithRules({
       cardKind: turnCard.kind,
       rules: turnCard.playerRules,
       action: generationAction,
       rpgState: turnCard.rpg,
     });
+    authoritativeEvents = appendAuthoritativeEvent(
+      authoritativeEvents,
+      createRuleDecisionEvent({
+        id: `event-${runId}-rules`,
+        chatId: baseChat.id,
+        branchId: baseChat.id,
+        messageId: userMessage.id,
+        occurredAt,
+        runId,
+        action: generationAction,
+        engine: "player-rule-engine-v1",
+        decision: {
+          allowed: validation.allowed,
+          warning: validation.warning,
+          triggeredRuleIds: validation.triggeredRuleIds,
+        },
+      }),
+    );
+    const chat: ChatSession = { ...baseChat, authoritativeEvents };
     setRuleWarning(validation.warning);
+    if (!activeChat) {
+      setActiveChatIds((current) => ({ ...current, [activeCard.id]: chat.id }));
+    }
     if (!validation.allowed) {
+      setChatSessions((current) => upsertChatSession(current, {
+        ...chat,
+        messages: uncommittedAttemptMessages,
+        updatedAt: occurredAt,
+      }));
+      setDraft("");
       return;
     }
 
@@ -1546,18 +1664,10 @@ export function App() {
     turnAbortControllerRef.current = abortController;
     setIsGenerating(true);
     setStreamingReply("");
-    const runId = createRuntimeEntityId("run");
-    const chat = activeChat ?? initializeChatTurnState(createChatSession(turnCard.id, `${turnCard.name} chat`), turnCard);
-    const chatMessages = options?.baseMessages ?? filterPersistedOpeningMessages(chat.messages);
     if (!activeChat) {
       setChatSessions((current) => [...current, chat]);
-      setActiveChatIds((current) => ({ ...current, [activeCard.id]: chat.id }));
     }
-    const userMessage: Message = {
-      id: `user-${runId}`,
-      role: "user",
-      content: generationAction,
-    };
+    const attemptedModelCalls: ModelCallRecord[] = [];
     try {
       const loreSelection = await selectActiveLorebookEntriesSafely({
         lorebooks: collectActiveLorebooks(turnCard, activePersona),
@@ -1593,48 +1703,92 @@ export function App() {
           `Disabled ${disabledLoreEntryIds.size} lore regex ${disabledLoreEntryIds.size === 1 ? "entry" : "entries"} after isolated matching failed or timed out.`,
         );
       }
-      const provider = createTextProvider(providerSettings, sessionApiKey, turnCard, generationAction, turnLorebookEntries.length);
-      const model = providerSettings.mode === "mock" ? "mock-narrator" : providerSettings.model;
-      const configuredModelInfo = getConfiguredTextModelInfo(providerSettings);
-      const hiddenBudget = resolveModelCallBudget({
-        providerId: providerSettings.providerId,
-        model,
-        phase: "hidden-continuity",
-        modelInfo: configuredModelInfo,
+      const selectedModel = providerSettings.mode === "mock" ? "mock-narrator" : providerSettings.model;
+      const callPlan = resolveHiddenContinuityPlan({
+        mode: runtimeSettings.hiddenContinuityMode ?? "full",
+        selectedModel,
+        economicalModel: runtimeSettings.economicalModel,
       });
+      const provider = createTextProvider(
+        providerSettings,
+        sessionApiKey,
+        turnCard,
+        generationAction,
+        turnLorebookEntries.length,
+        callPlan.hiddenModel !== undefined,
+      );
+      const configuredModelInfo = getConfiguredTextModelInfo(providerSettings);
+      const hiddenBudget = callPlan.hiddenModel
+        ? resolveModelCallBudget({
+            providerId: providerSettings.providerId,
+            model: callPlan.hiddenModel,
+            phase: "hidden-continuity",
+            modelInfo: getConfiguredTextModelInfoForModel(providerSettings, callPlan.hiddenModel),
+          })
+        : undefined;
       const visibleBudget = resolveModelCallBudget({
         providerId: providerSettings.providerId,
-        model,
+        model: callPlan.visibleModel,
         phase: "visible-response",
         modelInfo: configuredModelInfo,
       });
       let hiddenCallOutcome: TextModelCallOutcome | undefined;
       const hiddenCallStartedAt = readMonotonicMilliseconds();
-      const hiddenContinuityResult = await runHiddenContinuityPassSafely({
-        modelAdapter: createModelCallCaptureAdapter(provider, (outcome) => {
-          hiddenCallOutcome = outcome;
-        }),
-        model,
-        card: toHiddenContinuityCard(turnCard),
-        messages: chatMessages,
-        latestUserMessage: generationAction,
-        activeLoreCount: turnLorebookEntries.length,
-        pendingReviewProposals: pendingReviewRef.current[turnCard.id] ?? [],
-        inputBudgetTokens: hiddenBudget.inputBudgetTokens,
-        maxOutputTokens: hiddenBudget.maxOutputTokens,
-        signal: abortController.signal,
-      });
-      const hiddenModelCall = toModelCallRecord({
-        phase: "hidden-continuity",
-        fallbackProvider: provider.id,
-        fallbackModel: model,
-        inputBudgetTokens: hiddenBudget.inputBudgetTokens,
-        durationMs: elapsedMilliseconds(hiddenCallStartedAt),
-        outcome: hiddenCallOutcome,
-      });
+      let hiddenContinuityResult = createEmptyHiddenContinuityResult();
+      if (callPlan.hiddenModel && hiddenBudget) {
+        try {
+          hiddenContinuityResult = await runHiddenContinuityPassSafely({
+            modelAdapter: createModelCallCaptureAdapter(provider, (outcome) => {
+              hiddenCallOutcome = outcome;
+            }),
+            model: callPlan.hiddenModel,
+            card: toHiddenContinuityCard(turnCard),
+            messages: chatMessages,
+            latestUserMessage: generationAction,
+            activeLoreCount: turnLorebookEntries.length,
+            pendingReviewProposals: pendingReviewRef.current[turnCard.id] ?? [],
+            rollingSummary: chat.rollingSummary?.text,
+            inputBudgetTokens: hiddenBudget.inputBudgetTokens,
+            maxOutputTokens: hiddenBudget.maxOutputTokens,
+            signal: abortController.signal,
+          });
+        } catch (error) {
+          attemptedModelCalls.push(toModelCallRecord({
+            phase: "hidden-continuity",
+            fallbackProvider: provider.id,
+            fallbackModel: callPlan.hiddenModel,
+            budget: hiddenBudget,
+            durationMs: elapsedMilliseconds(hiddenCallStartedAt),
+            outcome: hiddenCallOutcome ?? { error },
+            pricing: resolveModelPricing({
+              providerId: providerSettings.providerId,
+              model: callPlan.hiddenModel,
+              pricing: providerSettings.pricing,
+            }),
+            stateProposalCount: 0,
+          }));
+          throw error;
+        }
+      }
       const hiddenPolicyResult = filterHiddenContinuityForPolicy(turnCard, hiddenContinuityResult, {
         latestUserAction: generationAction,
       });
+      if (callPlan.hiddenModel && hiddenBudget) {
+        attemptedModelCalls.push(toModelCallRecord({
+          phase: "hidden-continuity",
+          fallbackProvider: provider.id,
+          fallbackModel: callPlan.hiddenModel,
+          budget: hiddenBudget,
+          durationMs: elapsedMilliseconds(hiddenCallStartedAt),
+          outcome: hiddenCallOutcome,
+          pricing: resolveModelPricing({
+            providerId: providerSettings.providerId,
+            model: callPlan.hiddenModel,
+            pricing: providerSettings.pricing,
+          }),
+          stateProposalCount: hiddenPolicyResult.proposals.length,
+        }));
+      }
       const hiddenContinuity = hiddenPolicyResult.result;
       const continuityCard = applyHiddenContinuityToCard(turnCard, hiddenContinuity);
       const hiddenLatestUserMessage: Message = {
@@ -1646,43 +1800,74 @@ export function App() {
         ),
       };
       const visibleCallStartedAt = readMonotonicMilliseconds();
-      const pipelineResult = await runTurnPipeline({
-        ...buildTurnPromptRequest(
-          continuityCard,
-          turnLorebookEntries,
-          chatMessages,
-          generationAction,
-          runtimeSettings,
-          activePersona,
-          {
-            ...toVisibleTurnBudget(visibleBudget),
-            latestUserMessage: hiddenLatestUserMessage,
-            promptRunId: runId,
-            metadata: {
-              cardKind: turnCard.kind,
-              includedLoreEntryIds: turnLorebookEntries.map((entry) => entry.id),
-              providerMode: providerSettings.mode,
-              textStreaming: runtimeSettings.textStreaming,
-              chatId: chat.id,
-              hiddenContinuityPass: true,
+      let visibleCallOutcome: TextModelCallOutcome | undefined;
+      let pipelineResult: Awaited<ReturnType<typeof runTurnPipeline>>;
+      try {
+        pipelineResult = await runTurnPipeline({
+          ...buildTurnPromptRequest(
+            continuityCard,
+            turnLorebookEntries,
+            chatMessages,
+            generationAction,
+            runtimeSettings,
+            activePersona,
+            {
+              ...toVisibleTurnBudget(visibleBudget),
+              retrievalContext: {
+                chatId: chat.id,
+                branchId: chat.id,
+                rollingSummary: chat.rollingSummary,
+              },
+              latestUserMessage: hiddenLatestUserMessage,
+              promptRunId: runId,
+              metadata: {
+                cardKind: turnCard.kind,
+                includedLoreEntryIds: turnLorebookEntries.map((entry) => entry.id),
+                providerMode: providerSettings.mode,
+                textStreaming: runtimeSettings.textStreaming,
+                chatId: chat.id,
+                hiddenContinuityPass: callPlan.hiddenModel !== undefined,
+                expectedCallCount: callPlan.expectedCallCount,
+              },
             },
+          ),
+          modelAdapter: createModelCallCaptureAdapter(provider, (outcome) => {
+            visibleCallOutcome = outcome;
+          }),
+          model: callPlan.visibleModel,
+          temperature: 0.6,
+          signal: abortController.signal,
+          onStreamText: (text) => setStreamingReply(text),
+        });
+      } catch (error) {
+        attemptedModelCalls.push(toModelCallRecord({
+          phase: "visible-response",
+          fallbackProvider: provider.id,
+          fallbackModel: callPlan.visibleModel,
+          budget: visibleBudget,
+          durationMs: elapsedMilliseconds(visibleCallStartedAt),
+          outcome: visibleCallOutcome ?? { error },
+          pricing: resolveModelPricing({
+            providerId: providerSettings.providerId,
+            model: callPlan.visibleModel,
+            pricing: providerSettings.pricing,
+          }),
+          stateProposalCount: 0,
+        }));
+        throw error;
+      }
+      if (!visibleCallOutcome) {
+        visibleCallOutcome = {
+          response: {
+            providerId: pipelineResult.promptRun.providerId,
+            model: pipelineResult.promptRun.model,
+            text: pipelineResult.assistantMessageText,
+            finishReason: pipelineResult.promptRun.finishReason,
+            usage: { ...pipelineResult.promptRun.usage },
+            usageSource: pipelineResult.promptRun.usageSource ?? "estimated",
           },
-        ),
-        modelAdapter: provider,
-        model,
-        temperature: 0.6,
-        signal: abortController.signal,
-        onStreamText: (text) => setStreamingReply(text),
-      });
-      const visibleModelCall: ModelCallRecord = {
-        phase: "visible-response",
-        provider: pipelineResult.promptRun.providerId,
-        model: pipelineResult.promptRun.model,
-        usage: { ...pipelineResult.promptRun.usage },
-        inputBudgetTokens: visibleBudget.inputBudgetTokens,
-        durationMs: elapsedMilliseconds(visibleCallStartedAt),
-        status: pipelineResult.promptRun.finishReason === "error" ? "error" : "success",
-      };
+        };
+      }
       const statusBlockLocation = deriveStatusBlockLocationProposal(
         pipelineResult.assistantMessageText,
         pipelineResult.stateProposals.extraction.rpg_state_updates.location,
@@ -1701,6 +1886,20 @@ export function App() {
         latestUserAction: userMessage.content,
         assistantMessageText: pipelineResult.assistantMessageText,
       });
+      attemptedModelCalls.push(toModelCallRecord({
+        phase: "visible-response",
+        fallbackProvider: provider.id,
+        fallbackModel: callPlan.visibleModel,
+        budget: visibleBudget,
+        durationMs: elapsedMilliseconds(visibleCallStartedAt),
+        outcome: visibleCallOutcome,
+        pricing: resolveModelPricing({
+          providerId: providerSettings.providerId,
+          model: callPlan.visibleModel,
+          pricing: providerSettings.pricing,
+        }),
+        stateProposalCount: policyResult.proposals.length,
+      }));
       pendingReviewRef.current[turnCard.id] = policyResult.warnings
         .filter((warning) => /^Blocked/i.test(warning))
         .slice(-8);
@@ -1740,6 +1939,7 @@ export function App() {
         extraction: policyResult.extraction,
         committedAt: new Date().toISOString(),
         idSeed: `${assistantMessage.id}-v${variantIndex}`,
+        memoryRetrievalScope: { level: "branch", chatId: chat.id, branchId: chat.id },
       });
       const nextMessages = visibleUserAction
         ? [...chatMessages, userMessage, assistantMessage]
@@ -1750,7 +1950,7 @@ export function App() {
         title: chat.title || deriveChatTitle(generationAction),
         updatedAt: new Date().toISOString(),
       };
-      const nextChat = options?.replacedAssistantMessageId
+      let nextChat = options?.replacedAssistantMessageId
         ? recordRegeneratedChatVariant({
             chat: nextChatDraft,
             card: activeCard,
@@ -1765,6 +1965,27 @@ export function App() {
         deriveCardForChat(activeCard, nextChat),
         disabledLoreEntryIds,
       );
+      nextChat = {
+        ...nextChat,
+        authoritativeEvents: appendAuthoritativeEvent(
+          nextChat.authoritativeEvents ?? [],
+          createStateCommittedEvent({
+            id: `event-${runId}-state-v${variantIndex}`,
+            chatId: nextChat.id,
+            branchId: nextChat.id,
+            messageId: assistantMessage.id,
+            occurredAt: new Date().toISOString(),
+            runId,
+            variant: { assistantMessageId: assistantMessage.id, variantIndex },
+            proposalIds: stateProposals
+              .map((proposal, index) => ({ proposal, id: `${runId}-proposal-${index}` }))
+              .filter(({ proposal }) => proposal.applied)
+              .map(({ id }) => id),
+            mutations: buildAuthoritativeStateMutations(turnCard, nextActiveCard),
+          }),
+        ),
+        rollingSummary: advanceChatSessionRollingSummary(nextChat, nextMessages, new Date().toISOString()),
+      };
       const leakWarnings = describeKnowledgeLeaks(
         detectKnowledgeLeaks(assistantMessage.content, nextActiveCard.storyEntities),
       );
@@ -1799,11 +2020,42 @@ export function App() {
           stateChanges,
           stateProposals,
           usage: pipelineResult.promptRun.usage,
-          modelCalls: [hiddenModelCall, visibleModelCall],
+          modelCalls: attemptedModelCalls,
         },
       ]);
       setDraft("");
     } catch (error) {
+      setChatSessions((current) => upsertChatSession(current, {
+        ...chat,
+        messages: uncommittedAttemptMessages,
+        updatedAt: new Date().toISOString(),
+      }));
+      if (attemptedModelCalls.length > 0) {
+        const lastCall = attemptedModelCalls[attemptedModelCalls.length - 1];
+        const failureMessage = lastCall.failure?.message ?? "Model call failed.";
+        setPromptRuns((current) => current.some((run) => run.id === runId)
+          ? current
+          : [
+              ...current,
+              {
+                id: runId,
+                cardId: turnCard.id,
+                chatId: chat.id,
+                compiledPrompt: "",
+                response: "",
+                provider: lastCall.provider,
+                model: lastCall.model,
+                tokenEstimate: 0,
+                includedLayerIds: [],
+                includedLoreEntryIds: [],
+                warnings: [failureMessage],
+                stateChanges: [],
+                stateProposals: [],
+                modelCalls: attemptedModelCalls,
+                blockedReason: failureMessage,
+              },
+            ]);
+      }
       setRuleWarning(
         isAbortError(error)
           ? "Generation stopped. No turn messages or state changes were saved."
@@ -2867,7 +3119,7 @@ function createModelCallCaptureAdapter(
   adapter: TextModelAdapter,
   capture: (outcome: TextModelCallOutcome) => void,
 ): TextModelAdapter {
-  return {
+  const captureAdapter: TextModelAdapter = {
     id: adapter.id,
     displayName: adapter.displayName,
     listModels: () => adapter.listModels(),
@@ -2882,30 +3134,119 @@ function createModelCallCaptureAdapter(
       }
     },
   };
+  if (adapter.streamText) {
+    captureAdapter.streamText = (request) => adapter.streamText!(request);
+  }
+  return captureAdapter;
 }
 
 function toModelCallRecord(input: {
   phase: ModelCallRecord["phase"];
   fallbackProvider: string;
   fallbackModel: string;
-  inputBudgetTokens: number;
+  budget: ReturnType<typeof resolveModelCallBudget>;
   durationMs: number;
   outcome?: TextModelCallOutcome;
+  pricing?: ReturnType<typeof resolveModelPricing>;
+  stateProposalCount: number;
 }): ModelCallRecord {
   const response = input.outcome && "response" in input.outcome
     ? input.outcome.response
     : undefined;
+  const usage = response
+    ? { ...response.usage }
+    : { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  const failed = !response || response.finishReason === "error" || response.text.trim().length === 0;
+  const failure = failed
+    ? classifyModelCallFailure(
+        input.outcome && "error" in input.outcome
+          ? input.outcome.error
+          : new Error(
+              response?.text.trim().length === 0
+                ? "Provider returned an empty response."
+                : "Provider returned an error finish reason.",
+            ),
+      )
+    : undefined;
+  const usageSource = response ? response.usageSource ?? "provider" : "unavailable";
   return {
     phase: input.phase,
     provider: response?.providerId ?? input.fallbackProvider,
     model: response?.model ?? input.fallbackModel,
-    usage: response
-      ? { ...response.usage }
-      : { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
-    inputBudgetTokens: input.inputBudgetTokens,
+    usage,
+    inputBudgetTokens: input.budget.inputBudgetTokens,
+    effectiveContextWindowTokens: input.budget.effectiveContextWindowTokens,
+    budgetSource: input.budget.source,
     durationMs: input.durationMs,
-    status: response && response.finishReason !== "error" ? "success" : "error",
+    status: failed ? "error" : "success",
+    usageSource,
+    cost: calculateModelCallCost(usage, input.pricing, usageSource),
+    ...(failure ? { failure } : {}),
+    stateProposalCount: input.stateProposalCount,
   };
+}
+
+function buildAuthoritativeStateMutations(
+  before: RuntimeCard,
+  after: RuntimeCard,
+): AuthoritativeStateMutation[] {
+  if (!before.rpg || !after.rpg) {
+    return [];
+  }
+  const mutations: AuthoritativeStateMutation[] = [];
+  if (before.rpg.location !== after.rpg.location) {
+    mutations.push({ type: "location_set", location: after.rpg.location });
+  }
+  if (before.rpg.health !== after.rpg.health) {
+    mutations.push({ type: "health_set", health: after.rpg.health });
+  }
+  const beforeInventory = new Set(before.rpg.inventory);
+  const afterInventory = new Set(after.rpg.inventory);
+  for (const item of afterInventory) {
+    if (!beforeInventory.has(item)) {
+      mutations.push({ type: "inventory_add", item });
+    }
+  }
+  for (const item of beforeInventory) {
+    if (!afterInventory.has(item)) {
+      mutations.push({ type: "inventory_remove", item });
+    }
+  }
+  const beforeQuests = new Set(before.rpg.quests);
+  const afterQuests = new Set(after.rpg.quests);
+  for (const quest of beforeQuests) {
+    if (!afterQuests.has(quest)) {
+      mutations.push({ type: "quest_remove", quest });
+    }
+  }
+  for (const quest of after.rpg.quests) {
+    if (!beforeQuests.has(quest)) {
+      mutations.push({ type: "quest_set", quest });
+    }
+  }
+  for (const [flag, value] of Object.entries(after.rpg.flags)) {
+    if (before.rpg.flags[flag] !== value) {
+      mutations.push({ type: "world_flag_set", flag, value });
+    }
+  }
+  for (const flag of Object.keys(before.rpg.flags)) {
+    if (!(flag in after.rpg.flags)) {
+      mutations.push({ type: "world_flag_remove", flag });
+    }
+  }
+  const beforePlaces = new Set(before.rpg.knownPlaces);
+  const afterPlaces = new Set(after.rpg.knownPlaces);
+  for (const place of beforePlaces) {
+    if (!afterPlaces.has(place)) {
+      mutations.push({ type: "known_place_remove", place });
+    }
+  }
+  for (const place of after.rpg.knownPlaces) {
+    if (!beforePlaces.has(place)) {
+      mutations.push({ type: "known_place_add", place });
+    }
+  }
+  return mutations;
 }
 
 function readMonotonicMilliseconds(): number {

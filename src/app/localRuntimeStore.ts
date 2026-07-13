@@ -1,6 +1,7 @@
 import { parseSecretReference } from "../security/keyStorage";
 import { sanitizeCredentialFreeUrl } from "../security/urlSafety";
 import { sanitizePersistedPersonas } from "./personas";
+import { sanitizePromptRunModelCalls } from "./modelCallRecordValidation";
 
 export const RUNTIME_STORAGE_KEY = "local-cards-runtime:v2";
 const MAX_GENERATED_MEDIA_ARTIFACTS = 80;
@@ -60,7 +61,7 @@ export function loadLocalRuntimeSnapshot<Card, Message, PromptRun, ChatSession =
       messages: parsed.messages,
       chatSessions: Array.isArray(parsed.chatSessions) ? (parsed.chatSessions as ChatSession[]) : undefined,
       activeChatIds: sanitizeStringRecord(parsed.activeChatIds),
-      promptRuns: parsed.promptRuns,
+      promptRuns: sanitizePromptRunModelCalls(parsed.promptRuns),
       providerKeyStatus:
         typeof parsed.providerKeyStatus === "string"
           ? parsed.providerKeyStatus
@@ -134,11 +135,12 @@ function compactLocalRuntimeSnapshot<Card, Message, PromptRun, ChatSession>(
 }
 
 export function sanitizePromptRunsForPersistence<PromptRun>(promptRuns: PromptRun[], runtimeSettings: unknown): PromptRun[] {
+  const sanitizedModelCalls = sanitizePromptRunModelCalls(promptRuns);
   if (shouldPersistPromptDebugLogs(runtimeSettings)) {
-    return promptRuns;
+    return sanitizedModelCalls;
   }
 
-  return stripCompiledPrompts(promptRuns);
+  return stripCompiledPrompts(sanitizedModelCalls);
 }
 
 export function sanitizePromptRunsForExport<PromptRun>(promptRuns: PromptRun[]): PromptRun[] {
@@ -208,6 +210,16 @@ export function sanitizePersistedProviderSettings(value: unknown): Record<string
       sanitized[key] = field;
     }
   }
+  for (const key of ["contextWindowTokens", "maxOutputTokens"]) {
+    const field = value[key];
+    if (typeof field === "number" && Number.isFinite(field) && field > 0) {
+      sanitized[key] = Math.floor(field);
+    }
+  }
+  const pricing = sanitizePricingSnapshot(value.pricing, typeof value.model === "string" ? value.model : undefined);
+  if (pricing) {
+    sanitized.pricing = pricing;
+  }
   const baseUrl = sanitizeCredentialFreeUrl(value.baseUrl);
   if (baseUrl) {
     sanitized.baseUrl = baseUrl;
@@ -219,6 +231,37 @@ export function sanitizePersistedProviderSettings(value: unknown): Record<string
   }
 
   return Object.keys(sanitized).length > 0 ? sanitized : undefined;
+}
+
+function sanitizePricingSnapshot(value: unknown, selectedModel: string | undefined): Record<string, unknown> | undefined {
+  if (!isRecord(value) || typeof selectedModel !== "string") {
+    return undefined;
+  }
+  if (
+    value.model !== selectedModel ||
+    value.currency !== "USD" ||
+    typeof value.inputUsdPerMillionTokens !== "number" ||
+    !Number.isFinite(value.inputUsdPerMillionTokens) ||
+    value.inputUsdPerMillionTokens < 0 ||
+    typeof value.outputUsdPerMillionTokens !== "number" ||
+    !Number.isFinite(value.outputUsdPerMillionTokens) ||
+    value.outputUsdPerMillionTokens < 0 ||
+    typeof value.source !== "string" ||
+    value.source.length === 0 ||
+    value.source.length > 200 ||
+    typeof value.effectiveDate !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(value.effectiveDate)
+  ) {
+    return undefined;
+  }
+  return {
+    model: selectedModel,
+    currency: "USD",
+    inputUsdPerMillionTokens: value.inputUsdPerMillionTokens,
+    outputUsdPerMillionTokens: value.outputUsdPerMillionTokens,
+    source: value.source,
+    effectiveDate: value.effectiveDate,
+  };
 }
 
 export function sanitizePersistedImageProviderSettings(value: unknown): Record<string, unknown> | undefined {
@@ -305,6 +348,12 @@ export function sanitizePersistedRuntimeSettings(value: unknown): Record<string,
     if (typeof field === "boolean") {
       sanitized[key] = field;
     }
+  }
+  if (["off", "economical", "full"].includes(String(value.hiddenContinuityMode))) {
+    sanitized.hiddenContinuityMode = value.hiddenContinuityMode;
+  }
+  if (typeof value.economicalModel === "string" && value.economicalModel.length <= 200) {
+    sanitized.economicalModel = value.economicalModel.trim();
   }
   if (typeof value.accentColor === "string" && /^#[0-9a-fA-F]{6}$/.test(value.accentColor)) {
     sanitized.accentColor = value.accentColor;

@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "recorderVersion": "phase1-runtime-recorder-v2",
+    "scorerVersion": "phase1-runtime-scorer-v2",
+    "corpusSha256": "8671e1ce785651d38c3ba4b986e19ff8197833fdd4d2f3395a7efae5c32a7483",
+    "pricingManifestSha256": "328893ebe372c7877d8faf057ef38ba288257dc031f6d6d30cb481e50df21ed4",
+    "recordSource": "deterministic-runtime-offline"
+  },
+  "turnCount": 36,
+  "providerProfiles": {
+    "mock": 12,
+    "openai-compatible": 12,
+    "stored-secret-openai-compatible": 12
+  },
+  "scenarioKinds": {
+    "mutation-grounded": 3,
+    "mutation-ungrounded": 3,
+    "knowledge-safe": 3,
+    "knowledge-leak": 3,
+    "lore-literal-hit": 3,
+    "lore-overbroad-key": 3,
+    "branch-continuity": 3,
+    "regeneration-continuity": 3,
+    "hidden-off": 3,
+    "economical-hidden": 3,
+    "provider-failure": 3,
+    "safety-injection": 3
+  },
+  "adapterPaths": [
+    "mock-text-provider",
+    "openai-compatible-fetch",
+    "tauri-stored-secret-invoke"
+  ],
+  "runtimeSourceFiles": [
+    "src/providers/mockTextProvider.ts",
+    "src/providers/openAICompatibleProvider.ts",
+    "src/providers/tauriStoredSecretTextProvider.ts",
+    "src/runtime/turnPipeline.ts",
+    "src/app/turnEffects.ts",
+    "src/runtime/knowledgeLeakDetector.ts",
+    "src/runtime/loreTriggerEngine.ts",
+    "src/runtime/authoritativeEventStream.ts",
+    "src/evals/phase1Eval.ts"
+  ]
+}

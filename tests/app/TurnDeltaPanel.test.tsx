@@ -69,7 +69,8 @@ describe("TurnDeltaPanel", () => {
     );
 
     const summary = screen.getByText(/2 model calls/i);
-    expect(summary).toHaveTextContent(/85 tokens/i);
+    expect(summary).toHaveTextContent("2 model calls · 85 tokens");
+    expect(summary).not.toHaveTextContent("Â");
 
     fireEvent.click(summary);
 
@@ -81,8 +82,8 @@ describe("TurnDeltaPanel", () => {
     expect(screen.getByText(/40 input.*10 output.*50 total/i)).toBeInTheDocument();
     expect(screen.getByText(/30 \/ 120 input tokens.*25%/i)).toBeInTheDocument();
     expect(screen.getByText(/40 \/ 200 input tokens.*20%/i)).toBeInTheDocument();
-    expect(screen.getByText(/120 ms/i)).toBeInTheDocument();
-    expect(screen.getByText(/640 ms/i)).toBeInTheDocument();
+    expect(screen.getByText(/120 ms phase duration/i)).toBeInTheDocument();
+    expect(screen.getByText(/640 ms phase duration/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Cost unknown/i)).toHaveLength(2);
     expect(screen.getAllByText(/0 state proposals/i)).toHaveLength(2);
   });
@@ -99,6 +100,47 @@ describe("TurnDeltaPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Undo state changes/i }));
     expect(undo).toHaveBeenCalledTimes(1);
+  });
+
+  it("labels cost derived from estimated usage instead of presenting it as exact", () => {
+    const estimatedCost = {
+      status: "estimated",
+      currency: "USD",
+      amountUsd: 0.00125,
+      pricing: {
+        model: "mock-narrator",
+        currency: "USD",
+        inputUsdPerMillionTokens: 1,
+        outputUsdPerMillionTokens: 2,
+        source: "test fixture",
+        effectiveDate: "2026-07-01",
+      },
+    } as unknown as NonNullable<PromptRun["modelCalls"]>[number]["cost"];
+
+    render(
+      <TurnDeltaPanel
+        run={promptRun({
+          stateChanges: [],
+          stateProposals: [],
+          modelCalls: [{
+            phase: "visible-response",
+            provider: "telemetry-provider",
+            model: "mock-narrator",
+            usage: { inputTokens: 1_000, outputTokens: 125, totalTokens: 1_125 },
+            durationMs: 500,
+            status: "success",
+            usageSource: "estimated",
+            cost: estimatedCost,
+          }],
+        })}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    const summary = screen.getByText(/1 model calls/i);
+    expect(summary).toHaveTextContent(/\$0\.001250.*1 estimated/i);
+    fireEvent.click(summary);
+    expect(screen.getByText("$0.001250 USD estimated")).toBeInTheDocument();
   });
 
   it("marks an undone turn and does not offer a second undo", () => {

@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "phase1-offline-pricing-v2",
+  "currency": "USD",
+  "description": "Synthetic offline rates used only to verify cost accounting; not current provider prices.",
+  "rates": {
+    "mock": {
+      "snapshotId": "phase1-mock-zero-v2",
+      "rateKind": "synthetic-offline",
+      "effectiveDate": "2026-07-12",
+      "source": "Built-in mock provider; zero-cost accounting fixture.",
+      "inputUsdPerMillionTokens": 0,
+      "outputUsdPerMillionTokens": 0
+    },
+    "openai-compatible": {
+      "snapshotId": "phase1-openai-compatible-fixture-v2",
+      "rateKind": "synthetic-offline",
+      "effectiveDate": "2026-07-12",
+      "source": "Offline accounting fixture; replace with a reviewed live snapshot for live-provider runs.",
+      "inputUsdPerMillionTokens": 0.2,
+      "outputUsdPerMillionTokens": 0.5
+    },
+    "stored-secret-openai-compatible": {
+      "snapshotId": "phase1-stored-secret-unknown-v2",
+      "rateKind": "unknown",
+      "effectiveDate": "2026-07-12",
+      "source": "The keychain path does not identify an underlying provider price.",
+      "inputUsdPerMillionTokens": null,
+      "outputUsdPerMillionTokens": null
+    }
+  }
+}

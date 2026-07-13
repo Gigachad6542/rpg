@@ -106,6 +106,25 @@ function hiddenWithEntity(fact: string): HiddenContinuityResult {
 }
 
 describe("runtime turn lineage", () => {
+  it("persists branch provenance on generated memory", () => {
+    const hidden = createEmptyHiddenContinuityResult();
+    hidden.memoryUpdates = [{ label: "Branch fact", detail: "Rook opened this branch's gate." }];
+    const effects = createRuntimeTurnEffects({
+      hiddenContinuity: hidden,
+      extraction: createEmptyExtractionResult(),
+      committedAt: "2026-07-12T12:00:00.000Z",
+      idSeed: "branch-memory",
+      memoryRetrievalScope: { level: "branch", chatId: "chat-a", branchId: "branch-a" },
+    });
+    const lineage = recordRuntimeTurnVariant(createRuntimeTurnLineage(card()), "a1", 0, effects);
+    const derived = deriveRuntimeTurnCard(card(), messages(), lineage);
+
+    expect(derived.memory[0]).toMatchObject({
+      retrievalScope: { level: "branch", chatId: "chat-a", branchId: "branch-a" },
+      visibility: "narrator",
+    });
+  });
+
   it("replays hidden memory, entities, knowledge, and visible RPG effects deterministically", () => {
     let lineage = createRuntimeTurnLineage(card());
     lineage = recordRuntimeTurnVariant(

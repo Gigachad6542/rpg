@@ -35,6 +35,7 @@ export interface TextGenerationResponse {
   text: string;
   finishReason: "stop" | "length" | "tool_call" | "error";
   usage: TextUsage;
+  usageSource?: "provider" | "estimated";
   raw?: unknown;
 }
 
@@ -42,6 +43,11 @@ export interface TextChunk {
   text: string;
   index: number;
   done: boolean;
+  /** Present on the terminal chunk when the provider reports why generation ended. */
+  finishReason?: TextGenerationResponse["finishReason"];
+  /** Present on the terminal chunk when the streaming provider reports complete usage. */
+  usage?: TextUsage;
+  usageSource?: "provider" | "estimated";
 }
 
 export interface TextModelAdapter {

@@ -16,6 +16,7 @@ import {
 import { buildResponseContract, buildTurnPromptRequest } from "../../src/app/turnPromptBuilders";
 import { selectActiveLorebookEntries } from "../../src/runtime/loreTriggerEngine";
 import type { Lorebook, Persona, RuntimeCard, RuntimeSettings } from "../../src/app/runtimeTypes";
+import { advanceRollingSummary } from "../../src/runtime/rollingSummary";
 
 const runtimeSettings: RuntimeSettings = {
   textStreaming: false,
@@ -316,10 +317,19 @@ describe("buildResponseContract", () => {
         { id: "memory-weather", label: "Weather", detail: "Rain falls over the old map." },
       ],
     };
+    const history = [{ id: "message-old", role: "user" as const, content: "I arrived at Blackglass Harbor." }];
+    const rollingSummary = advanceRollingSummary({
+      previous: null,
+      messages: history,
+      scope: { cardId: runtimeCard.id, chatId: "chat-a", branchId: "branch-a" },
+      retainRecentMessages: 0,
+      maxCharacters: 500,
+      now: "2026-07-12T12:00:00.000Z",
+    }) ?? undefined;
     const request = buildTurnPromptRequest(
       runtimeCard,
       [],
-      [],
+      history,
       "The doctor treats my injury.",
       runtimeSettings,
       null,
@@ -327,22 +337,50 @@ describe("buildResponseContract", () => {
         retrievalContext: {
           chatId: "chat-a",
           branchId: "branch-a",
-          rollingSummary: {
-            scope: { cardId: runtimeCard.id, chatId: "chat-a", branchId: "branch-a" },
-            text: "Player: I arrived at Blackglass Harbor.",
-            coveredMessageIds: ["message-old"],
-            coveredMessageFingerprints: ["8badf00d"],
-            throughMessageId: "message-old",
-            updatedAt: "2026-07-12T12:00:00.000Z",
-          },
+          rollingSummary,
         },
       },
     );
 
-    expect(request.memoryEntries?.[0].id).toBe("memory-healer");
+    expect(request.memoryEntries?.[0].id).toBe("rolling-summary:message-old");
+    expect(request.memoryEntries?.[1].id).toBe("memory-healer");
     expect(request.memoryEntries).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "rolling-summary:message-old", detail: expect.stringContaining("Blackglass Harbor") }),
     ]));
+  });
+
+  it("does not relabel another branch's persisted memory as current", () => {
+    const runtimeCard: RuntimeCard = {
+      ...card(),
+      memory: [
+        {
+          id: "global",
+          label: "Gate",
+          detail: "The harbor gate is sealed.",
+          retrievalScope: { level: "card-global" },
+          visibility: "narrator",
+        },
+        {
+          id: "other-branch",
+          label: "Secret",
+          detail: "The harbor gate code is 991.",
+          retrievalScope: { level: "branch", chatId: "chat-other", branchId: "branch-other" },
+          visibility: "narrator",
+        },
+      ],
+    };
+
+    const request = buildTurnPromptRequest(
+      runtimeCard,
+      [],
+      [],
+      "I inspect the harbor gate.",
+      runtimeSettings,
+      null,
+      { retrievalContext: { chatId: "chat-current", branchId: "branch-current" } },
+    );
+
+    expect(request.memoryEntries?.map((entry) => entry.id)).toEqual(["global"]);
   });
 });
 

@@ -5,6 +5,7 @@ import { App } from "../../src/app/App";
 import { RUNTIME_STORAGE_KEY } from "../../src/app/localRuntimeStore";
 import { LOCAL_RESTORE_POINTS_KEY } from "../../src/app/localRestorePointStore";
 import { buildVersionedRuntimeExport } from "../../src/app/runtimeDataBundle";
+import type { ModelCallRecord } from "../../src/app/runtimeTypes";
 import * as memoryConsolidation from "../../src/runtime/memoryConsolidation";
 import * as providerConfig from "../../src/app/providerConfig";
 import type {
@@ -494,6 +495,20 @@ describe("local-first card runtime UI", () => {
       expect(screen.getByRole("log", { name: /Chat transcript/i })).not.toHaveTextContent(
         /unfinished corridor/i,
       );
+      await waitFor(() => {
+        const snapshot = JSON.parse(window.localStorage.getItem(RUNTIME_STORAGE_KEY) ?? "{}") as {
+          promptRuns?: Array<{ modelCalls?: ModelCallRecord[] }>;
+        };
+        expect(snapshot.promptRuns?.[0]?.modelCalls).toEqual([
+          expect.objectContaining({
+            phase: "hidden-continuity",
+            status: "error",
+            usageSource: "unavailable",
+            cost: { status: "unknown", currency: "USD" },
+            failure: expect.objectContaining({ category: "aborted" }),
+          }),
+        ]);
+      });
     } finally {
       providerSpy.mockRestore();
     }
@@ -2023,6 +2038,36 @@ describe("local-first card runtime UI", () => {
       target: { value: "mock" },
     });
     expect(within(llmProviderSection).getByLabelText(/^Provider$/i)).toHaveValue("mock");
+  });
+
+  it("keeps partial pricing as a draft and treats either blank rate as unknown", async () => {
+    await renderApp();
+
+    fireEvent.click(screen.getByRole("button", { name: /API Keys/i }));
+    const llmProviderSection = screen.getByRole("region", { name: /LLM API keys/i });
+    const inputRate = within(llmProviderSection).getByLabelText(/Input USD per million tokens/i);
+    const outputRate = within(llmProviderSection).getByLabelText(/Output USD per million tokens/i);
+
+    fireEvent.change(inputRate, { target: { value: "0.2" } });
+    expect(inputRate).toHaveValue(0.2);
+    expect(outputRate).toHaveValue(null);
+    expect(within(llmProviderSection).queryByRole("button", { name: /Clear pricing snapshot/i })).not.toBeInTheDocument();
+
+    fireEvent.change(outputRate, { target: { value: "0.8" } });
+    expect(inputRate).toHaveValue(0.2);
+    expect(outputRate).toHaveValue(0.8);
+    expect(within(llmProviderSection).getByRole("button", { name: /Clear pricing snapshot/i })).toBeInTheDocument();
+
+    fireEvent.change(inputRate, { target: { value: "" } });
+    expect(inputRate).toHaveValue(null);
+    expect(outputRate).toHaveValue(0.8);
+    expect(within(llmProviderSection).queryByRole("button", { name: /Clear pricing snapshot/i })).not.toBeInTheDocument();
+
+    fireEvent.change(inputRate, { target: { value: "0.2" } });
+    expect(within(llmProviderSection).getByRole("button", { name: /Clear pricing snapshot/i })).toBeInTheDocument();
+    fireEvent.change(outputRate, { target: { value: "" } });
+    expect(outputRate).toHaveValue(null);
+    expect(within(llmProviderSection).queryByRole("button", { name: /Clear pricing snapshot/i })).not.toBeInTheDocument();
   });
 
   it("warns when a hosted desktop provider has a session key but no secure storage", async () => {

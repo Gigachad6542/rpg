@@ -73,6 +73,16 @@ Provider calls must preserve the BYOK boundary:
 - Prompt/model/output sizes stay capped at the system boundary.
 - Provider status and diagnostics text are redacted before export or support sharing.
 
+## Phase 1 Turn Runtime
+
+- Hidden continuity is explicit: `off` makes one visible model call; `economical` and `full` make one hidden call followed by one visible call.
+- Every attempted phase retains its model, phase duration, usage source, tokens, context budget, cost provenance, failure, and state-proposal count. Missing usage or pricing remains unknown rather than becoming zero.
+- Context budgets resolve against metadata for the exact routed model. Unknown models use the conservative fallback.
+- Runtime rules and knowledge/safety boundaries are required prompt layers and fail closed when they cannot fit.
+- Player actions, deterministic rule decisions, dice, tool results, and accepted state mutations use the typed branch-scoped event stream. Replay verifies the RPG projection against the turn lineage before using it.
+- Rolling summaries and scoped lexical/feature-hash retrieval are local operations and make no provider call. Retrieval applies card/chat/branch provenance, visibility, score, source-count, and character budgets before prompt assembly.
+- The deterministic 36-turn corpus is part of `pnpm verify`. Its offline transport and synthetic pricing labels must never be described as live-provider quality, network latency, or current commercial pricing.
+
 ## Versioning Rule
 
 Add or loosen optional fields without changing the export schema version. Bump the export or diagnostics schema version when a supported reader could misinterpret required fields, security meaning, or recovery behavior.

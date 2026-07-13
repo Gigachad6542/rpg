@@ -10,6 +10,7 @@ import {
   createToolResultEvent,
   parseAuthoritativeEventStream,
   replayAuthoritativeEvents,
+  replayAuthoritativeRpgState,
   type AuthoritativeEventStream,
 } from "../../src/runtime/authoritativeEventStream";
 
@@ -176,6 +177,82 @@ describe("append-only authoritative event stream", () => {
 });
 
 describe("authoritative event replay", () => {
+  it("keeps durable run-scoped attempts even when no transcript message was committed", () => {
+    const action = createPlayerActionEvent({
+      id: "event_blocked_action",
+      chatId: "chat_parent",
+      branchId: "branch_main",
+      messageId: "attempt_message",
+      occurredAt,
+      runId: "run_blocked",
+      action: "I teleport through the wall.",
+      origin: "typed",
+    });
+    const decision = createRuleDecisionEvent({
+      id: "event_blocked_rule",
+      chatId: "chat_parent",
+      branchId: "branch_main",
+      messageId: "attempt_message",
+      occurredAt,
+      runId: "run_blocked",
+      action: "I teleport through the wall.",
+      engine: "player-rule-engine-v1",
+      decision: { allowed: false, warning: "Movement blocked.", triggeredRuleIds: ["movement"] },
+    });
+
+    const replayed = replayAuthoritativeEvents([action, decision], {
+      chatId: "chat_parent",
+      branchId: "branch_main",
+      messages: [],
+    });
+
+    expect(replayed.map((event) => event.id)).toEqual(["event_blocked_action", "event_blocked_rule"]);
+    expect(replayed.every((event) => event.runId === "run_blocked")).toBe(true);
+  });
+
+  it("reconstructs the active RPG projection from typed state mutations", () => {
+    const event = createStateCommittedEvent({
+      id: "event_state_projection",
+      chatId: "chat_parent",
+      branchId: "branch_main",
+      messageId: "assistant_1",
+      occurredAt,
+      runId: "run_projection",
+      variant: { assistantMessageId: "assistant_1", variantIndex: 0 },
+      proposalIds: ["proposal_projection"],
+      mutations: [
+        { type: "inventory_remove", item: "old key" },
+        { type: "inventory_add", item: "new key" },
+        { type: "quest_remove", quest: "Find the gate" },
+        { type: "quest_set", quest: "Open the gate" },
+        { type: "world_flag_remove", flag: "gate_locked" },
+        { type: "world_flag_set", flag: "gate_open", value: true },
+        { type: "known_place_remove", place: "Old road" },
+        { type: "known_place_add", place: "North gate" },
+      ],
+    });
+
+    expect(replayAuthoritativeRpgState({
+      location: "Road",
+      health: "10/10",
+      inventory: ["old key"],
+      quests: ["Find the gate"],
+      flags: { gate_locked: true },
+      knownPlaces: ["Old road"],
+    }, [event], {
+      chatId: "chat_parent",
+      branchId: "branch_main",
+      messages: [{ id: "assistant_1", role: "assistant", activeVariantIndex: 0 }],
+    })).toEqual({
+      location: "Road",
+      health: "10/10",
+      inventory: ["new key"],
+      quests: ["Open the gate"],
+      flags: { gate_open: true },
+      knownPlaces: ["North gate"],
+    });
+  });
+
   it("replays only the requested branch and the active assistant variant in stable order", () => {
     let stream: AuthoritativeEventStream = [];
     stream = appendAuthoritativeEvent(stream, playerAction());
@@ -331,6 +408,24 @@ describe("authoritative event branch handling", () => {
 });
 
 describe("authoritative event persistence boundary", () => {
+  it("supports deterministic tools that are not owned by an assistant variant", () => {
+    const event = createToolResultEvent({
+      id: "event_dice_tool",
+      chatId: "chat_parent",
+      branchId: "branch_main",
+      messageId: "dice_message",
+      occurredAt,
+      runId: "run_dice",
+      toolName: "dice.roll",
+      callId: "run_dice",
+      status: "success",
+      result: { notation: "1d6", rolls: [4], total: 4 },
+    });
+
+    expect(event).toEqual(expect.objectContaining({ kind: "tool_result", runId: "run_dice" }));
+    expect(event).not.toHaveProperty("variant");
+  });
+
   it("rejects secret-bearing tool results so credentials never enter the event log", () => {
     expect(parseAuthoritativeEventStream([
       {
@@ -349,6 +444,28 @@ describe("authoritative event persistence boundary", () => {
         result: { authorization: "Bearer sk-sensitive-event-token" },
       },
     ])).toEqual([]);
+
+    const secretResults: Array<Record<string, string>> = [
+      { token: "ghp_123456789012345678901234567890123456" },
+      { sessionToken: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature" },
+      { clientSecret: "not-safe-to-persist" },
+      { privateKey: "-----BEGIN PRIVATE KEY-----payload-----END PRIVATE KEY-----" },
+      { accessKey: "AKIAIOSFODNN7EXAMPLE" },
+    ];
+    for (const result of secretResults) {
+      expect(() => createToolResultEvent({
+        id: `event-secret-${Object.keys(result)[0]}`,
+        chatId: "chat_parent",
+        branchId: "branch_main",
+        messageId: "assistant_1",
+        occurredAt,
+        runId: "run_secret",
+        toolName: "provider_probe",
+        callId: "call_secret",
+        status: "success",
+        result,
+      })).toThrow(/invalid authoritative tool result/i);
+    }
   });
 
   it("drops unknown or malformed persisted events instead of replaying untrusted data", () => {

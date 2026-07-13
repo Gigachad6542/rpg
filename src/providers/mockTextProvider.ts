@@ -45,6 +45,7 @@ export class MockTextProvider implements TextModelAdapter {
         outputTokens,
         totalTokens: inputTokens + outputTokens,
       },
+      usageSource: "estimated",
       raw: {
         mock: true,
       },

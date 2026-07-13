@@ -10,6 +10,56 @@ const personas: Persona[] = [
 ];
 
 describe("SettingsSection", () => {
+  it("configures hidden continuity as off, economical, or full with honest call counts", () => {
+    const setRuntimeSettings = vi.fn();
+    const runtimeSettings = {
+      textStreaming: false,
+      banEmojis: false,
+      promptDebugLogs: false,
+      diceRollsEnabled: false,
+      hiddenContinuityMode: "full",
+      economicalModel: "economical-model",
+      onboardingCompleted: true,
+      accentColor: "",
+    } as RuntimeSettingsView;
+
+    render(
+      <SettingsSection
+        runtimeSettings={runtimeSettings}
+        setRuntimeSettings={setRuntimeSettings}
+        personas={personas}
+        activePersonaId="persona_default"
+        selectPersona={vi.fn()}
+        addPersona={vi.fn()}
+        editPersona={vi.fn()}
+        removePersona={vi.fn()}
+        makePersonaDefault={vi.fn()}
+        promptPreview=""
+        dataManagementStatus="Idle."
+        exportRuntimeData={vi.fn()}
+        importRuntimeData={vi.fn()}
+        pendingImportReview={null}
+        applyRuntimeImport={vi.fn()}
+        cancelRuntimeImport={vi.fn()}
+        downloadDiagnostics={vi.fn()}
+        restorePoints={[]}
+        restoreStatus=""
+        restoreRuntimePoint={vi.fn()}
+      />,
+    );
+
+    const runtimePanel = screen.getByRole("region", { name: /Runtime settings/i });
+    expect(within(runtimePanel).getByText(/full.*2 calls/i)).toBeInTheDocument();
+    fireEvent.change(within(runtimePanel).getByLabelText(/Hidden continuity mode/i), {
+      target: { value: "off" },
+    });
+    expect(setRuntimeSettings).toHaveBeenCalledWith({ ...runtimeSettings, hiddenContinuityMode: "off" });
+    fireEvent.change(within(runtimePanel).getByLabelText(/Economical continuity model/i), {
+      target: { value: "small-model" },
+    });
+    expect(setRuntimeSettings).toHaveBeenCalledWith({ ...runtimeSettings, economicalModel: "small-model" });
+  });
+
   it("updates runtime settings and imports runtime JSON drafts", () => {
     const setRuntimeSettings = vi.fn();
     const exportRuntimeData = vi.fn();

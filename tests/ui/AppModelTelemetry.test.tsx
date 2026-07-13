@@ -51,7 +51,7 @@ function sendRuntimeMessage(message: string) {
   fireEvent.click(screen.getByRole("button", { name: /^Send$/i }));
 }
 
-async function readStoredModelCalls(): Promise<ModelCallRecord[]> {
+async function readStoredModelCalls(expectedCallCount: 1 | 2 = 2): Promise<ModelCallRecord[]> {
   let modelCalls: ModelCallRecord[] | undefined;
   await waitFor(() => {
     const snapshot = JSON.parse(window.localStorage.getItem(RUNTIME_STORAGE_KEY) ?? "{}") as {
@@ -61,12 +61,102 @@ async function readStoredModelCalls(): Promise<ModelCallRecord[]> {
     expect(
       modelCalls,
       "completed prompt run must persist hidden-continuity and visible-response modelCalls",
-    ).toHaveLength(2);
+    ).toHaveLength(expectedCallCount);
   });
   return modelCalls ?? [];
 }
 
 describe("intentional two-call turn telemetry", () => {
+  it("performs only the visible call when hidden continuity is off", async () => {
+    const requests: TextGenerationRequest[] = [];
+    const adapter: TextModelAdapter = {
+      id: "telemetry-provider",
+      displayName: "Telemetry provider",
+      async listModels(): Promise<ModelInfo[]> {
+        return [];
+      },
+      async generateText(request): Promise<TextGenerationResponse> {
+        requests.push(request);
+        return {
+          providerId: "telemetry-provider",
+          model: request.model,
+          text: "The gate opens without a continuity pre-pass.",
+          finishReason: "stop",
+          usage: { inputTokens: 20, outputTokens: 7, totalTokens: 27 },
+        };
+      },
+    };
+    const providerSpy = vi
+      .spyOn(providerConfig, "createTextProvider")
+      .mockReturnValue(adapter as ReturnType<typeof providerConfig.createTextProvider>);
+
+    try {
+      render(<App />);
+      await screen.findByText(/Repository API ready|SQLite repository ready|Repository unavailable/i);
+      fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
+      fireEvent.change(screen.getByLabelText(/Hidden continuity mode/i), { target: { value: "off" } });
+      fireEvent.click(screen.getByRole("button", { name: /^Cards$/i }));
+      fireEvent.click(within(screen.getByRole("region", { name: /Card library/i })).getByRole("button", { name: /^Open$/i }));
+      sendRuntimeMessage("I open the gate.");
+
+      await screen.findByText(/gate opens without/i);
+      const modelCalls = await readStoredModelCalls(1);
+      expect(requests).toHaveLength(1);
+      expect(modelCalls.map((call) => call.phase)).toEqual(["visible-response"]);
+    } finally {
+      providerSpy.mockRestore();
+    }
+  });
+
+  it("routes only the hidden phase to the configured economical model", async () => {
+    const models: string[] = [];
+    const adapter: TextModelAdapter = {
+      id: "telemetry-provider",
+      displayName: "Telemetry provider",
+      async listModels(): Promise<ModelInfo[]> {
+        return [];
+      },
+      async generateText(request): Promise<TextGenerationResponse> {
+        models.push(request.model);
+        return models.length === 1
+          ? {
+              providerId: "telemetry-provider",
+              model: request.model,
+              text: JSON.stringify({ continuity_brief: "Remember the gate." }),
+              finishReason: "stop",
+              usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 },
+            }
+          : {
+              providerId: "telemetry-provider",
+              model: request.model,
+              text: "The remembered gate opens.",
+              finishReason: "stop",
+              usage: { inputTokens: 20, outputTokens: 5, totalTokens: 25 },
+            };
+      },
+    };
+    const providerSpy = vi
+      .spyOn(providerConfig, "createTextProvider")
+      .mockReturnValue(adapter as ReturnType<typeof providerConfig.createTextProvider>);
+
+    try {
+      render(<App />);
+      await screen.findByText(/Repository API ready|SQLite repository ready|Repository unavailable/i);
+      fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
+      fireEvent.change(screen.getByLabelText(/Hidden continuity mode/i), { target: { value: "economical" } });
+      fireEvent.change(screen.getByLabelText(/Economical continuity model/i), { target: { value: "small-continuity-model" } });
+      fireEvent.click(screen.getByRole("button", { name: /^Cards$/i }));
+      fireEvent.click(within(screen.getByRole("region", { name: /Card library/i })).getByRole("button", { name: /^Open$/i }));
+      sendRuntimeMessage("I open the remembered gate.");
+
+      await screen.findByText(/remembered gate opens/i);
+      await readStoredModelCalls(2);
+      expect(models).toEqual(["small-continuity-model", "mock-narrator"]);
+    } finally {
+      providerSpy.mockRestore();
+    }
+  });
+
   it("stores hidden-continuity and visible-response usage for every completed turn", async () => {
     let callIndex = 0;
     const adapter: TextModelAdapter = {

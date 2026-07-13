@@ -432,7 +432,7 @@ describe("turn pipeline", () => {
       ],
       loreEntries: [{ id: "lore-keep", content: "small lore", priority: 10 }],
       tokenBudget: {
-        maxInputTokens: 1_500,
+        maxInputTokens: 1_600,
         reservedOutputTokens: 200,
       },
       estimator: (text) => text.length,
@@ -608,6 +608,29 @@ describe("turn pipeline", () => {
 
     expect(compiled.omittedLayers.map((layer) => layer.id)).toContain(TURN_PIPELINE_LAYER_IDS.latestUserMessage);
     expect(compiled.prompt).toContain("assistant: Waiting.");
+  });
+
+  it("always includes a required knowledge-safety boundary even when callers omit custom boundaries", () => {
+    const { modelAdapter: _adapter, model: _model, ...request } = baseRequest(
+      new RecordingTextAdapter({
+        text: "",
+        finishReason: "stop",
+        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      }),
+    );
+
+    const compiled = compileTurnPrompt({
+      ...request,
+      knowledgeBoundaries: undefined,
+      card: request.card ? { ...request.card, knowledgeBoundaries: undefined } : undefined,
+    });
+
+    expect(compiled.includedLayers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: TURN_PIPELINE_LAYER_IDS.knowledgeBoundaries,
+        required: true,
+      }),
+    ]));
   });
 
   it("parses raw extraction payloads and ignores malformed JSON candidates", async () => {

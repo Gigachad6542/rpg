@@ -71,7 +71,7 @@ Corpus SHA-256:
 | `pnpm audit:prod` | PASS: no known production dependency vulnerabilities |
 | `pnpm rust:test` | PASS: 32 tests |
 | `pnpm rust:clippy` | PASS with warnings denied |
-| `pnpm rust:audit` | PASS: no blocking advisory; 18 existing upstream maintenance/yank warnings remain visible |
+| `pnpm rust:audit` | Exit 0 with 18 allowed upstream warnings, including unmaintained/yanked transitive crates and a `glib` unsoundness advisory |
 | `pnpm verify` | PASS: complete local CI gate |
 
 ## Honest limitations and next quality targets

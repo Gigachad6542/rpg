@@ -331,6 +331,26 @@ describe("authoritative event branch handling", () => {
 });
 
 describe("authoritative event persistence boundary", () => {
+  it("rejects secret-bearing tool results so credentials never enter the event log", () => {
+    expect(parseAuthoritativeEventStream([
+      {
+        schemaVersion: 1,
+        id: "event-secret-tool",
+        kind: "tool_result",
+        chatId: "chat_parent",
+        branchId: "branch_main",
+        messageId: "assistant_1",
+        occurredAt,
+        runId: "run_1",
+        variant: { assistantMessageId: "assistant_1", variantIndex: 0 },
+        toolName: "provider_probe",
+        callId: "call_1",
+        status: "success",
+        result: { authorization: "Bearer sk-sensitive-event-token" },
+      },
+    ])).toEqual([]);
+  });
+
   it("drops unknown or malformed persisted events instead of replaying untrusted data", () => {
     const restored = parseAuthoritativeEventStream([
       playerAction(),

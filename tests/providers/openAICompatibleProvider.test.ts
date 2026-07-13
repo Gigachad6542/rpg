@@ -48,6 +48,7 @@ describe("OpenAI-compatible text provider", () => {
       usage: {
         totalTokens: 15,
       },
+      usageSource: "provider",
     });
   });
 
@@ -81,6 +82,7 @@ describe("OpenAI-compatible text provider", () => {
       outputTokens: estimateTextTokens("Fallback response."),
       totalTokens: expectedInputTokens + estimateTextTokens("Fallback response."),
     });
+    expect(response.usageSource).toBe("estimated");
   });
 
   it("refuses to generate without a session key", async () => {

@@ -29,5 +29,6 @@ describe("mock text provider", () => {
     expect(response.providerId).toBe("mock");
     expect(response.usage.inputTokens).toBeGreaterThan(0);
     expect(response.usage.outputTokens).toBeGreaterThan(0);
+    expect(response.usageSource).toBe("estimated");
   });
 });

@@ -43,6 +43,7 @@ describe("Tauri stored-secret text provider", () => {
       usage: {
         totalTokens: 16,
       },
+      usageSource: "provider",
     });
 
     expect(invokeImpl).toHaveBeenCalledWith(
@@ -90,6 +91,7 @@ describe("Tauri stored-secret text provider", () => {
       outputTokens: estimateTextTokens("Fallback desktop response."),
       totalTokens: expectedInputTokens + estimateTextTokens("Fallback desktop response."),
     });
+    expect(response.usageSource).toBe("estimated");
   });
 
   it("rejects an aborted desktop generation without invoking the command", async () => {

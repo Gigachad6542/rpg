@@ -220,6 +220,10 @@ export function sanitizePersistedProviderSettings(value: unknown): Record<string
   if (pricing) {
     sanitized.pricing = pricing;
   }
+  const economicalPricing = sanitizePricingSnapshot(value.economicalPricing);
+  if (economicalPricing) {
+    sanitized.economicalPricing = economicalPricing;
+  }
   const baseUrl = sanitizeCredentialFreeUrl(value.baseUrl);
   if (baseUrl) {
     sanitized.baseUrl = baseUrl;
@@ -233,12 +237,16 @@ export function sanitizePersistedProviderSettings(value: unknown): Record<string
   return Object.keys(sanitized).length > 0 ? sanitized : undefined;
 }
 
-function sanitizePricingSnapshot(value: unknown, selectedModel: string | undefined): Record<string, unknown> | undefined {
-  if (!isRecord(value) || typeof selectedModel !== "string") {
+function sanitizePricingSnapshot(value: unknown, selectedModel?: string): Record<string, unknown> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const model = selectedModel ?? (typeof value.model === "string" ? value.model : undefined);
+  if (!model) {
     return undefined;
   }
   if (
-    value.model !== selectedModel ||
+    value.model !== model ||
     value.currency !== "USD" ||
     typeof value.inputUsdPerMillionTokens !== "number" ||
     !Number.isFinite(value.inputUsdPerMillionTokens) ||
@@ -255,7 +263,7 @@ function sanitizePricingSnapshot(value: unknown, selectedModel: string | undefin
     return undefined;
   }
   return {
-    model: selectedModel,
+    model,
     currency: "USD",
     inputUsdPerMillionTokens: value.inputUsdPerMillionTokens,
     outputUsdPerMillionTokens: value.outputUsdPerMillionTokens,

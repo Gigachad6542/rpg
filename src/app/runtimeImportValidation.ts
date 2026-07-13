@@ -66,6 +66,7 @@ const LorebookEntrySchema = z
     id: NonEmptyIdSchema,
     title: z.string().optional(),
     keys: StringArraySchema.optional(),
+    aliases: StringArraySchema.optional(),
     secondaryKeys: StringArraySchema.optional(),
     content: z.string(),
     insertionOrder: z.number().optional(),
@@ -76,6 +77,7 @@ const LorebookEntrySchema = z
     caseSensitive: z.boolean().optional(),
     wholeWord: z.boolean().optional(),
     matchMode: z.string().optional(),
+    literalMatchBehavior: z.enum(["boundary", "substring"]).optional(),
     scanScopes: StringArraySchema.optional(),
   })
   .passthrough();
@@ -428,6 +430,7 @@ function normalizeLegacyLorebooks(value: unknown): Array<Record<string, unknown>
       ...entry,
       title: typeof entry.title === "string" ? entry.title : "",
       keys: Array.isArray(entry.keys) ? entry.keys : [],
+      aliases: Array.isArray(entry.aliases) ? entry.aliases : [],
       secondaryKeys: Array.isArray(entry.secondaryKeys) ? entry.secondaryKeys : [],
       insertionOrder: typeof entry.insertionOrder === "number" ? entry.insertionOrder : (index + 1) * 100,
       priority: typeof entry.priority === "number" ? entry.priority : 0,

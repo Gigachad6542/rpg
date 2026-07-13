@@ -23,6 +23,7 @@ export function ProvidersSection(props: {
   providerKeyStatus: string;
   providerTestStatus: string;
   providerSettings: ProviderSettings;
+  economicalModel?: string;
   setProviderSettings: (settings: ProviderSettings) => void;
   imageProviderSettings: ImageProviderSettings;
   setImageProviderSettings: (settings: ImageProviderSettings) => void;
@@ -52,6 +53,9 @@ export function ProvidersSection(props: {
     if ("pricing" in patch && patch.pricing === undefined) {
       delete next.pricing;
     }
+    if ("economicalPricing" in patch && patch.economicalPricing === undefined) {
+      delete next.economicalPricing;
+    }
     const baseUrlChanged =
       typeof patch.baseUrl === "string" &&
       normalizeProviderBaseUrlOrNull(patch.baseUrl) !== normalizeProviderBaseUrlOrNull(props.providerSettings.baseUrl);
@@ -61,6 +65,7 @@ export function ProvidersSection(props: {
       patch.mode === "mock"
     ) {
       delete next.secretReference;
+      delete next.economicalPricing;
     }
     if (typeof patch.model === "string" && patch.model !== props.providerSettings.model) {
       if (patch.contextWindowTokens === undefined) {
@@ -238,6 +243,17 @@ export function ProvidersSection(props: {
           pricing={props.providerSettings.pricing}
           onChange={(pricing) => updateSettings({ pricing })}
         />
+        {props.economicalModel?.trim() && props.economicalModel.trim() !== props.providerSettings.model ? (
+          <ModelPricingFields
+            key={`${props.providerSettings.providerId}:economical:${props.economicalModel.trim()}`}
+            label="Economical hidden model"
+            model={props.economicalModel.trim()}
+            pricing={props.providerSettings.economicalPricing?.model === props.economicalModel.trim()
+              ? props.providerSettings.economicalPricing
+              : undefined}
+            onChange={(economicalPricing) => updateSettings({ economicalPricing })}
+          />
+        ) : null}
         <label className="field">
           <span>Session API key</span>
           <input
@@ -516,6 +532,7 @@ export function ProvidersSection(props: {
 }
 
 function ModelPricingFields(props: {
+  label?: string;
   model: string;
   pricing: ProviderSettings["pricing"];
   onChange: (pricing: ProviderSettings["pricing"] | undefined) => void;
@@ -557,11 +574,12 @@ function ModelPricingFields(props: {
 
   return (
     <>
+      {props.label ? <h4>{props.label}: {props.model}</h4> : null}
       <div className="settings-grid-two">
         <label className="field">
           <span>Input USD / 1M tokens</span>
           <input
-            aria-label="Input USD per million tokens"
+            aria-label={`${props.label ? `${props.label} ` : ""}Input USD per million tokens`}
             type="number"
             min={0}
             step="0.000001"
@@ -573,7 +591,7 @@ function ModelPricingFields(props: {
         <label className="field">
           <span>Output USD / 1M tokens</span>
           <input
-            aria-label="Output USD per million tokens"
+            aria-label={`${props.label ? `${props.label} ` : ""}Output USD per million tokens`}
             type="number"
             min={0}
             step="0.000001"

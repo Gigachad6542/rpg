@@ -50,13 +50,13 @@ no provider credential is created or read.
 | Mutation precision / recall | 1.00 / 1.00 |
 | Leak detector precision / recall | 1.00 / 1.00 |
 | Deliberate output leak rate | 0.0833 |
-| Lore precision / recall / F1 | 0.50 / 1.00 / 0.6667 |
+| Lore precision / recall / F1 | 1.00 / 1.00 / 1.00 |
 | Branch / regeneration continuity | 1.00 / 1.00 |
-| Hidden calls | 33 attempts, 2 failures, 21,647 tokens, 6 proposals (3 applied / 3 blocked) |
-| Visible calls | 36 attempts, 1 failure, 12,431 tokens, 12 proposals (6 applied / 6 blocked) |
+| Hidden calls | 33 attempts, 2 failures, 21,639 tokens, 6 proposals (3 applied / 3 blocked) |
+| Visible calls | 36 attempts, 1 failure, 12,413 tokens, 12 proposals (6 applied / 6 blocked) |
 
 Corpus SHA-256:
-`8671e1ce785651d38c3ba4b986e19ff8197833fdd4d2f3395a7efae5c32a7483`.
+`60a4d948d5a44c90ca5a0073d592a70f435ce4b07abdaa66cdf650e737e9d993`.
 
 ## Verification
 
@@ -64,8 +64,8 @@ Corpus SHA-256:
 | --- | --- |
 | `pnpm typecheck` | PASS |
 | `pnpm lint` | PASS |
-| `pnpm test` | PASS: 66 files / 582 tests |
-| `pnpm test:coverage` | PASS: 92.73% statements/lines, 88.65% branches, 94.99% functions |
+| `pnpm test` | PASS: 67 files / 595 tests after the Phase 1.1 regression additions |
+| `pnpm test:coverage` | PASS: 91.49% statements/lines, 88.27% branches, 94.24% functions |
 | `pnpm eval:phase1` | PASS: fresh recording equals corpus, baseline, pricing, and manifest hashes |
 | `pnpm build` | PASS |
 | `pnpm audit:prod` | PASS: no known production dependency vulnerabilities |
@@ -79,9 +79,10 @@ Corpus SHA-256:
 - The corpus proves deterministic runtime and adapter integration. It does not
   claim live-model quality, current provider latency, or current commercial
   pricing.
-- Lore precision is 0.50 because the corpus deliberately exposes an overbroad
-  key false positive. Tightening lore activation without losing recall is the
-  clearest measured Phase 1 quality target.
+- Phase 1.1 corrected the overbroad-key reproducer to the documented
+  `gate`-inside-`investigate` case and added boundary-aware literal matching.
+  The refreshed 36-turn corpus now reports lore precision/recall of 1.00/1.00;
+  the separate 100-decision Phase 1.1 corpus is the broader regression gate.
 - The local semantic component is a deterministic concept lexicon plus feature
   hashing, not a neural embedding model.
 - Phase duration includes provider execution plus local parsing/policy work; it

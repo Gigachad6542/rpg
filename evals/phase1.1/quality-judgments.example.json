@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "ratings": [
+    {
+      "blindId": "replace-with-sample-id",
+      "coherence": 3,
+      "agency": 3,
+      "repetition": 3,
+      "pacing": 3,
+      "characterConsistency": 3
+    }
+  ],
+  "preferences": [
+    {
+      "winnerBlindId": "replace-with-winner-id",
+      "loserBlindId": "replace-with-loser-id"
+    }
+  ]
+}

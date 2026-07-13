@@ -20,3 +20,4 @@ src-tauri/target/
 
 # Local reasoning scratch files
 .reasoning/current/
+evals/phase1.1/artifacts/

@@ -76,7 +76,7 @@ Provider calls must preserve the BYOK boundary:
 ## Phase 1 Turn Runtime
 
 - Hidden continuity is explicit: `off` makes one visible model call; `economical` and `full` make one hidden call followed by one visible call.
-- Every attempted phase retains its model, phase duration, usage source, tokens, context budget, cost provenance, failure, and state-proposal count. Missing usage or pricing remains unknown rather than becoming zero.
+- Every attempted phase retains its model, phase duration, usage source, tokens, context budget, cost provenance, failure, and state-proposal count. Visible and economical hidden models resolve separate exact-model pricing snapshots; missing usage or exact pricing remains unknown rather than becoming zero.
 - Context budgets resolve against metadata for the exact routed model. Unknown models use the conservative fallback.
 - Runtime rules and knowledge/safety boundaries are required prompt layers and fail closed when they cannot fit.
 - Player actions, deterministic rule decisions, dice, tool results, and accepted state mutations use the typed branch-scoped event stream. Replay verifies the RPG projection against the turn lineage before using it.

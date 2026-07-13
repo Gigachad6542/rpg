@@ -1,9 +1,11 @@
 import { testRegexInWorker, type LoreRegexTest } from "./loreRegexIsolation";
 
 export const LORE_MATCH_MODES = ["literal", "wildcard", "regex"] as const;
+export const LORE_LITERAL_MATCH_BEHAVIORS = ["boundary", "substring"] as const;
 
 /** How an entry's keys are compared against the scanned text. */
 export type LoreMatchMode = (typeof LORE_MATCH_MODES)[number];
+export type LoreLiteralMatchBehavior = (typeof LORE_LITERAL_MATCH_BEHAVIORS)[number];
 
 export const LORE_SCAN_SCOPES = ["history", "draft", "card", "persona", "memory", "rpg"] as const;
 
@@ -26,11 +28,16 @@ export const DEFAULT_LORE_SCAN_SCOPES: readonly LoreScanScope[] = ["history", "d
 const MAX_LORE_PATTERN_LENGTH = 200;
 const MAX_LORE_SCAN_LENGTH = 20_000;
 const MAX_COMPILED_PATTERN_CACHE = 500;
+const BROAD_LITERAL_KEYS = new Set([
+  "a", "an", "and", "ask", "at", "do", "get", "go", "he", "her", "him", "i", "in", "it", "look",
+  "me", "my", "of", "on", "or", "say", "see", "she", "take", "the", "they", "thing", "to", "use", "we", "you",
+]);
 
 export interface LoreTriggerEntry {
   id: string;
   title: string;
   keys: string[];
+  aliases?: string[];
   secondaryKeys: string[];
   content: string;
   insertionOrder: number;
@@ -41,6 +48,8 @@ export interface LoreTriggerEntry {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   matchMode?: LoreMatchMode;
+  /** `substring` is an explicit legacy compatibility escape hatch. */
+  literalMatchBehavior?: LoreLiteralMatchBehavior;
   scanScopes?: LoreScanScope[];
 }
 
@@ -89,10 +98,38 @@ export interface SafeLoreSelectionResult<Entry extends LoreTriggerEntry = LoreTr
   disabledEntryIds: string[];
 }
 
+export interface LoreTermMatch {
+  source: "key" | "alias" | "secondary" | "constant";
+  term: string;
+  matchMode: LoreMatchMode;
+  literalMatchBehavior?: LoreLiteralMatchBehavior;
+}
+
+export interface LoreTriggerProvenance {
+  bookId: string;
+  entryId: string;
+  scanScopes: readonly LoreScanScope[];
+  primary: LoreTermMatch;
+  secondary?: LoreTermMatch;
+  reason: string;
+}
+
+export interface LoreSelectionWithProvenance<Entry extends LoreTriggerEntry = LoreTriggerEntry> {
+  entries: Entry[];
+  triggers: LoreTriggerProvenance[];
+}
+
 export function selectActiveLorebookEntries<Entry extends LoreTriggerEntry>(
   input: SelectLorebookEntriesInput<Entry>,
 ): Entry[] {
+  return selectLorebookEntriesWithProvenance(input).entries;
+}
+
+export function selectLorebookEntriesWithProvenance<Entry extends LoreTriggerEntry>(
+  input: SelectLorebookEntriesInput<Entry>,
+): LoreSelectionWithProvenance<Entry> {
   const activeEntries: Entry[] = [];
+  const provenance = new Map<string, LoreTriggerProvenance>();
 
   for (const lorebook of input.lorebooks) {
     if (!lorebook.enabled) {
@@ -100,20 +137,33 @@ export function selectActiveLorebookEntries<Entry extends LoreTriggerEntry>(
     }
 
     const scanText = createScanTextResolver(input, lorebook.scanDepth);
-    let triggeredEntries = lorebook.entries.filter((entry) => isLorebookEntryActive(entry, scanText(entry)));
+    let triggered = lorebook.entries
+      .map((entry) => ({ entry, match: matchLorebookEntry(entry, scanText(entry), lorebook.id) }))
+      .filter((result): result is { entry: Entry; match: LoreTriggerProvenance } => result.match !== null);
 
-    if (lorebook.recursiveScanning && triggeredEntries.length > 0) {
-      const triggeredContent = triggeredEntries.map((entry) => entry.content).join("\n");
-      triggeredEntries = uniqueLorebookEntries([
-        ...triggeredEntries,
-        ...lorebook.entries.filter((entry) => isLorebookEntryActive(entry, scanText(entry, triggeredContent))),
-      ]);
+    if (lorebook.recursiveScanning && triggered.length > 0) {
+      const triggeredContent = triggered.map(({ entry }) => entry.content).join("\n");
+      const recursive = lorebook.entries
+        .map((entry) => ({ entry, match: matchLorebookEntry(entry, scanText(entry, triggeredContent), lorebook.id) }))
+        .filter((result): result is { entry: Entry; match: LoreTriggerProvenance } => result.match !== null);
+      triggered = uniqueLoreMatches([...triggered, ...recursive]);
     }
 
-    activeEntries.push(...applyLorebookBudget(triggeredEntries, lorebook.tokenBudget));
+    const included = applyLorebookBudget(triggered.map(({ entry }) => entry), lorebook.tokenBudget);
+    activeEntries.push(...included);
+    for (const entry of included) {
+      const match = triggered.find((result) => result.entry.id === entry.id)?.match;
+      if (match && !provenance.has(entry.id)) {
+        provenance.set(entry.id, match);
+      }
+    }
   }
 
-  return uniqueLorebookEntries(activeEntries).sort(compareLorebookEntries);
+  const entries = uniqueLorebookEntries(activeEntries).sort(compareLorebookEntries);
+  return {
+    entries,
+    triggers: entries.flatMap((entry) => provenance.get(entry.id) ?? []),
+  };
 }
 
 /**
@@ -124,7 +174,13 @@ export function selectActiveLorebookEntries<Entry extends LoreTriggerEntry>(
 export function selectActiveLorebookEntriesForPreview<Entry extends LoreTriggerEntry>(
   input: SelectLorebookEntriesInput<Entry>,
 ): Entry[] {
-  return selectActiveLorebookEntries({
+  return selectLorebookEntriesWithProvenanceForPreview(input).entries;
+}
+
+export function selectLorebookEntriesWithProvenanceForPreview<Entry extends LoreTriggerEntry>(
+  input: SelectLorebookEntriesInput<Entry>,
+): LoreSelectionWithProvenance<Entry> {
+  return selectLorebookEntriesWithProvenance({
     ...input,
     lorebooks: input.lorebooks.map((lorebook) => ({
       ...lorebook,
@@ -218,7 +274,7 @@ async function isLorebookEntryActiveSafely(
   }
 
   const primary = await regexTermsMatchSafely(
-    entry.keys,
+    [...entry.keys, ...(entry.aliases ?? [])],
     entry,
     scanText.raw,
     regexTest,
@@ -323,6 +379,28 @@ export function parseLoreMatchMode(value: unknown): LoreMatchMode {
   return LORE_MATCH_MODES.includes(value as LoreMatchMode) ? (value as LoreMatchMode) : "literal";
 }
 
+export function parseLoreLiteralMatchBehavior(value: unknown): LoreLiteralMatchBehavior | undefined {
+  return LORE_LITERAL_MATCH_BEHAVIORS.includes(value as LoreLiteralMatchBehavior)
+    ? value as LoreLiteralMatchBehavior
+    : undefined;
+}
+
+export function getLoreKeyWarnings(
+  entry: Pick<LoreTriggerEntry, "keys" | "secondaryKeys"> & Partial<LoreTriggerEntry>,
+): string[] {
+  if ((entry.matchMode ?? "literal") !== "literal") {
+    return [];
+  }
+  if (entry.literalMatchBehavior === "substring") {
+    return ["Substring compatibility can activate inside unrelated words; use boundary matching when possible."];
+  }
+  const broadTerms = [...entry.keys, ...(entry.aliases ?? [])].filter(isBroadLiteralKey);
+  if (broadTerms.length > 0 && entry.secondaryKeys.length === 0) {
+    return [`Broad key "${truncateForMessage(broadTerms[0])}" requires a secondary key to avoid unrelated activations.`];
+  }
+  return [];
+}
+
 /** Returns `undefined` when nothing usable is stored, meaning "use the default scopes". */
 export function parseLoreScanScopes(value: unknown): LoreScanScope[] | undefined {
   if (!Array.isArray(value)) {
@@ -398,19 +476,71 @@ function normalizeScanText(raw: string): NormalizedScanText {
 }
 
 function isLorebookEntryActive(entry: LoreTriggerEntry, scanText: NormalizedScanText): boolean {
+  return matchLorebookEntry(entry, scanText, "unknown") !== null;
+}
+
+function matchLorebookEntry(
+  entry: LoreTriggerEntry,
+  scanText: NormalizedScanText,
+  bookId: string,
+): LoreTriggerProvenance | null {
   if (!entry.enabled || entry.probability <= 0) {
-    return false;
+    return null;
   }
 
   if (entry.constant) {
-    return probabilityAllows(entry);
+    return probabilityAllows(entry)
+      ? {
+          bookId,
+          entryId: entry.id,
+          scanScopes: getLoreScanScopes(entry),
+          primary: { source: "constant", term: "constant", matchMode: "literal" },
+          reason: "Triggered because the entry is constant.",
+        }
+      : null;
   }
 
-  const hasPrimaryKey = entry.keys.some((key) => termMatches(scanText, key, entry));
-  const hasSecondaryKey =
-    entry.secondaryKeys.length === 0 || entry.secondaryKeys.some((key) => termMatches(scanText, key, entry));
+  const primary = findTermMatch(scanText, entry.keys, entry, "key")
+    ?? findTermMatch(scanText, entry.aliases ?? [], entry, "alias");
+  if (!primary || !probabilityAllows(entry)) {
+    return null;
+  }
 
-  return hasPrimaryKey && hasSecondaryKey && probabilityAllows(entry);
+  const secondary = findTermMatch(scanText, entry.secondaryKeys, entry, "secondary");
+  const requiresSecondary = entry.secondaryKeys.length > 0 ||
+    (entry.literalMatchBehavior !== "substring" && isBroadLiteralKey(primary.term));
+  if (requiresSecondary && !secondary) {
+    return null;
+  }
+
+  const secondaryReason = secondary ? ` and secondary key "${secondary.term}"` : "";
+  return {
+    bookId,
+    entryId: entry.id,
+    scanScopes: getLoreScanScopes(entry),
+    primary,
+    ...(secondary ? { secondary } : {}),
+    reason: `Triggered because ${primary.source} "${primary.term}" matched${secondaryReason}.`,
+  };
+}
+
+function findTermMatch(
+  scanText: NormalizedScanText,
+  terms: readonly string[],
+  entry: LoreTriggerEntry,
+  source: LoreTermMatch["source"],
+): LoreTermMatch | undefined {
+  const term = terms.find((candidate) => termMatches(scanText, candidate, entry))?.trim();
+  return term
+    ? {
+        source,
+        term,
+        matchMode: entry.matchMode ?? "literal",
+        ...((entry.matchMode ?? "literal") === "literal"
+          ? { literalMatchBehavior: entry.literalMatchBehavior ?? "boundary" }
+          : {}),
+      }
+    : undefined;
 }
 
 function termMatches(scanText: NormalizedScanText, rawTerm: string, entry: LoreTriggerEntry): boolean {
@@ -422,11 +552,16 @@ function termMatches(scanText: NormalizedScanText, rawTerm: string, entry: LoreT
   const matchMode = entry.matchMode ?? "literal";
   const caseSensitive = entry.caseSensitive === true;
 
-  if (matchMode === "literal" && !entry.wholeWord) {
+  if (matchMode === "literal" && !entry.wholeWord && entry.literalMatchBehavior === "substring") {
     return (caseSensitive ? scanText.raw : scanText.lower).includes(caseSensitive ? term : term.toLowerCase());
   }
 
-  const pattern = compileTermPattern(term, matchMode, caseSensitive, entry.wholeWord === true);
+  const pattern = compileTermPattern(
+    term,
+    matchMode,
+    caseSensitive,
+    entry.wholeWord === true || matchMode === "literal",
+  );
   return pattern ? pattern.test(scanText.raw) : false;
 }
 
@@ -449,11 +584,12 @@ function compileTermPattern(
   } else {
     source = matchMode === "wildcard" ? wildcardToRegexSource(term) : escapeRegExp(term);
     if (wholeWord) {
-      source = `(^|\\W)${source}($|\\W)`;
+      source = `(^|[^\\p{L}\\p{N}_])${source}(?=$|[^\\p{L}\\p{N}_])`;
     }
   }
 
-  return getCachedRegExp(source, caseSensitive ? "" : "i");
+  const unicodeBoundary = wholeWord && matchMode !== "regex";
+  return getCachedRegExp(source, `${caseSensitive ? "" : "i"}${unicodeBoundary ? "u" : ""}`);
 }
 
 function wildcardToRegexSource(term: string): string {
@@ -542,6 +678,24 @@ function uniqueLorebookEntries<Entry extends LoreTriggerEntry>(entries: Entry[])
     seen.add(entry.id);
     return true;
   });
+}
+
+function uniqueLoreMatches<Entry extends LoreTriggerEntry>(
+  matches: Array<{ entry: Entry; match: LoreTriggerProvenance }>,
+): Array<{ entry: Entry; match: LoreTriggerProvenance }> {
+  const seen = new Set<string>();
+  return matches.filter(({ entry }) => {
+    if (seen.has(entry.id)) {
+      return false;
+    }
+    seen.add(entry.id);
+    return true;
+  });
+}
+
+function isBroadLiteralKey(value: string): boolean {
+  const normalized = value.toLowerCase().trim();
+  return BROAD_LITERAL_KEYS.has(normalized) || /^[\p{L}\p{N}_]{1,2}$/u.test(normalized);
 }
 
 function estimateRoughTokens(value: string): number {

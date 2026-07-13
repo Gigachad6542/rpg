@@ -5,14 +5,18 @@ import {
   PHASE11_LIVE_MODES,
   assertLongSessionCampaignCoverage,
   parseLongSessionCampaignFixtures,
+  parseLoreDecisionCorpus,
   parsePhase11LiveArtifact,
   parsePhase11LiveConfig,
   redactPhase11Text,
+  scoreLoreDecisionCorpus,
   scorePhase11LiveArtifact,
 } from "../../src/evals/phase11Eval";
+import { runPhase11LiveExperiment } from "../../src/evals/phase11LiveRunner";
 
 const LIVE_CONFIG_URL = new URL("../../evals/phase1.1/live-config.example.json", import.meta.url);
 const CAMPAIGNS_URL = new URL("../../evals/phase1.1/long-session-campaigns.json", import.meta.url);
+const LORE_CORPUS_URL = new URL("../../evals/phase1.1/lore-decisions.json", import.meta.url);
 
 describe("Phase 1.1 live-model A/B contract", () => {
   it("defines three target classes, all three call modes, and exact per-model price snapshots", () => {
@@ -47,6 +51,9 @@ describe("Phase 1.1 live-model A/B contract", () => {
           call("visible-response", "strong-model", 800, 0.001),
         ], 4.5),
       ],
+      pairwisePreferences: [
+        { scenarioId: "scenario-1", profileId: "strong-hosted", winnerBlindId: "blind-full", loserBlindId: "blind-off" },
+      ],
     }));
     const scorecard = scorePhase11LiveArtifact(artifact);
 
@@ -55,12 +62,34 @@ describe("Phase 1.1 live-model A/B contract", () => {
     expect(scorecard.modes.full.calls["visible-response"].attempts).toBe(1);
     expect(scorecard.modes.full.qualityMean).toBe(4.5);
     expect(scorecard.modes.full.qualityGainVsOff).toBe(1.5);
+    expect(scorecard.modes.full.pairwiseWinRateVsOff).toBe(1);
     expect(scorecard.modes.full.totalCostUsd).toBeCloseTo(0.0018);
+    expect(scorecard.modes.off.comparisonVsOff).toBeNull();
+    expect(scorecard.modes.economical.comparisonVsOff).toEqual({
+      addedTokensMeanPerRun: 150,
+      addedDurationMeanMsPerRun: 350,
+      addedCostMeanUsdPerRun: { status: "known", amountUsd: 0.0001 },
+    });
+    expect(scorecard.modes.full.comparisonVsOff).toEqual({
+      addedTokensMeanPerRun: 150,
+      addedDurationMeanMsPerRun: 600,
+      addedCostMeanUsdPerRun: { status: "known", amountUsd: 0.0008 },
+    });
 
     expect(() => parsePhase11LiveArtifact(JSON.stringify({
       ...artifact,
       runs: [{ ...artifact.runs[0], calls: [] }],
     }))).toThrow(/exactly one visible/i);
+  });
+
+  it("keeps the paid live runner opt-in and outside the deterministic verification lane", () => {
+    const packageJson = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as {
+      scripts: Record<string, string>;
+    };
+
+    expect(packageJson.scripts["eval:phase1.1:live"]).toMatch(/run-phase11-live-eval/);
+    expect(packageJson.scripts.verify).toContain("eval:phase1.1");
+    expect(packageJson.scripts.verify).not.toContain("eval:phase1.1:live");
   });
 
   it("redacts credential-like material before an artifact can be serialized", () => {
@@ -70,6 +99,15 @@ describe("Phase 1.1 live-model A/B contract", () => {
 
     expect(redacted).not.toMatch(/secret-token|super-private|user:pass/i);
     expect(redacted).toMatch(/REDACTED/);
+  });
+
+  it("refuses the committed example before opening any paid or local connection", async () => {
+    const config = parsePhase11LiveConfig(readFileSync(LIVE_CONFIG_URL, "utf8"));
+    const fetchImpl = (() => {
+      throw new Error("fetch must not be reached");
+    }) as typeof fetch;
+
+    await expect(runPhase11LiveExperiment(config, { environment: {}, fetchImpl })).rejects.toThrow(/readyForPaidRuns/i);
   });
 });
 
@@ -83,6 +121,18 @@ describe("Phase 1.1 long-session fixtures", () => {
       expect(campaign.turns.length).toBeGreaterThanOrEqual(50);
       expect(campaign.turns.length).toBeLessThanOrEqual(100);
     }
+  });
+});
+
+describe("Phase 1.1 lore activation corpus", () => {
+  it("contains 80-120 labeled decisions and clears the precision/recall exit bar", () => {
+    const corpus = parseLoreDecisionCorpus(readFileSync(LORE_CORPUS_URL, "utf8"));
+    const score = scoreLoreDecisionCorpus(corpus);
+
+    expect(score.decisionCount).toBeGreaterThanOrEqual(80);
+    expect(score.decisionCount).toBeLessThanOrEqual(120);
+    expect(score.precision).toBeGreaterThanOrEqual(0.9);
+    expect(score.recall).toBeGreaterThanOrEqual(0.95);
   });
 });
 

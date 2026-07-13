@@ -15,7 +15,7 @@ import type { ModelCallBudgetSource } from "../runtime/modelCallBudget";
 import type { AuthoritativeEventStream } from "../runtime/authoritativeEventStream";
 import type { RollingSummary } from "../runtime/rollingSummary";
 import type { HybridRetrievalVisibility, RetrievalProvenance } from "../runtime/hybridRetrieval";
-import type { LoreMatchMode, LoreScanScope } from "../runtime/loreTriggerEngine";
+import type { LoreLiteralMatchBehavior, LoreMatchMode, LoreScanScope } from "../runtime/loreTriggerEngine";
 import type { PlayerRuleDefinition } from "../runtime/playerRuleEngine";
 import type { RunTurnPipelineRequest } from "../runtime/turnPipeline";
 import type { RuntimeTurnLineage } from "../runtime/runtimeTurnLineage";
@@ -92,12 +92,13 @@ export type Lorebook = {
   entries: LorebookEntry[];
 };
 
-export type { LoreMatchMode, LoreScanScope };
+export type { LoreLiteralMatchBehavior, LoreMatchMode, LoreScanScope };
 
 export type LorebookEntry = {
   id: string;
   title: string;
   keys: string[];
+  aliases?: string[];
   secondaryKeys: string[];
   content: string;
   insertionOrder: number;
@@ -109,6 +110,7 @@ export type LorebookEntry = {
   wholeWord: boolean;
   /** Absent means `literal`, the only mode that existed before match modes. */
   matchMode?: LoreMatchMode;
+  literalMatchBehavior?: LoreLiteralMatchBehavior;
   /** Absent or empty means `DEFAULT_LORE_SCAN_SCOPES`. */
   scanScopes?: LoreScanScope[];
 };
@@ -116,6 +118,7 @@ export type LorebookEntry = {
 export type NewLorebookEntry = {
   title: string;
   keys: string;
+  aliases?: string;
   secondaryKeys: string;
   content: string;
   insertionOrder: string;
@@ -125,6 +128,7 @@ export type NewLorebookEntry = {
   caseSensitive: boolean;
   wholeWord: boolean;
   matchMode: LoreMatchMode;
+  literalMatchBehavior?: LoreLiteralMatchBehavior;
   scanScopes: LoreScanScope[];
 };
 
@@ -242,6 +246,8 @@ export type ProviderSettings = {
   maxOutputTokens?: number;
   /** User-supplied immutable price snapshot for the exact selected model. */
   pricing?: ModelPricingSnapshot;
+  /** Optional exact snapshot for the separately routed economical model. */
+  economicalPricing?: ModelPricingSnapshot;
   secretReference?: SecretReference;
 };
 

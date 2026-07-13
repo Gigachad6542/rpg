@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { BookOpen, CheckCircle2, ClipboardList, Download, Layers3, Plus, Search } from "lucide-react";
-import { LORE_SCAN_SCOPES, getLoreScanScopes } from "../runtime/loreTriggerEngine";
+import {
+  LORE_SCAN_SCOPES,
+  getLoreKeyWarnings,
+  getLoreScanScopes,
+  type LoreTriggerProvenance,
+} from "../runtime/loreTriggerEngine";
 import { type CompiledPrompt } from "../runtime/promptCompiler";
 import type {
   Lorebook,
@@ -320,6 +325,7 @@ export function RulesPanel(props: {
 export function LorebooksPanel(props: {
   activeCard: RuntimeCard;
   activeLorebookEntries: LorebookEntry[];
+  activeLoreTriggers: LoreTriggerProvenance[];
   updateActiveLorebook: (lorebookId: string, patch: Partial<Omit<Lorebook, "id" | "entries">>) => void;
   addLorebookEntry: (lorebookId: string, entry: NewLorebookEntry) => boolean;
   lorebookEntryError: string | null;
@@ -487,6 +493,14 @@ export function LorebooksPanel(props: {
             />
           </label>
           <label className="field">
+            <span>Aliases / entity names</span>
+            <input
+              value={entryDraft.aliases ?? ""}
+              onChange={(event) => setEntryDraft({ ...entryDraft, aliases: event.target.value })}
+              placeholder="optional alternate names"
+            />
+          </label>
+          <label className="field">
             <span>Secondary keys</span>
             <input
               value={entryDraft.secondaryKeys}
@@ -495,6 +509,15 @@ export function LorebooksPanel(props: {
             />
           </label>
         </div>
+        {getLoreKeyWarnings({
+          keys: entryDraft.keys.split(/[,\n]/).map((key) => key.trim()).filter(Boolean),
+          aliases: (entryDraft.aliases ?? "").split(/[,\n]/).map((key) => key.trim()).filter(Boolean),
+          secondaryKeys: entryDraft.secondaryKeys.split(/[,\n]/).map((key) => key.trim()).filter(Boolean),
+          matchMode: entryDraft.matchMode,
+          literalMatchBehavior: entryDraft.literalMatchBehavior,
+        }).map((warning) => (
+          <p className="rule-warning" key={warning}>{warning}</p>
+        ))}
         <label className="field">
           <span>Key matching</span>
           <select
@@ -622,7 +645,7 @@ export function LorebooksPanel(props: {
               {props.activeLorebookEntries.some((activeEntry) => activeEntry.id === entry.id) ? (
                 <span className="flag-on">
                   <CheckCircle2 size={14} />
-                  active
+                  {props.activeLoreTriggers.find((trigger) => trigger.entryId === entry.id)?.reason ?? "active"}
                 </span>
               ) : null}
             </div>

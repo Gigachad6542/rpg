@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "experimentId": "phase1.1-live-quality-example",
+  "readyForPaidRuns": false,
+  "modes": ["off", "economical", "full"],
+  "profiles": [
+    {
+      "id": "strong-hosted",
+      "class": "strong-hosted",
+      "baseUrl": "https://strong-provider.example.invalid/v1",
+      "apiKeyEnv": "PHASE11_STRONG_API_KEY",
+      "visibleModel": "replace-strong-model",
+      "economicalModel": "replace-economical-model",
+      "pricing": [
+        { "id": "replace-strong-price", "model": "replace-strong-model", "currency": "USD", "inputUsdPerMillionTokens": 0, "outputUsdPerMillionTokens": 0, "source": "EXAMPLE ONLY - replace with an exact reviewed provider pricing source", "effectiveDate": "2026-07-13" },
+        { "id": "replace-economical-price", "model": "replace-economical-model", "currency": "USD", "inputUsdPerMillionTokens": 0, "outputUsdPerMillionTokens": 0, "source": "EXAMPLE ONLY - replace with an exact reviewed provider pricing source", "effectiveDate": "2026-07-13" }
+      ]
+    },
+    {
+      "id": "economical-hosted",
+      "class": "economical-hosted",
+      "baseUrl": "https://economical-provider.example.invalid/v1",
+      "apiKeyEnv": "PHASE11_ECONOMICAL_API_KEY",
+      "visibleModel": "replace-economical-model",
+      "economicalModel": "replace-economical-model",
+      "pricing": [
+        { "id": "replace-economical-price", "model": "replace-economical-model", "currency": "USD", "inputUsdPerMillionTokens": 0, "outputUsdPerMillionTokens": 0, "source": "EXAMPLE ONLY - replace with an exact reviewed provider pricing source", "effectiveDate": "2026-07-13" }
+      ]
+    },
+    {
+      "id": "local-openai-compatible",
+      "class": "local-openai-compatible",
+      "baseUrl": "http://127.0.0.1:1234/v1",
+      "visibleModel": "replace-local-model",
+      "economicalModel": "replace-local-model",
+      "pricing": [
+        { "id": "replace-local-operating-cost", "model": "replace-local-model", "currency": "USD", "inputUsdPerMillionTokens": 0, "outputUsdPerMillionTokens": 0, "source": "EXAMPLE ONLY - replace with a documented local operating-cost methodology or reviewed zero-cost policy", "effectiveDate": "2026-07-13" }
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "knowledge-boundary",
+      "title": "Knowledge remains scoped to the character who learned it",
+      "systemPrompt": "Narrate a grounded tabletop RPG scene. Preserve character knowledge boundaries and player agency.",
+      "history": [
+        { "role": "user", "content": "Mara privately tells Ilya that the obsidian key opens the west vault." },
+        { "role": "assistant", "content": "Ilya nods and hides the obsidian key inside her coat. Corvin remains outside and hears nothing." }
+      ],
+      "userMessage": "Corvin joins us. I ask what he thinks the key opens.",
+      "referenceFacts": ["Only Mara and Ilya know the key opens the west vault.", "Corvin must not know the vault fact without learning it."]
+    },
+    {
+      "id": "branch-continuity",
+      "title": "The active branch keeps the red-route decision",
+      "systemPrompt": "Narrate a grounded tabletop RPG scene. Follow only the active branch state.",
+      "history": [
+        { "role": "user", "content": "At the fork, I reject the blue road and take the red road toward Ash Harbor." },
+        { "role": "assistant", "content": "You follow the red mile markers until Ash Harbor's lamps appear through the rain." }
+      ],
+      "userMessage": "Where am I when dawn arrives, and which road did I take?",
+      "referenceFacts": ["The active route is red.", "The destination is Ash Harbor.", "The blue-road alternative is discarded."]
+    },
+    {
+      "id": "inventory-state",
+      "title": "Inventory and consequence remain aligned",
+      "systemPrompt": "Narrate a grounded tabletop RPG scene. Do not restore consumed or discarded items.",
+      "history": [
+        { "role": "user", "content": "I spend my only sunstone to seal the breach." },
+        { "role": "assistant", "content": "The sunstone dissolves into gold dust as the breach seals. Your pack no longer contains it." }
+      ],
+      "userMessage": "I search my pack for something that can light the catacombs.",
+      "referenceFacts": ["The sunstone was consumed.", "The breach is sealed.", "The narration must not put the sunstone back in inventory."]
+    }
+  ]
+}

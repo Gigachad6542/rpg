@@ -461,6 +461,14 @@ describe("App pure helper coverage", () => {
         source: "user configured",
         effectiveDate: "2026-07-12",
       },
+      economicalPricing: {
+        model: "local-small-model",
+        currency: "USD",
+        inputUsdPerMillionTokens: 0.05,
+        outputUsdPerMillionTokens: 0.2,
+        source: "user configured",
+        effectiveDate: "2026-07-13",
+      },
     });
     expect(helpers.getConfiguredTextModelInfo(configuredProvider)).toMatchObject({
       id: "local-model",
@@ -469,6 +477,10 @@ describe("App pure helper coverage", () => {
       maxOutputTokens: 4_096,
     });
     expect(configuredProvider.pricing).toMatchObject({ model: "local-model", inputUsdPerMillionTokens: 0.2 });
+    expect(configuredProvider.economicalPricing).toMatchObject({
+      model: "local-small-model",
+      inputUsdPerMillionTokens: 0.05,
+    });
     const promptRuns = [{ id: "run", compiledPrompt: "secret prompt" }];
     expect(helpers.applyPromptDebugRetention(promptRuns as any, { ...runtimeSettings, promptDebugLogs: true })).toBe(promptRuns);
     expect(helpers.applyPromptDebugRetention(promptRuns as any, { ...runtimeSettings, promptDebugLogs: false })[0].compiledPrompt).toBe("");

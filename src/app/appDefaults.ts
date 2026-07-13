@@ -70,6 +70,7 @@ export const defaultNewCard = {
 export const defaultNewLorebookEntry: NewLorebookEntry = {
   title: "",
   keys: "",
+  aliases: "",
   secondaryKeys: "",
   content: "",
   insertionOrder: "100",
@@ -79,6 +80,7 @@ export const defaultNewLorebookEntry: NewLorebookEntry = {
   caseSensitive: false,
   wholeWord: false,
   matchMode: "literal",
+  literalMatchBehavior: "boundary",
   scanScopes: [...DEFAULT_LORE_SCAN_SCOPES],
 };
 

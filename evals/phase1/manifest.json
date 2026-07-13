@@ -3,7 +3,7 @@
   "provenance": {
     "recorderVersion": "phase1-runtime-recorder-v2",
     "scorerVersion": "phase1-runtime-scorer-v2",
-    "corpusSha256": "8671e1ce785651d38c3ba4b986e19ff8197833fdd4d2f3395a7efae5c32a7483",
+    "corpusSha256": "60a4d948d5a44c90ca5a0073d592a70f435ce4b07abdaa66cdf650e737e9d993",
     "pricingManifestSha256": "328893ebe372c7877d8faf057ef38ba288257dc031f6d6d30cb481e50df21ed4",
     "recordSource": "deterministic-runtime-offline"
   },

@@ -114,6 +114,34 @@ to the `package.json` `pnpm` section and the workspace file was removed.
 
 The test-production bundles are unsigned; distribute to testers with that stated plainly.
 
+## Phase 1.1 Quality Lane (2026-07-13)
+
+The deterministic portion of Phase 1.1 is implemented and release-gated:
+
+- The opt-in live runner preserves the call contract for `off`, `economical`,
+  and `full`, records hidden and visible phases independently, and refuses paid
+  execution without both a reviewed configuration and an explicit command-line
+  acknowledgement.
+- Visible and routed economical models have separate exact-model pricing
+  snapshots. A missing or mismatched rate remains unknown instead of borrowing
+  another model's price.
+- Boundary-aware lore matching, aliases, broad-key secondary requirements,
+  editor warnings, trigger provenance, and explicit substring compatibility are
+  covered by regression tests.
+- The corrected 36-turn Phase 1 corpus and the expanded 100-decision lore gate
+  both report precision and recall of 1.00.
+- Three deterministic long-session fixtures cover 60, 55, and 75 turns with
+  edits, regeneration, branching, restart, and model switching.
+
+No paid or live-provider run has been performed. The second model call is
+therefore not yet proven to justify its latency or cost, and no default mode or
+model recommendation should change until blind pairwise evidence is collected.
+Neural embeddings remain deferred until a retrieval benchmark demonstrates a
+material gain over the current local lexical/feature-hash path.
+
 ## Current Recommendation
 
-Ship the next build as a controlled beta, not a broad public release. The code blockers are fixed and locally verified; the remaining risk is release operations, installer trust, and clean-machine validation rather than core runtime safety.
+Ship the next build as a controlled beta, not a broad public release. The code
+blockers are fixed and locally verified. Remaining risk includes release
+operations, installer trust, clean-machine validation, and unmeasured live
+narrative benefit from the optional second model call.

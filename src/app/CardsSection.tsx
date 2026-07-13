@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { BookOpen, Download, Plus, Settings2, Trash2 } from "lucide-react";
 import { type CompiledPrompt } from "../runtime/promptCompiler";
+import type { LoreTriggerProvenance } from "../runtime/loreTriggerEngine";
 import type {
   CardKind,
   CardTab,
@@ -37,6 +38,7 @@ export function CardsSection(props: {
   compiledPrompt: string;
   compiledPromptResult: CompiledPrompt;
   activeLorebookEntries: LorebookEntry[];
+  activeLoreTriggers: LoreTriggerProvenance[];
   updateActiveCard: (patch: Partial<RuntimeCard>) => void;
   updateRpgState: (patch: Partial<RpgCardState>) => void;
   updateActiveLorebook: (lorebookId: string, patch: Partial<Omit<Lorebook, "id" | "entries">>) => void;
@@ -290,6 +292,7 @@ export function CardsSection(props: {
           compiledPrompt={props.compiledPrompt}
           compiledPromptResult={props.compiledPromptResult}
           activeLorebookEntries={props.activeLorebookEntries}
+          activeLoreTriggers={props.activeLoreTriggers}
           updateActiveCard={props.updateActiveCard}
           updateRpgState={props.updateRpgState}
           updateActiveLorebook={props.updateActiveLorebook}
@@ -308,6 +311,7 @@ export function SelectedCardEditorPanel(props: {
   compiledPrompt: string;
   compiledPromptResult: CompiledPrompt;
   activeLorebookEntries: LorebookEntry[];
+  activeLoreTriggers: LoreTriggerProvenance[];
   updateActiveCard: (patch: Partial<RuntimeCard>) => void;
   updateRpgState: (patch: Partial<RpgCardState>) => void;
   updateActiveLorebook: (lorebookId: string, patch: Partial<Omit<Lorebook, "id" | "entries">>) => void;
@@ -355,6 +359,7 @@ export function SelectedCardEditorPanel(props: {
         <LorebooksPanel
           activeCard={props.activeCard}
           activeLorebookEntries={props.activeLorebookEntries}
+          activeLoreTriggers={props.activeLoreTriggers}
           updateActiveLorebook={props.updateActiveLorebook}
           addLorebookEntry={props.addLorebookEntry}
           lorebookEntryError={props.lorebookEntryError}

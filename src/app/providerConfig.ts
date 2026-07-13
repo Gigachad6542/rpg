@@ -54,6 +54,7 @@ export function parseProviderSettings(value?: Record<string, unknown>): Provider
   const contextWindowTokens = readPositiveInteger(value?.contextWindowTokens, 4_096_000);
   const maxOutputTokens = readPositiveInteger(value?.maxOutputTokens, contextWindowTokens ?? 1_000_000);
   const pricing = parseModelPricing(value?.pricing, model);
+  const economicalPricing = parseModelPricing(value?.economicalPricing);
   return {
     mode,
     providerId,
@@ -68,6 +69,7 @@ export function parseProviderSettings(value?: Record<string, unknown>): Provider
     ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
     ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
     ...(pricing ? { pricing } : {}),
+    ...(economicalPricing ? { economicalPricing } : {}),
     secretReference:
       secretReference?.providerId === providerId && secretReference.providerBaseUrl === normalizedBaseUrl
         ? secretReference
@@ -135,13 +137,16 @@ function readPositiveInteger(value: unknown, maximum: number): number | undefine
     : undefined;
 }
 
-function parseModelPricing(value: unknown, model: string): ProviderSettings["pricing"] {
+function parseModelPricing(value: unknown, expectedModel?: string): ProviderSettings["pricing"] {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return undefined;
   }
   const record = value as Record<string, unknown>;
   if (
-    record.model !== model ||
+    typeof record.model !== "string" ||
+    record.model.length === 0 ||
+    record.model.length > 300 ||
+    (expectedModel !== undefined && record.model !== expectedModel) ||
     record.currency !== "USD" ||
     typeof record.inputUsdPerMillionTokens !== "number" ||
     !Number.isFinite(record.inputUsdPerMillionTokens) ||
@@ -158,13 +163,19 @@ function parseModelPricing(value: unknown, model: string): ProviderSettings["pri
     return undefined;
   }
   return {
-    model,
+    model: record.model,
     currency: "USD",
     inputUsdPerMillionTokens: record.inputUsdPerMillionTokens,
     outputUsdPerMillionTokens: record.outputUsdPerMillionTokens,
     source: record.source,
     effectiveDate: record.effectiveDate,
   };
+}
+
+export function getProviderPricingSnapshots(settings: ProviderSettings) {
+  return [settings.pricing, settings.economicalPricing].filter(
+    (snapshot): snapshot is NonNullable<ProviderSettings["pricing"]> => snapshot !== undefined,
+  );
 }
 
 export function getImageModelChoices(installedModels: string[], currentModel: string): ModelChoice[] {

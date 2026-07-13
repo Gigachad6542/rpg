@@ -45,8 +45,9 @@ import {
 } from "../runtime/modelCallTelemetry";
 import { detectKnowledgeLeaks, describeKnowledgeLeaks } from "../runtime/knowledgeLeakDetector";
 import {
-  selectActiveLorebookEntriesForPreview,
+  selectLorebookEntriesWithProvenanceForPreview,
   selectActiveLorebookEntriesSafely,
+  type LoreTriggerProvenance,
   validateLoreKeys,
 } from "../runtime/loreTriggerEngine";
 import { formatDiceResult, rollFromNotation } from "../runtime/diceEngine";
@@ -200,6 +201,7 @@ import {
   getAllowedProviderBaseUrl,
   getConfiguredTextModelInfo,
   getConfiguredTextModelInfoForModel,
+  getProviderPricingSnapshots,
   isHostedDesktopProvider,
   normalizeImageProviderQualitySettings,
   parseImageProviderSettings,
@@ -437,12 +439,12 @@ export function App() {
   const activeChat = activeCard ? getActiveChatForCard(activeCard.id, chatSessions, activeChatIds) : undefined;
   const messages = useMemo(() => filterPersistedOpeningMessages(activeChat?.messages ?? []), [activeChat?.messages]);
   const visibleMessages = messages.filter((message) => message.role !== "system");
-  const activeLorebookEntries = useMemo(
+  const activeLoreSelection = useMemo(
     () => {
       if (!activeCard) {
-        return [];
+        return { entries: [], triggers: [] };
       }
-      return selectActiveLorebookEntriesForPreview({
+      return selectLorebookEntriesWithProvenanceForPreview({
         lorebooks: collectActiveLorebooks(activeCard, activePersona),
         messages,
         draft,
@@ -463,6 +465,8 @@ export function App() {
     },
     [activeCard, activePersona, messages, draft],
   );
+  const activeLorebookEntries = activeLoreSelection.entries;
+  const activeLoreTriggers: LoreTriggerProvenance[] = activeLoreSelection.triggers;
 
   // The prompt preview recompiles the full token-budgeted prompt, which is
   // expensive for large cards and lorebooks. Deferring the draft and lore inputs
@@ -1317,6 +1321,7 @@ export function App() {
     }
 
     const keys = parseList(entry.keys);
+    const aliases = parseList(entry.aliases ?? "");
     const secondaryKeys = parseList(entry.secondaryKeys);
     const keyError = validateLoreKeys([...keys, ...secondaryKeys], entry.matchMode);
     if (keyError) {
@@ -1329,6 +1334,7 @@ export function App() {
       id: `lore_entry_${Date.now()}`,
       title: entry.title.trim() || "Untitled lore entry",
       keys,
+      aliases,
       secondaryKeys,
       content: entry.content.trim(),
       insertionOrder: toBoundedNumber(entry.insertionOrder, 100, 0, 10_000),
@@ -1339,6 +1345,7 @@ export function App() {
       caseSensitive: entry.caseSensitive,
       wholeWord: entry.wholeWord,
       matchMode: entry.matchMode,
+      literalMatchBehavior: entry.literalMatchBehavior ?? "boundary",
       scanScopes: entry.scanScopes,
     };
 
@@ -1763,7 +1770,7 @@ export function App() {
             pricing: resolveModelPricing({
               providerId: providerSettings.providerId,
               model: callPlan.hiddenModel,
-              pricing: providerSettings.pricing,
+              pricingSnapshots: getProviderPricingSnapshots(providerSettings),
             }),
             stateProposalCount: 0,
           }));
@@ -1784,7 +1791,7 @@ export function App() {
           pricing: resolveModelPricing({
             providerId: providerSettings.providerId,
             model: callPlan.hiddenModel,
-            pricing: providerSettings.pricing,
+            pricingSnapshots: getProviderPricingSnapshots(providerSettings),
           }),
           stateProposalCount: hiddenPolicyResult.proposals.length,
         }));
@@ -1850,7 +1857,7 @@ export function App() {
           pricing: resolveModelPricing({
             providerId: providerSettings.providerId,
             model: callPlan.visibleModel,
-            pricing: providerSettings.pricing,
+            pricingSnapshots: getProviderPricingSnapshots(providerSettings),
           }),
           stateProposalCount: 0,
         }));
@@ -1896,7 +1903,7 @@ export function App() {
         pricing: resolveModelPricing({
           providerId: providerSettings.providerId,
           model: callPlan.visibleModel,
-          pricing: providerSettings.pricing,
+          pricingSnapshots: getProviderPricingSnapshots(providerSettings),
         }),
         stateProposalCount: policyResult.proposals.length,
       }));
@@ -3016,6 +3023,7 @@ export function App() {
             compiledPrompt={compiledPrompt}
             compiledPromptResult={compiledPromptResult}
             activeLorebookEntries={activeLorebookEntries}
+            activeLoreTriggers={activeLoreTriggers}
             updateActiveCard={updateActiveCard}
             updateRpgState={updateActiveRpgState}
             updateActiveLorebook={updateActiveLorebook}
@@ -3039,6 +3047,7 @@ export function App() {
             providerKeyStatus={providerKeyStatus}
             providerTestStatus={providerTestStatus}
             providerSettings={providerSettings}
+            economicalModel={runtimeSettings.economicalModel}
             setProviderSettings={setProviderSettings}
             imageProviderSettings={imageProviderSettings}
             setImageProviderSettings={setImageProviderSettings}

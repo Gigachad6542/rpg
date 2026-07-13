@@ -18,7 +18,7 @@ A player can run a local-first RPG turn with an explicit continuity policy, insp
 - The default mode remains `full` so existing two-call behavior is preserved.
 - Every attempted call is recorded by phase with provider, model, phase duration, token usage, usage source, price snapshot or explicit unknown-price status, calculated cost provenance, terminal status, failure category, and state-proposal count.
 - Costs derived from estimated token usage are labeled estimated. Calls without usable token evidence are always cost-unknown, even when a price snapshot exists.
-- The one user-configured price snapshot belongs to the selected visible model. An economical hidden model with a different identifier remains honestly cost-unknown until a separate exact-model price snapshot is supported; the runtime never reuses the visible model's rate.
+- Price snapshots are resolved by exact model id. The selected visible model and a separately routed economical hidden model can each retain their own immutable snapshot; a missing exact-model snapshot remains honestly cost-unknown and the runtime never reuses another model's rate.
 - Context budgets are derived from metadata for the exact selected provider and model. Unknown models use an explicit conservative fallback and expose that source in telemetry.
 - Runtime rules and knowledge/safety boundaries are required prompt layers. Optional history, lore, memory, retrieval, and summaries are trimmed before a required layer; compilation fails closed if required layers cannot fit.
 - Durable game-state changes are represented by validated typed authoritative events and verified against the variant-aware turn lineage. Model-extracted changes remain proposals until policy validation commits them.
@@ -87,7 +87,7 @@ The scorer exits non-zero when corpus validity fails or release thresholds regre
 
 - Representative provider coverage invokes the three production adapter paths with deterministic credential-free transports. Live-provider recording remains a separate, explicit, redacted workflow.
 - `full` is the migration/default mode; `off` honestly changes the turn from two calls to one.
-- Unknown provider pricing is reported as unknown, never guessed.
+- Unknown provider pricing is reported as unknown, never guessed. Phase 1.1 adds a second exact-model snapshot for economical routing without changing this rule.
 - Rolling summaries and semantic features are local deterministic operations, preserving the model-call invariant.
 
 ## Handoff

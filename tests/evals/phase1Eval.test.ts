@@ -62,8 +62,8 @@ describe("Phase 1 runtime-derived corpus", () => {
     expect(blankedScorecard.quality.knowledgeLeakDetectionRecall).not.toBe(
       scorecard.quality.knowledgeLeakDetectionRecall,
     );
-    expect(scorecard.quality.lorePrecision).toBeLessThan(1);
-    expect(scorecard.quality.loreRecall).toBeGreaterThan(0);
+    expect(scorecard.quality.lorePrecision).toBe(1);
+    expect(scorecard.quality.loreRecall).toBe(1);
     expect(scorecard.quality.trueOutputLeakRate).toBeGreaterThan(0);
     expect(scorecard.quality.branchAndRegenerationContinuity).toBeGreaterThan(0);
 

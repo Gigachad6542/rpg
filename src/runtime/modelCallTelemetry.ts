@@ -64,6 +64,7 @@ export function resolveModelPricing(input: {
   providerId: string;
   model: string;
   pricing?: ModelPricingSnapshot;
+  pricingSnapshots?: readonly ModelPricingSnapshot[];
 }): ModelPricingSnapshot | undefined {
   if (input.providerId === "mock" && input.model === "mock-narrator") {
     return Object.freeze({
@@ -76,7 +77,8 @@ export function resolveModelPricing(input: {
     });
   }
 
-  return input.pricing?.model === input.model ? input.pricing : undefined;
+  return input.pricingSnapshots?.find((snapshot) => snapshot.model === input.model)
+    ?? (input.pricing?.model === input.model ? input.pricing : undefined);
 }
 
 export function classifyModelCallFailure(error: unknown): ModelCallFailure {

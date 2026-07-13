@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "campaigns": [
+    {
+      "id": "ash-harbor-ledger",
+      "title": "Ash Harbor inventory, knowledge, and branch continuity",
+      "turnCount": 60,
+      "defaultInput": "Continue the Ash Harbor investigation without contradicting the active route, inventory ledger, or private vault knowledge.",
+      "defaultExpected": ["state and narration agree", "no private knowledge leakage", "no consumed item returns", "avoid repeated scene openings"],
+      "milestones": [
+        {"index":10,"operation":"edit","input":"Edit turn 8 so the party chose the red road, then replay derived state.","expected":["blue-route derived state is removed","red route remains authoritative","summary is regenerated"]},
+        {"index":20,"operation":"regenerate","input":"Regenerate the last narration while preserving the consumed sunstone and sealed breach.","expected":["one active response variant","sunstone remains consumed","no duplicate events"]},
+        {"index":30,"operation":"branch","input":"Branch before Corvin learns the vault secret and continue on the private-knowledge branch.","expected":["branch copies only causal prefix","Corvin does not know the vault secret","parent branch remains unchanged"]},
+        {"index":40,"operation":"restart","input":"Close and reopen the runtime, then continue from SQLite continuity.","expected":["active branch restores","summary boundary restores","state and narration agree"]},
+        {"index":50,"operation":"model-switch","input":"Switch from the strong hosted model to the economical hosted model and continue.","expected":["model switch adds no state mutation","knowledge boundaries persist","no recap loop"]}
+      ]
+    },
+    {
+      "id": "moon-gate-oath",
+      "title": "Moon Gate lore, relationship-free character consistency, and regeneration",
+      "turnCount": 55,
+      "defaultInput": "Advance the Moon Gate expedition while keeping the oath wording, character motives, and discovered lore consistent.",
+      "defaultExpected": ["lore provenance remains inspectable", "character motives stay consistent", "no invented relationship scores", "pacing advances"],
+      "milestones": [
+        {"index":9,"operation":"edit","input":"Edit the oath from silver flame to quiet rain and replay later turns.","expected":["old oath is absent from active state","new oath is used","retrieved lore follows the edit"]},
+        {"index":18,"operation":"regenerate","input":"Regenerate the gate opening with different prose but identical state consequences.","expected":["state delta is unchanged","prose is not duplicated","discarded variant effects do not leak"]},
+        {"index":27,"operation":"branch","input":"Create a branch where Ilya refuses to cross the gate.","expected":["Ilya remains outside on this branch","parent branch crossing remains intact","knowledge is branch-scoped"]},
+        {"index":36,"operation":"restart","input":"Restart after the branch and verify the selected response variant.","expected":["selected variant restores","branch head restores","no summary drift"]},
+        {"index":45,"operation":"model-switch","input":"Switch to the local OpenAI-compatible model for the remaining expedition.","expected":["continuity survives provider change","call ledger names the local model","no extra model calls"]}
+      ]
+    },
+    {
+      "id": "cinder-court-intrigue",
+      "title": "Cinder Court multi-character knowledge and restart durability",
+      "turnCount": 75,
+      "defaultInput": "Continue the Cinder Court intrigue with distinct character voices and strictly scoped secrets.",
+      "defaultExpected": ["speaker knowledge is valid", "voices remain distinct", "no contradiction with authoritative events", "low phrase repetition"],
+      "milestones": [
+        {"index":12,"operation":"edit","input":"Edit the private meeting so only Mara, not Ilya, saw the sealed letter.","expected":["Ilya knowledge is removed","Mara knowledge remains","downstream summary is reconciled"]},
+        {"index":24,"operation":"regenerate","input":"Regenerate the court response without changing who possesses the sealed letter.","expected":["possession state remains stable","discarded narration is inactive","character voice remains consistent"]},
+        {"index":36,"operation":"branch","input":"Branch before the accusation and accuse the treasurer instead of the envoy.","expected":["accusation is branch-local","parent events remain immutable","retrieval excludes sibling events"]},
+        {"index":48,"operation":"restart","input":"Restart twice and verify continuity after each reopen.","expected":["SQLite state is identical after each reopen","no duplicate messages","active model setting restores"]},
+        {"index":60,"operation":"model-switch","input":"Switch from local to strong hosted generation for the finale.","expected":["state does not reset","knowledge boundaries persist","telemetry separates model phases"]}
+      ]
+    }
+  ]
+}

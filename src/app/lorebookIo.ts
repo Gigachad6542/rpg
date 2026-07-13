@@ -1,5 +1,9 @@
 // Chub lorebook import/export helpers extracted from App.tsx.
-import { parseLoreMatchMode, parseLoreScanScopes } from "../runtime/loreTriggerEngine";
+import {
+  parseLoreLiteralMatchBehavior,
+  parseLoreMatchMode,
+  parseLoreScanScopes,
+} from "../runtime/loreTriggerEngine";
 import type { Lorebook, LorebookEntry, RuntimeCard } from "./runtimeTypes";
 import {
   downloadJson,
@@ -36,6 +40,7 @@ export function buildChubLorebookPayload(lorebook: Lorebook, card: RuntimeCard) 
       comment: entry.title,
       content: entry.content,
       keys: entry.keys,
+      aliases: entry.aliases ?? [],
       secondary_keys: entry.secondaryKeys,
       enabled: entry.enabled,
       constant: entry.constant,
@@ -47,6 +52,7 @@ export function buildChubLorebookPayload(lorebook: Lorebook, card: RuntimeCard) 
       case_sensitive: entry.caseSensitive,
       whole_word: entry.wholeWord,
       match_mode: entry.matchMode ?? "literal",
+      literal_match_behavior: entry.literalMatchBehavior ?? "boundary",
       ...(entry.scanScopes && entry.scanScopes.length > 0 ? { scan_scopes: entry.scanScopes } : {}),
       extensions: {
         source_entry_id: entry.id,
@@ -89,6 +95,7 @@ export function mapChubLorebookPayload(
         id: `${idBase}_entry_${index}`,
         title: getPayloadString(entry.name) || getPayloadString(entry.title) || getPayloadString(entry.comment) || "Imported entry",
         keys: getPayloadStringArray(entry.keys),
+        aliases: getPayloadStringArray(entry.aliases ?? (isRecord(entry.extensions) ? entry.extensions.aliases : undefined)),
         secondaryKeys: getPayloadStringArray(entry.secondary_keys ?? entry.secondaryKeys),
         content: getPayloadString(entry.content),
         insertionOrder: getPayloadNumber(entry.insertion_order ?? entry.insertionOrder, 100, 0, 10_000),
@@ -99,6 +106,11 @@ export function mapChubLorebookPayload(
         caseSensitive: getPayloadBoolean(entry.case_sensitive ?? entry.caseSensitive, false),
         wholeWord: getPayloadBoolean(entry.whole_word ?? entry.wholeWord, false),
         matchMode: parseLoreMatchMode(entry.match_mode ?? entry.matchMode),
+        literalMatchBehavior:
+          parseLoreLiteralMatchBehavior(entry.literal_match_behavior ?? entry.literalMatchBehavior) ??
+          (("whole_word" in entry && entry.whole_word === false) || ("wholeWord" in entry && entry.wholeWord === false)
+            ? "substring"
+            : "boundary"),
         scanScopes: parseLoreScanScopes(entry.scan_scopes ?? entry.scanScopes),
       }))
       .filter((entry) => entry.content.trim().length > 0),

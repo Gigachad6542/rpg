@@ -719,9 +719,9 @@ function createScenarioDefinitions(): ScenarioDefinition[] {
     },
     {
       kind: "lore-overbroad-key",
-      input: "I pass through the ordinary gate toward the market.",
+      input: "I investigate the ordinary market stalls.",
       hiddenMode: "full",
-      visibleNarration: "You pass through the gate toward the market.",
+      visibleNarration: "You investigate the ordinary market stalls.",
       extraction: empty(),
       expectedKnowledgeLeak: false,
       expectedLoreIds: [],

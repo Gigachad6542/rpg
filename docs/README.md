@@ -8,18 +8,23 @@ This folder keeps operational notes and verification evidence for `rpg`.
   Tauri command boundaries, prompt assembly, migration safety, and release verification.
 - [Release packaging](release-packaging.md) covers the maintained desktop packaging gate and
   release artifact checklist.
+- [Updater and rollback policy](updater-rollback-policy.md) defines fail-closed promotion,
+  manual updates, schema-safe rollback, and credential revocation.
 - [Runtime contracts](runtime-contracts.md) covers versioned exports, redacted diagnostics,
   snapshot durability, migrations, and provider boundaries.
 - [Production plan](production-plan.md) summarizes the current production-readiness audit,
   closed blockers, remaining launch work, release milestones, and acceptance gates.
-- [macOS install](macos-install.md) covers the provisional Apple Silicon release lane,
-  unsigned-build Gatekeeper behavior, current proof limits, and building locally on a Mac.
+- [macOS install](macos-install.md) covers the signed Apple Silicon release contract,
+  checksum verification, update/rollback boundaries, and local-only developer builds.
 - [Remediation plan](remediation-plan.md) is the phased response to the July 10, 2026
   external production-readiness review: data-loss fixes, turn-state integrity,
   decomposition, test depth, and the Mac release lane.
 
 ## Testing Evidence
 
+- [Phase 2 shipped-desktop TDD evidence](testing/phase-2-shipped-desktop-2026-07-13.tdd.md)
+  records the two-package Windows product flow, backup restore, supply-chain artifacts,
+  signing/notarization gates, exact-commit promotion, and remaining hosted proof.
 - [Phase 1 core-runtime TDD evidence](testing/phase-1-core-runtime-2026-07-12.tdd.md)
   records the mode-aware call contract, typed event/retrieval continuity work,
   36-turn runtime scorecard, adversarial review fixes, and final verification.

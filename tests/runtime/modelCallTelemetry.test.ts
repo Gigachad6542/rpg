@@ -105,6 +105,31 @@ describe("model-call telemetry", () => {
     ).toBeUndefined();
   });
 
+  it("resolves an exact immutable snapshot for a routed economical model", () => {
+    const visiblePricing = {
+      model: "strong-model",
+      currency: "USD" as const,
+      inputUsdPerMillionTokens: 2,
+      outputUsdPerMillionTokens: 8,
+      source: "reviewed visible snapshot",
+      effectiveDate: "2026-07-13",
+    };
+    const economicalPricing = {
+      model: "economical-model",
+      currency: "USD" as const,
+      inputUsdPerMillionTokens: 0.1,
+      outputUsdPerMillionTokens: 0.4,
+      source: "reviewed economical snapshot",
+      effectiveDate: "2026-07-13",
+    };
+
+    expect(resolveModelPricing({
+      providerId: "openrouter",
+      model: "economical-model",
+      pricingSnapshots: [visiblePricing, economicalPricing],
+    })).toEqual(economicalPricing);
+  });
+
   it.each([
     [new DOMException("Stopped", "AbortError"), "aborted"],
     [new Error("401 unauthorized"), "authentication"],

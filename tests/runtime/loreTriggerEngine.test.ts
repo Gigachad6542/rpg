@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_LORE_SCAN_SCOPES,
+  getLoreKeyWarnings,
   getLoreScanScopes,
   parseLoreMatchMode,
   parseLoreScanScopes,
   selectActiveLorebookEntries,
   selectActiveLorebookEntriesForPreview,
   selectActiveLorebookEntriesSafely,
+  selectLorebookEntriesWithProvenance,
   validateLoreKeys,
   type LoreTriggerBook,
   type LoreTriggerEntry,
@@ -130,6 +132,74 @@ describe("lore trigger engine", () => {
 });
 
 describe("match modes", () => {
+  it("uses token boundaries for ordinary literal keys instead of matching inside unrelated words", () => {
+    const lorebooks = [bookOf([entry({ id: "gate", keys: ["gate"] })])];
+
+    expect(selectActiveLorebookEntries({ lorebooks, messages: [], draft: "I investigate the noise." })).toEqual([]);
+    expect(
+      selectActiveLorebookEntries({ lorebooks, messages: [], draft: "I investigate the gate." }).map((item) => item.id),
+    ).toEqual(["gate"]);
+  });
+
+  it("preserves explicitly requested substring behavior for compatibility imports", () => {
+    const lorebooks = [bookOf([
+      entry({ id: "legacy-gate", keys: ["gate"], literalMatchBehavior: "substring" }),
+    ])];
+
+    expect(
+      selectActiveLorebookEntries({ lorebooks, messages: [], draft: "I investigate the noise." }).map((item) => item.id),
+    ).toEqual(["legacy-gate"]);
+  });
+
+  it("matches aliases and exposes inspectable trigger provenance", () => {
+    const lorebooks = [bookOf([
+      entry({
+        id: "moon-gate",
+        keys: ["Lunar Arch"],
+        aliases: ["Moon Gate"],
+        secondaryKeys: ["oath"],
+      }),
+    ])];
+
+    const result = selectLorebookEntriesWithProvenance({
+      lorebooks,
+      messages: [],
+      draft: "I speak the oath before the Moon Gate.",
+    });
+
+    expect(result.entries.map((item) => item.id)).toEqual(["moon-gate"]);
+    expect(result.triggers).toEqual([
+      expect.objectContaining({
+        bookId: "book",
+        entryId: "moon-gate",
+        primary: expect.objectContaining({ source: "alias", term: "Moon Gate" }),
+        secondary: expect.objectContaining({ source: "secondary", term: "oath" }),
+      }),
+    ]);
+    expect(result.triggers[0]?.reason).toMatch(/alias.*Moon Gate.*secondary.*oath/i);
+  });
+
+  it("requires a secondary key for automatically detected overbroad literals", () => {
+    const withoutSecondary = [bookOf([entry({ id: "go", keys: ["go"] })])];
+    const withSecondary = [bookOf([entry({ id: "go-north", keys: ["go"], secondaryKeys: ["north"] })])];
+
+    expect(selectActiveLorebookEntries({ lorebooks: withoutSecondary, messages: [], draft: "I go now." })).toEqual([]);
+    expect(
+      selectActiveLorebookEntries({ lorebooks: withSecondary, messages: [], draft: "I go north." }).map((item) => item.id),
+    ).toEqual(["go-north"]);
+  });
+
+  it("warns editors why literal keys are likely overbroad", () => {
+    expect(getLoreKeyWarnings(entry({ id: "go", keys: ["go"] }))).toEqual([
+      expect.stringMatching(/secondary/i),
+    ]);
+    expect(getLoreKeyWarnings(entry({
+      id: "legacy",
+      keys: ["gate"],
+      literalMatchBehavior: "substring",
+    }))).toEqual([expect.stringMatching(/substring.*unrelated words/i)]);
+  });
+
   it("matches a wildcard key across the words it spans", () => {
     // Arrange
     const lorebooks = [bookOf([entry({ id: "gate", keys: ["silver * gate"], matchMode: "wildcard" })])];

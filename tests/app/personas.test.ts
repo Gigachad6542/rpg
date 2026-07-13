@@ -307,6 +307,43 @@ describe("buildResponseContract", () => {
     expect(request.responseContract).not.toContain("Mara");
     expect(request.responseContract).not.toContain("A careful cartographer.");
   });
+
+  it("injects a branch-scoped rolling summary and uses local semantic retrieval without a model call", () => {
+    const runtimeCard: RuntimeCard = {
+      ...card(),
+      memory: [
+        { id: "memory-healer", label: "Field care", detail: "The healer tends serious wounds." },
+        { id: "memory-weather", label: "Weather", detail: "Rain falls over the old map." },
+      ],
+    };
+    const request = buildTurnPromptRequest(
+      runtimeCard,
+      [],
+      [],
+      "The doctor treats my injury.",
+      runtimeSettings,
+      null,
+      {
+        retrievalContext: {
+          chatId: "chat-a",
+          branchId: "branch-a",
+          rollingSummary: {
+            scope: { cardId: runtimeCard.id, chatId: "chat-a", branchId: "branch-a" },
+            text: "Player: I arrived at Blackglass Harbor.",
+            coveredMessageIds: ["message-old"],
+            coveredMessageFingerprints: ["8badf00d"],
+            throughMessageId: "message-old",
+            updatedAt: "2026-07-12T12:00:00.000Z",
+          },
+        },
+      },
+    );
+
+    expect(request.memoryEntries?.[0].id).toBe("memory-healer");
+    expect(request.memoryEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "rolling-summary:message-old", detail: expect.stringContaining("Blackglass Harbor") }),
+    ]));
+  });
 });
 
 describe("collectActiveLorebooks", () => {

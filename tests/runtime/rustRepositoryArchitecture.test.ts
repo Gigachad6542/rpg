@@ -26,4 +26,14 @@ describe("Rust runtime repository architecture", () => {
     expect(schema).toContain("fn ensure_database_integrity");
     expect(repository.split(/\r?\n/u).length).toBeLessThan(2_900);
   });
+
+  it("keeps the Rust repository regression corpus outside production code", async () => {
+    const repository = await readFile("src-tauri/src/runtime_repository.rs", "utf8");
+    const regressionTests = await readFile("src-tauri/src/runtime_repository/tests.rs", "utf8");
+
+    expect(repository).toContain("#[cfg(test)]\nmod tests;");
+    expect(regressionTests).toContain("fn migrations_are_idempotent");
+    expect(regressionTests).toContain("fn save_load_round_trip_and_prune_runtime_rows");
+    expect(repository.split(/\r?\n/u).length).toBeLessThan(1_800);
+  });
 });

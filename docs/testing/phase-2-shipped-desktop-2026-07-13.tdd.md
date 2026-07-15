@@ -17,8 +17,8 @@ or publication run.
 ## Follow-up verification (2026-07-14)
 
 The original dated results below remain historical. The latest full release run
-passed in 282.5 seconds with 93 files / 684 tests, 92.05% statements/lines,
-88.99% branches, and 93.56% functions. Fourteen Playwright journeys, both
+passed in 223.3 seconds with 96 files / 693 tests, 92.18% statements/lines,
+89.05% branches, and 93.65% functions. Fourteen Playwright journeys, both
 deterministic evals,
 production build, JS/Rust audits, 34 Rust tests, clippy, MSI/NSIS packaging,
 executable smoke, administrative-extraction persistence smoke, and the normal
@@ -33,9 +33,9 @@ That review found a real packaged regression: the renderer invoked
 `discover_local_text_providers`, but the command was missing from the Tauri
 build manifest and default window capability. The command is now registered,
 granted, covered by a cross-surface regression test, and invoked by the hosted
-packaged product-flow driver. A same-package current-MSI flow passed in 13.1
-seconds on 2026-07-14; this proves current packaged command execution and
-continuity, not previous-version migration.
+packaged product-flow driver. The final different-build, same-version flow
+passed in 13.4 seconds on 2026-07-14; this proves current packaged command
+execution and continuity, not published semantic-version migration.
 
 ## RED checkpoint
 

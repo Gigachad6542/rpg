@@ -21,10 +21,10 @@ constraint is resolved.
 ## Evidence Checked
 
 - Real repo root: `C:\Users\Dwthe\rpg project`.
-- Local release gate: `pnpm verify:release` passed in 282.5 seconds on 2026-07-14
-  with turn-generation extraction commit `a3f0a78` checked out.
-- Vitest coverage gate: 93 files and 684 tests passed.
-- Coverage: 92.05% statements/lines, 88.99% branches, and 93.56% functions.
+- Local release gate: `pnpm verify:release` passed in 223.3 seconds on 2026-07-14
+  with warning-free bundle commit `0bc5a10` checked out.
+- Vitest coverage gate: 96 files and 693 tests passed.
+- Coverage: 92.18% statements/lines, 89.05% branches, and 93.65% functions.
 - Enforced coverage floors: 90% statements/lines/functions and 85% branches.
 - Deterministic evals: Phase 1 passed; Phase 1.1 passed with 100 lore decisions,
   three long campaigns, and `liveCallsMade: 0`.
@@ -43,9 +43,10 @@ constraint is resolved.
   horizontal overflow across onboarding and all primary sections at 320 CSS
   pixels, verifies forced-colors Settings and Runtime, and covers keyboard
   access to the constrained scrollable transcript.
-- Frontend build: Vite production build passed across 1,700 transformed modules;
-  the main app chunk was 496.95 kB (140.75 kB gzip), plus separate React, icon,
-  and Tauri chunks.
+- Frontend build: Vite production build passed without a size warning across
+  1,702 transformed modules; the main app chunk was 444.91 kB (128.89 kB
+  gzip), plus separate validation, React, icon, and Tauri chunks. A release
+  contract rejects hiding the default warning with `chunkSizeWarningLimit`.
 - Dependency audit: `pnpm audit --prod` reported no known vulnerabilities.
 - Rust audit: `cargo audit` exited successfully with 18 allowed transitive
   warnings; two `quick-xml` advisories remain scoped exceptions in
@@ -63,13 +64,13 @@ constraint is resolved.
   sole canonical NSIS artifact, verified current-user registration and launch,
   preserved isolated SQLite data across a same-version reinstall and relaunch,
   then removed the registration and install directory on uninstall. The tested
-  NSIS SHA256 was `476be068f9574af2335c0888d104aab45b393ed9bd55654247be1e165e1dfb53`.
+  NSIS SHA256 was `844ff82302ede2e283a10526b287ff76682054c25bef84a2fa19fdf7da8f3956`.
   This was a
   local development profile, not a clean VM or previous-version upgrade.
-- Packaged WebView product flow: passed in 14.8 seconds against the current MSI,
+- Packaged WebView product flow: passed in 13.4 seconds against the current MSI,
   including a real Tauri invocation of `discover_local_text_providers` and
   create/play/reopen/backup/restore/export continuity. The tested MSI SHA256 was
-  `9f9db91e42adabbb611704fb68bdc6a19cc924c0b16d29a73401d87de06f7bee`.
+  `90c5cc4299e68a121f534c5fc0ce41fa028ed2aa0ad3a600b2d0c9f708242b79`.
   This exact-implementation, same-version run is runtime proof, not published
   semantic-version migration proof.
 - Desktop write policy: exactly one `main` window is declared and capability
@@ -77,15 +78,17 @@ constraint is resolved.
 - Streaming policy: stored OS-keychain providers are explicitly non-streaming,
   the pipeline falls back to request/response, and Settings tells users that
   those replies appear once complete.
-- Release-chain verifier: 20 focused tests passed across three release suites.
+- Release-chain and bundle-policy verification: 21 focused tests passed across
+  four release suites.
   Synthetic previous artifacts prove checksum/provenance/repository/tag-commit/
   version failures are rejected, and an unsigned MSI with an absolute evidence
   path reaches Authenticode validation and fails for the signature itself.
 - Release workflow syntax: local YAML parsing found six jobs, including the
   fail-closed intent preflight and explicitly non-promotable bootstrap publisher.
 - Hosted repository audit: GitHub currently has no releases, Actions secret
-  names, or deployment environments; its last push predates this more-than-170-commit-ahead
-  working tree, and no hosted run exists for the exact current implementation.
+  names, or deployment environments; its last push predates this working tree
+  by more than 180 local commits, and no hosted run exists
+  for the exact current implementation.
   The local governance files are therefore not yet public/hosted evidence.
 
 ### Readiness scoring rubric
@@ -96,7 +99,7 @@ constraint is resolved.
 | Security and privacy boundaries | 14/15 | Keychain references, scoped Tauri commands, fixed loopback discovery, import limits, redaction, and clean production audits are present; accepted Rust debt remains. |
 | Automated verification | 19/20 | The local release gate is broad, eleven functional browser journeys pass, and zero-violation automated WCAG A/AA, 320 CSS-pixel reflow, and forced-colors lanes cover primary surfaces; native desktop assistive-technology testing and live-provider evaluation have not run. |
 | Packaging and release operations | 14/20 | Signed fail-closed workflows and a real local NSIS lifecycle exist; current hosted signed/notarized evidence, clean-VM proof, and a published previous-version migration are absent. |
-| Product and UX maturity | 12/15 | Onboarding, sample content, imports, library tools, continuity, named recovery controls, reversible replacement/restore flows, critical keyboard paths, 320 CSS-pixel reflow, and forced-colors behavior are credible; the main controller is materially smaller but remains large, and native assistive-technology acceptance is absent. |
+| Product and UX maturity | 12/15 | Onboarding, sample content, imports, library tools, continuity, named recovery controls, reversible replacement/restore flows, critical keyboard paths, 320 CSS-pixel reflow, forced-colors behavior, and the sub-800-line controller exit bar are credible; native assistive-technology acceptance is absent. |
 | Operational and project governance | 7/10 | Release, rollback, runtime, security, support, contribution, changelog, conduct, issue, and PR contracts exist; licensing and verified public support/security intake remain incomplete. |
 
 ## Competitive Snapshot (verified 2026-07-14)
@@ -157,6 +160,16 @@ that flow is effortless would dilute the product.
    - Browser, Tauri invoke, in-memory repository, and Rust SQLite snapshot boundaries now sanitize image provider settings.
    - Safe ComfyUI workflow JSON can be retained for local recovery, but workflow JSON with secret-like keys or raw-token-looking values is dropped.
 
+8. Controller decomposition and bundle warning.
+   - `App.tsx` is 785 lines, down from 3,369 and below the remediation plan's
+     approximately 800-line exit bar. Provider, persistence, data, media, turn,
+     content, and session orchestration each have direct hook contracts.
+   - Same-tick turn generation and memory consolidation are protected by
+     ref-backed locks; stale memory reviews fail closed and rejected protected
+     persona deletion no longer creates a no-op restore point.
+   - Zod validation is a separate 55.69 kB chunk, leaving the main application
+     chunk at 444.91 kB without suppressing Vite's default size warning.
+
 ## Remaining Public-Launch Work
 
 - Execute the existing hosted workflow on the exact release commit with real
@@ -181,25 +194,6 @@ that flow is effortless would dilute the product.
   blind pairwise scoring before recommending any second-call mode or model.
 - Track and reduce the 18 allowed Rust warnings and the two scoped
   `quick-xml` exceptions as upstream dependency paths move.
-- Continue decomposing the 1,502-line `App.tsx` controller and large feature
-  modules without weakening behavior. Provider/session-key state, secure-storage
-  status, health checks, and ComfyUI startup/manual discovery now live in a
-  focused 225-line hook with three direct tests. Repository hydration, startup
-  backup ordering, autosave queueing, restore-point recovery, and persistence
-  diagnostics now live in a 302-line hook with three direct fail-closed/order
-  contracts. Runtime import review/application, versioned export, and redacted
-  diagnostics live in a 126-line hook with three direct boundary tests. Map,
-  custom-image, and portrait lifecycle orchestration lives in a 458-line hook
-  with direct fallback, deletion-scope, and confirm-first tests. Turn execution,
-  streaming, regeneration, abort ownership, and the synchronous duplicate-send
-  lock now live in a 711-line hook with three direct concurrency/fail-closed
-  contracts. The former
-  4,752-line UI test file is
-  now five independently runnable domain suites over a 234-line shared harness
-  (81 behaviorally identical tests; largest domain suite 1,415 lines). The former
-  3,789-line Rust repository authority is now a 367-line command/path/backup
-  boundary over independently gated validation, schema, normalized-storage
-  CRUD, and a separate 1,114-line regression corpus.
 - Continue accessibility acceptance beyond the zero-violation automated WCAG
   A/AA lane, verified 320 CSS-pixel reflow and forced-colors emulation, dialog
   focus traps, current-page navigation, linked keyboard-operable card tabs,

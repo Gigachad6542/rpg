@@ -62,8 +62,9 @@ This folder keeps operational notes and verification evidence for `rpg`.
   clean-VM/previous-version boundary.
 - [Current claims and release-repair evidence](testing/current-claims-release-repair-2026-07-14.tdd.md)
   is the latest working-tree verification record: exact release-gate results,
-  packaged discovery ACL repair, corrected MSI-extraction scope, and remaining
-  external proof.
+  packaged discovery ACL repair, corrected MSI-extraction scope, completed
+  controller exit bar, warning-free production split, and remaining external
+  proof.
 - [Phase 2 shipped-desktop TDD evidence](testing/phase-2-shipped-desktop-2026-07-13.tdd.md)
   records the two-package Windows product flow, backup restore, supply-chain artifacts,
   signing/notarization gates, exact-commit promotion, and remaining hosted proof.

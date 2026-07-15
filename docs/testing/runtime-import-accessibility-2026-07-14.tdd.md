@@ -83,16 +83,17 @@ named restore point.
 
 ## Complete verification
 
-The latest `pnpm verify:release` passed from the beginning in 282.5 seconds with
-commit `a3f0a78` checked out:
+The latest `pnpm verify:release` passed from the beginning in 223.3 seconds with
+commit `0bc5a10` checked out:
 
 - TypeScript and ESLint passed.
-- 93 Vitest files / 684 tests passed.
-- Coverage passed at 92.05% statements/lines, 88.99% branches, and 93.56%
+- 96 Vitest files / 693 tests passed.
+- Coverage passed at 92.18% statements/lines, 89.05% branches, and 93.65%
   functions.
 - Both deterministic eval lanes passed with zero live-provider calls.
-- Vite built 1,700 modules; the main app chunk was 496.95 kB / 140.75 kB gzip.
-- All 14 Playwright journeys passed in 21.3 seconds, including three
+- Vite built 1,702 modules without a size warning; the main app chunk was
+  444.91 kB / 128.89 kB gzip with validation split separately.
+- All 14 Playwright journeys passed in 15.8 seconds, including three
   accessibility journeys for zero-violation WCAG A/AA scans, 320 CSS-pixel
   reflow, and forced colors.
 - The production dependency audit reported no known vulnerabilities.
@@ -108,11 +109,11 @@ Latest local artifacts:
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| MSI | 5,885,952 | `9f9db91e42adabbb611704fb68bdc6a19cc924c0b16d29a73401d87de06f7bee` |
-| NSIS | 4,191,161 | `476be068f9574af2335c0888d104aab45b393ed9bd55654247be1e165e1dfb53` |
-| Release executable | 15,369,728 | `1f45e824e456b887044e66781dd0e601819cc29163def5bc2aac5dda43b86a57` |
+| MSI | 5,885,952 | `90c5cc4299e68a121f534c5fc0ce41fa028ed2aa0ad3a600b2d0c9f708242b79` |
+| NSIS | 4,192,136 | `844ff82302ede2e283a10526b287ff76682054c25bef84a2fa19fdf7da8f3956` |
+| Release executable | 15,370,240 | `f8e9e87beb5636321578f2ecda074f21cc1478af555ee042ad1e0327189db5e0` |
 
-The lifecycle record completed at `2026-07-15T05:24:22.7333684Z`; all five
+The lifecycle record completed at `2026-07-15T05:59:08.3401248Z`; all five
 install, persistence, registration-removal, and directory-removal assertions
 were true.
 

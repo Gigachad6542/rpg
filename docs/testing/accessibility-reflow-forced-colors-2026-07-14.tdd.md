@@ -65,20 +65,21 @@ PASS
 ## Complete release verification
 
 The latest canonical gate passed from the beginning on product commit
-`a3f0a78015a90940d964e0f899e86f15fa634b95`:
+`0bc5a10ddd681e47c59c0a28594ea8b99714e2c2`:
 
 ```text
 pnpm verify:release
-PASS in 282.5 seconds
+PASS in 223.3 seconds
 ```
 
 Integrated results:
 
-- 93 Vitest files / 684 tests passed.
-- Coverage was 92.05% statements/lines, 88.99% branches, and 93.56% functions.
+- 96 Vitest files / 693 tests passed.
+- Coverage was 92.18% statements/lines, 89.05% branches, and 93.65% functions.
 - Both deterministic evals passed with `liveCallsMade: 0`.
-- Vite built 1,700 modules; the main app chunk was 496.95 kB / 140.75 kB gzip.
-- All 14 Playwright journeys passed in 21.3 seconds: eleven functional and
+- Vite built 1,702 modules without a size warning; the main app chunk was
+  444.91 kB / 128.89 kB gzip with validation split separately.
+- All 14 Playwright journeys passed in 15.8 seconds: eleven functional and
   three accessibility journeys.
 - Production dependency audit reported no known vulnerabilities.
 - Rust audit exited successfully with 18 allowed warnings and the two scoped
@@ -92,13 +93,13 @@ Current local artifacts:
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| MSI | 5,885,952 | `9f9db91e42adabbb611704fb68bdc6a19cc924c0b16d29a73401d87de06f7bee` |
-| NSIS | 4,191,161 | `476be068f9574af2335c0888d104aab45b393ed9bd55654247be1e165e1dfb53` |
-| Release executable | 15,369,728 | `1f45e824e456b887044e66781dd0e601819cc29163def5bc2aac5dda43b86a57` |
+| MSI | 5,885,952 | `90c5cc4299e68a121f534c5fc0ce41fa028ed2aa0ad3a600b2d0c9f708242b79` |
+| NSIS | 4,192,136 | `844ff82302ede2e283a10526b287ff76682054c25bef84a2fa19fdf7da8f3956` |
+| Release executable | 15,370,240 | `f8e9e87beb5636321578f2ecda074f21cc1478af555ee042ad1e0327189db5e0` |
 
 The installer-lifecycle record completed at
-`2026-07-15T05:24:22.7333684Z`; all five lifecycle assertions were true. The
-separate packaged WebView product flow passed in 14.8 seconds against the exact
+`2026-07-15T05:59:08.3401248Z`; all five lifecycle assertions were true. The
+separate packaged WebView product flow passed in 13.4 seconds against the exact
 new MSI and a retained `0.1.0` package.
 
 ## Evidence boundary

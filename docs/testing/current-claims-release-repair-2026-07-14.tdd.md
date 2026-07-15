@@ -2,7 +2,8 @@
 
 Date: 2026-07-14
 Scope: current-state claim reconciliation, packaged local-provider discovery,
-release identity, browser smoke, packaged product flow, and coverage policy.
+release identity, browser smoke, packaged product flow, controller
+decomposition, warning-free bundling, and coverage policy.
 
 ## Result
 
@@ -73,17 +74,18 @@ Command:
 pnpm verify:release
 ```
 
-Latest result: PASS in 282.5 seconds with turn-generation extraction commit
-`a3f0a78` checked out.
+Latest result: PASS in 223.3 seconds with warning-free bundle commit
+`0bc5a10ddd681e47c59c0a28594ea8b99714e2c2` checked out.
 
 ```text
 TypeScript: passed
 ESLint: passed
-Vitest: 93 files / 684 tests passed
-Coverage: 92.05% statements, 88.99% branches, 93.56% functions, 92.05% lines
+Vitest: 96 files / 693 tests passed
+Coverage: 92.18% statements, 89.05% branches, 93.65% functions, 92.18% lines
 Phase 1 deterministic eval: passed
 Phase 1.1 deterministic eval: passed; 100 lore decisions; 3 campaigns; 0 live calls
-Vite build: passed; 1,700 modules; main app chunk 496.95 kB / 140.75 kB gzip
+Vite build: passed without a size warning; 1,702 modules; main app chunk
+444.91 kB / 128.89 kB gzip; validation chunk 55.69 kB / 12.75 kB gzip
 Playwright: 14 passed, including three accessibility journeys covering
 zero-violation WCAG A/AA scans, 320 CSS-pixel reflow, and forced colors
 pnpm production audit: no known vulnerabilities
@@ -94,7 +96,11 @@ Windows MSI and NSIS: built
 Packaged executable smoke: passed
 Administrative-extraction SQLite smoke: passed
 Normal current-user NSIS install/reinstall/uninstall lifecycle: passed
-Tested NSIS SHA256: 476be068f9574af2335c0888d104aab45b393ed9bd55654247be1e165e1dfb53
+Tested MSI SHA256: 90c5cc4299e68a121f534c5fc0ce41fa028ed2aa0ad3a600b2d0c9f708242b79
+Tested NSIS SHA256: 844ff82302ede2e283a10526b287ff76682054c25bef84a2fa19fdf7da8f3956
+Tested post-NSIS release executable SHA256:
+f8e9e87beb5636321578f2ecda074f21cc1478af555ee042ad1e0327189db5e0
+Installer lifecycle completed at: 2026-07-15T05:59:08.3401248Z
 ```
 
 ## Packaged WebView proof
@@ -105,8 +111,8 @@ Command shape:
 pnpm desktop:product-flow -PreviousMsi <previous.msi> -CurrentMsi <current.msi> -EvidenceDir <ignored-dir>
 ```
 
-Result: PASS in 14.8 seconds against the freshly built 5,885,952-byte MSI
-(`9f9db91e42adabbb611704fb68bdc6a19cc924c0b16d29a73401d87de06f7bee`).
+Result: PASS in 13.4 seconds against the freshly built 5,885,952-byte MSI
+(`90c5cc4299e68a121f534c5fc0ce41fa028ed2aa0ad3a600b2d0c9f708242b79`).
 This exact-implementation, same-version run exercised onboarding,
 provider setup, creation, play, close/reopen, SQLite continuity, backup restore,
 runtime export, and the new packaged discovery invocation. It is direct current
@@ -141,10 +147,13 @@ command no longer includes that token.
 3. Run migration/restore from a previous signed semantic-version package.
 4. Execute the paid live-provider evaluation with blind scoring and explicit
    cost limits.
-5. Continue decomposing the now 1,502-line application controller and large
-   feature modules while expanding native accessibility acceptance coverage.
-   Turn generation and streaming now live in a separately tested 711-line hook,
-   and the former 4,752-line UI suite is split into five domain suites.
+5. Preserve the now-completed controller exit bar while expanding native
+   accessibility acceptance coverage. `App.tsx` is 785 lines, down from 3,369;
+   provider, persistence, data, media, turn, content, and session orchestration
+   all have direct hook contracts, and the former 4,752-line UI suite is split
+   into five domain suites.
 6. Resolve GitHub attestation eligibility (public repository or eligible
    Enterprise Cloud organization) or approve and review an equivalent
    attestation backend; do not bypass the preflight.
+7. Make the owner licensing decision and verify public support and security
+   reporting destinations before broad distribution.

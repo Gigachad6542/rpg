@@ -6,8 +6,10 @@ smoke.
 
 ## Result
 
-The Chromium acceptance lane now has eleven independent journeys. The complete
-release gate passed all eleven in 7.0 seconds with eleven local workers.
+The Chromium acceptance lane now has eleven functional journeys: ten critical
+journeys in this slice plus the original seeded runtime smoke. Three separate
+accessibility journeys bring the complete release lane to 14 tests; the latest
+gate passed all 14 in 15.8 seconds with local workers.
 
 ## Characterization contracts
 
@@ -51,7 +53,8 @@ persistence plus compiled-prompt privacy.
 pnpm e2e
 ```
 
-Latest full-gate result: 11 passed in 7.0 seconds.
+Latest full-gate result: 14 passed in 15.8 seconds (11 functional plus 3
+accessibility journeys).
 
 ```text
 pnpm typecheck

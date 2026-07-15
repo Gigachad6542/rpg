@@ -110,23 +110,24 @@ The complete RED/GREEN record is in
 
 ## Complete release verification
 
-The canonical command passed from the beginning with product commit `a3f0a78`
+The canonical command passed from the beginning with product commit `0bc5a10`
 checked out:
 
 ```text
 pnpm verify:release
-PASS in 282.5 seconds
+PASS in 223.3 seconds
 ```
 
 Integrated results:
 
 - TypeScript and ESLint passed.
-- 93 Vitest files / 684 tests passed.
-- V8 coverage: 92.05% statements/lines, 88.99% branches, 93.56% functions.
+- 96 Vitest files / 693 tests passed.
+- V8 coverage: 92.18% statements/lines, 89.05% branches, 93.65% functions.
 - Phase 1 and Phase 1.1 deterministic evals passed; Phase 1.1 made zero live
   provider calls.
-- Vite built 1,700 modules; the main app chunk was 496.95 kB / 140.75 kB gzip.
-- All 14 Playwright journeys passed in 21.3 seconds, including three
+- Vite built 1,702 modules without a size warning; the main app chunk was
+  444.91 kB / 128.89 kB gzip with validation split separately.
+- All 14 Playwright journeys passed in 15.8 seconds, including three
   accessibility journeys.
 - Production dependency audit reported no known vulnerabilities.
 - Rust audit exited successfully with 18 allowed warnings and the two scoped
@@ -140,16 +141,16 @@ Current local artifacts:
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| MSI | 5,885,952 | `9f9db91e42adabbb611704fb68bdc6a19cc924c0b16d29a73401d87de06f7bee` |
-| NSIS | 4,191,161 | `476be068f9574af2335c0888d104aab45b393ed9bd55654247be1e165e1dfb53` |
-| Release executable | 15,369,728 | `1f45e824e456b887044e66781dd0e601819cc29163def5bc2aac5dda43b86a57` |
+| MSI | 5,885,952 | `90c5cc4299e68a121f534c5fc0ce41fa028ed2aa0ad3a600b2d0c9f708242b79` |
+| NSIS | 4,192,136 | `844ff82302ede2e283a10526b287ff76682054c25bef84a2fa19fdf7da8f3956` |
+| Release executable | 15,370,240 | `f8e9e87beb5636321578f2ecda074f21cc1478af555ee042ad1e0327189db5e0` |
 
 The installer-lifecycle record completed at
-`2026-07-15T05:24:22.7333684Z`; first launch, same-version repair/reinstall,
+`2026-07-15T05:59:08.3401248Z`; first launch, same-version repair/reinstall,
 second-launch persistence, uninstall-registration removal, and install-directory
 removal were all true.
 
-The separate packaged WebView product flow passed in 14.8 seconds using the
+The separate packaged WebView product flow passed in 13.4 seconds using the
 retained different-commit `0.1.0` MSI as the previous package and the current
 MSI above. It exercised create/play/export, current-build migration, reopen,
 backup retention, restore, and export. Because both packages are `0.1.0` and

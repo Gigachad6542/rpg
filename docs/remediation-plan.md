@@ -8,13 +8,13 @@ second, everything else after.
 > Historical plan: this document records the July 10 review and its remediation
 > trail. The canonical current assessment is `docs/production-plan.md`; the
 > latest command evidence is
-> `docs/testing/automated-accessibility-pnpm11-2026-07-14.tdd.md`.
+> `docs/testing/current-claims-release-repair-2026-07-14.tdd.md`.
 
 ## Current reconciliation (2026-07-14)
 
-- The local `pnpm verify:release` gate passes in 282.5 seconds on implementation
-  commit `a3f0a78`: 93 Vitest files / 684 tests, 92.05% statements/lines, 88.99%
-  branches, 93.56% functions, both deterministic
+- The local `pnpm verify:release` gate passes in 223.3 seconds on implementation
+  commit `0bc5a10`: 96 Vitest files / 693 tests, 92.18% statements/lines, 89.05%
+  branches, 93.65% functions, both deterministic
   evals, 14 Playwright journeys, JS/Rust audits, 34 Rust tests, clippy, desktop
   packaging,
   executable smoke, administrative-extraction SQLite smoke, and the normal
@@ -277,10 +277,12 @@ the feature that needs it, not as a big-bang refactor:
 | Provider orchestration | App.tsx | `src/app/providerController.ts` |
 | Rust: schema/migrations vs CRUD vs validation | runtime_repository.rs | `schema.rs`, `validation.rs` |
 
-Current state: `App.tsx` is 1,502 lines. Provider management, persistence,
-runtime data management, media generation, and turn generation/streaming now
-have independently tested hook boundaries. The 711-line turn hook also owns a
-synchronous re-entry lock, so two same-tick sends cannot start concurrent turns.
+Current state: `App.tsx` is 785 lines, down from 3,369 and below the stated
+approximately 800-line exit bar. Provider management, persistence, runtime data
+management, media generation, turn generation/streaming, content actions, and
+runtime-session lifecycle now have independently tested hook boundaries. The
+turn and session hooks also own synchronous re-entry locks, so two same-tick
+sends or memory consolidations cannot start concurrent work.
 
 **Done when:** App.tsx under ~800 lines, orchestration modules independently unit-tested.
 

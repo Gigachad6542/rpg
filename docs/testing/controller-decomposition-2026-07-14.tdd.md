@@ -298,3 +298,62 @@ MSI/NSIS packaging, both desktop smokes, and the normal installer lifecycle.
 The packaged WebView product flow passed in 14.8 seconds against the exact
 5,885,952-byte MSI with SHA256
 `9f9db91e42adabbb611704fb68bdc6a19cc924c0b16d29a73401d87de06f7bee`.
+This turn-generation checkpoint is historical and is superseded by the final
+runtime-session and warning-free-bundle checkpoint below.
+
+## Runtime-content controller extraction
+
+RED: commit `0aab7e1` added three direct contracts and failed only at module
+resolution. They require blank card creation to fail without library mutation,
+chat deletion to remain confirmation-gated while cleaning prompt/media
+dependencies, and disabled `/roll` commands to produce no authoritative event.
+
+GREEN: commit `5ef673d` moves card, chat, lorebook, RPG-state, message-variant,
+dice, and slash-command actions into the 794-line
+`useRuntimeContentManagement.ts`. Repeated media-draft cleanup is centralized,
+and `App.tsx` fell from 1,502 to 878 lines. All 51 application/UI files and 344
+tests passed with clean TypeScript and zero-warning ESLint.
+
+## Runtime-session controller extraction
+
+RED: commits `46a6120` and `7f4fbb4` added five direct contracts and failed only
+at module resolution. They require consolidation proposals to remain
+non-mutating until restore-point-backed approval, stale proposals to fail
+closed, duplicate same-tick consolidations to be rejected, shutdown to cancel
+active work and clear transient prompts, and rejected last-persona deletion to
+avoid a no-op restore point.
+
+GREEN: commit `1312ab2` moves memory review, runtime lifecycle, onboarding, and
+persona orchestration into the 210-line `useRuntimeSessionManagement.ts`.
+`App.tsx` is now 785 lines, down from 3,369 and below the approximately 800-line
+remediation exit bar. All 52 application/UI files and 349 tests passed with
+clean TypeScript and zero-warning ESLint.
+
+## Warning-free production bundle
+
+RED: commit `1956b53` added a release contract requiring Zod validation to be
+split without increasing or disabling Vite's default chunk-size warning.
+
+GREEN: commit `0bc5a10` creates a 55.69 kB / 12.75 kB gzip validation chunk and
+reduces the main app chunk from 500.93 kB / 141.77 kB gzip to 444.91 kB /
+128.89 kB gzip. No `chunkSizeWarningLimit` override is present.
+
+The exact `pnpm verify:release` lane passed on
+`0bc5a10ddd681e47c59c0a28594ea8b99714e2c2` in 223.3 seconds: 96 files / 693
+tests, 92.18% statements/lines, 89.05% branches, 93.65% functions, both
+deterministic evals with zero live calls, 14 Playwright journeys, a warning-free
+1,702-module Vite build, clean production dependency audit, accepted Rust
+audit, 34 Rust tests, strict clippy, MSI/NSIS packaging, both desktop smokes,
+and the normal installer lifecycle. The final artifacts were:
+
+| Artifact | Bytes | SHA256 |
+|---|---:|---|
+| MSI | 5,885,952 | `90c5cc4299e68a121f534c5fc0ce41fa028ed2aa0ad3a600b2d0c9f708242b79` |
+| NSIS | 4,192,136 | `844ff82302ede2e283a10526b287ff76682054c25bef84a2fa19fdf7da8f3956` |
+| Release executable after NSIS bundling | 15,370,240 | `f8e9e87beb5636321578f2ecda074f21cc1478af555ee042ad1e0327189db5e0` |
+
+The installer lifecycle completed at `2026-07-15T05:59:08.3401248Z`. The
+packaged WebView flow then passed in 13.4 seconds against that exact MSI and the
+retained 0.1.0 package. It proves packaged migration/restore behavior across
+two real builds, but remains same-version evidence rather than a published
+semantic-version upgrade.

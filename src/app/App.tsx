@@ -38,11 +38,7 @@ import {
 import { createRuntimeTurnEffects } from "../runtime/runtimeTurnLineage";
 import { resolveModelCallBudget } from "../runtime/modelCallBudget";
 import { resolveHiddenContinuityPlan } from "../runtime/hiddenContinuityPolicy";
-import {
-  calculateModelCallCost,
-  classifyModelCallFailure,
-  resolveModelPricing,
-} from "../runtime/modelCallTelemetry";
+import { resolveModelPricing } from "../runtime/modelCallTelemetry";
 import { detectKnowledgeLeaks, describeKnowledgeLeaks } from "../runtime/knowledgeLeakDetector";
 import {
   selectLorebookEntriesWithProvenanceForPreview,
@@ -59,7 +55,6 @@ import {
   createStateCommittedEvent,
   createToolResultEvent,
   type AuthoritativeEventStream,
-  type AuthoritativeStateMutation,
 } from "../runtime/authoritativeEventStream";
 import { parseSlashCommand } from "../runtime/slashCommands";
 import {
@@ -84,10 +79,6 @@ import {
   validatePlayerAction as validatePlayerActionWithRules,
 } from "../runtime/playerRuleEngine";
 import { ComfyUIImageProvider, fetchComfyUIImageModels } from "../providers/comfyUIProvider";
-import type {
-  TextGenerationResponse,
-  TextModelAdapter,
-} from "../providers/TextModelAdapter";
 import {
   requireSecureKeyStorage,
   type KeyStorage,
@@ -262,6 +253,14 @@ import { CardsSection } from "./CardsSection";
 import { GlobalLorebooksSection } from "./GlobalLorebooksSection";
 import { ProvidersSection } from "./ProvidersSection";
 import { MediaPreviewDialog, MemoryDrawer } from "./Overlays";
+import { buildAuthoritativeStateMutations } from "./authoritativeStateMutations";
+import {
+  createModelCallCaptureAdapter,
+  elapsedMilliseconds,
+  readMonotonicMilliseconds,
+  toModelCallRecord,
+  type TextModelCallOutcome,
+} from "./modelCallTelemetryAdapter";
 
 /** Pre-persona snapshots kept the impersonation prompt on runtimeSettings; parsePersonas migrates it. */
 function readLegacyImpersonationPrompt(runtimeSettings: Record<string, unknown> | undefined): string {
@@ -3220,150 +3219,4 @@ export function App() {
       ) : null}
     </main>
   );
-}
-
-type TextModelCallOutcome =
-  | { response: TextGenerationResponse }
-  | { error: unknown };
-
-function createModelCallCaptureAdapter(
-  adapter: TextModelAdapter,
-  capture: (outcome: TextModelCallOutcome) => void,
-): TextModelAdapter {
-  const captureAdapter: TextModelAdapter = {
-    id: adapter.id,
-    displayName: adapter.displayName,
-    listModels: () => adapter.listModels(),
-    async generateText(request) {
-      try {
-        const response = await adapter.generateText(request);
-        capture({ response });
-        return response;
-      } catch (error) {
-        capture({ error });
-        throw error;
-      }
-    },
-  };
-  if (adapter.streamText) {
-    captureAdapter.streamText = (request) => adapter.streamText!(request);
-  }
-  return captureAdapter;
-}
-
-function toModelCallRecord(input: {
-  phase: ModelCallRecord["phase"];
-  fallbackProvider: string;
-  fallbackModel: string;
-  budget: ReturnType<typeof resolveModelCallBudget>;
-  durationMs: number;
-  outcome?: TextModelCallOutcome;
-  pricing?: ReturnType<typeof resolveModelPricing>;
-  stateProposalCount: number;
-}): ModelCallRecord {
-  const response = input.outcome && "response" in input.outcome
-    ? input.outcome.response
-    : undefined;
-  const usage = response
-    ? { ...response.usage }
-    : { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
-  const failed = !response || response.finishReason === "error" || response.text.trim().length === 0;
-  const failure = failed
-    ? classifyModelCallFailure(
-        input.outcome && "error" in input.outcome
-          ? input.outcome.error
-          : new Error(
-              response?.text.trim().length === 0
-                ? "Provider returned an empty response."
-                : "Provider returned an error finish reason.",
-            ),
-      )
-    : undefined;
-  const usageSource = response ? response.usageSource ?? "provider" : "unavailable";
-  return {
-    phase: input.phase,
-    provider: response?.providerId ?? input.fallbackProvider,
-    model: response?.model ?? input.fallbackModel,
-    usage,
-    inputBudgetTokens: input.budget.inputBudgetTokens,
-    effectiveContextWindowTokens: input.budget.effectiveContextWindowTokens,
-    budgetSource: input.budget.source,
-    durationMs: input.durationMs,
-    status: failed ? "error" : "success",
-    usageSource,
-    cost: calculateModelCallCost(usage, input.pricing, usageSource),
-    ...(failure ? { failure } : {}),
-    stateProposalCount: input.stateProposalCount,
-  };
-}
-
-function buildAuthoritativeStateMutations(
-  before: RuntimeCard,
-  after: RuntimeCard,
-): AuthoritativeStateMutation[] {
-  if (!before.rpg || !after.rpg) {
-    return [];
-  }
-  const mutations: AuthoritativeStateMutation[] = [];
-  if (before.rpg.location !== after.rpg.location) {
-    mutations.push({ type: "location_set", location: after.rpg.location });
-  }
-  if (before.rpg.health !== after.rpg.health) {
-    mutations.push({ type: "health_set", health: after.rpg.health });
-  }
-  const beforeInventory = new Set(before.rpg.inventory);
-  const afterInventory = new Set(after.rpg.inventory);
-  for (const item of afterInventory) {
-    if (!beforeInventory.has(item)) {
-      mutations.push({ type: "inventory_add", item });
-    }
-  }
-  for (const item of beforeInventory) {
-    if (!afterInventory.has(item)) {
-      mutations.push({ type: "inventory_remove", item });
-    }
-  }
-  const beforeQuests = new Set(before.rpg.quests);
-  const afterQuests = new Set(after.rpg.quests);
-  for (const quest of beforeQuests) {
-    if (!afterQuests.has(quest)) {
-      mutations.push({ type: "quest_remove", quest });
-    }
-  }
-  for (const quest of after.rpg.quests) {
-    if (!beforeQuests.has(quest)) {
-      mutations.push({ type: "quest_set", quest });
-    }
-  }
-  for (const [flag, value] of Object.entries(after.rpg.flags)) {
-    if (before.rpg.flags[flag] !== value) {
-      mutations.push({ type: "world_flag_set", flag, value });
-    }
-  }
-  for (const flag of Object.keys(before.rpg.flags)) {
-    if (!(flag in after.rpg.flags)) {
-      mutations.push({ type: "world_flag_remove", flag });
-    }
-  }
-  const beforePlaces = new Set(before.rpg.knownPlaces);
-  const afterPlaces = new Set(after.rpg.knownPlaces);
-  for (const place of beforePlaces) {
-    if (!afterPlaces.has(place)) {
-      mutations.push({ type: "known_place_remove", place });
-    }
-  }
-  for (const place of after.rpg.knownPlaces) {
-    if (!beforePlaces.has(place)) {
-      mutations.push({ type: "known_place_add", place });
-    }
-  }
-  return mutations;
-}
-
-function readMonotonicMilliseconds(): number {
-  return typeof performance === "undefined" ? Date.now() : performance.now();
-}
-
-function elapsedMilliseconds(startedAt: number): number {
-  return Math.max(0, Math.round(readMonotonicMilliseconds() - startedAt));
 }

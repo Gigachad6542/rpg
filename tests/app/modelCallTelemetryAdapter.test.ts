@@ -68,7 +68,7 @@ describe("model call telemetry adapter", () => {
         throw failure;
       },
       async *streamText() {
-        throw failure;
+        yield await Promise.reject(failure);
       },
     };
 

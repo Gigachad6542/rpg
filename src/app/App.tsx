@@ -16,7 +16,6 @@ import {
   buildTurnSystemPrompt,
   compileTurnPrompt,
 } from "../runtime/turnPipeline";
-import { runMemoryConsolidationSafely } from "../runtime/memoryConsolidation";
 import { requireSecureKeyStorage } from "../security/keyStorage";
 import { loadLocalRuntimeSnapshot } from "./localRuntimeStore";
 import { SettingsSection } from "./SettingsSection";
@@ -29,7 +28,6 @@ import type {
   ChatSession,
   ImageProviderSettings,
   MainSection,
-  MemoryEntry,
   Message,
   Persona,
   PromptRun,
@@ -38,16 +36,14 @@ import type {
   RuntimeSettings,
   Theme,
 } from "./runtimeTypes";
-import { findScrollableAncestor, formatRestorePointTime, getErrorMessage } from "./appUtils";
+import { findScrollableAncestor, formatRestorePointTime } from "./appUtils";
 import {
-  createRuntimeEntityId,
   filterPersistedOpeningMessages,
   getActiveChatForCard,
   getCardChats,
 } from "./chatSessions";
 import {
   applyPromptDebugRetention,
-  createTextProvider,
   getConfiguredTextModelInfo,
 } from "./providerConfig";
 import {
@@ -70,12 +66,7 @@ import {
 import { getReadinessChecklist } from "./readiness";
 import {
   collectActiveLorebooks,
-  createPersona,
-  deletePersona,
   getActivePersona,
-  parseActivePersonaId,
-  setDefaultPersona,
-  updatePersona,
 } from "./personas";
 import { NoActiveCardRuntimePanel, RuntimeSection } from "./RuntimeSection";
 import { CardsSection } from "./CardsSection";
@@ -93,12 +84,7 @@ import { useRuntimeDataManagement } from "./useRuntimeDataManagement";
 import { useMediaGeneration } from "./useMediaGeneration";
 import { useTurnGeneration } from "./useTurnGeneration";
 import { useRuntimeContentManagement } from "./useRuntimeContentManagement";
-
-interface MemoryConsolidationReview {
-  cardId: string;
-  originalMemory: MemoryEntry[];
-  proposedMemory: MemoryEntry[];
-}
+import { useRuntimeSessionManagement } from "./useRuntimeSessionManagement";
 
 export function App() {
   const [initialSnapshot] = useState(() => loadLocalRuntimeSnapshot<RuntimeCard, Message, PromptRun, ChatSession>());
@@ -125,9 +111,6 @@ export function App() {
   const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettings>(() => initialRuntimeState.runtimeSettings);
   const [personas, setPersonas] = useState<Persona[]>(() => initialRuntimeState.personas);
   const [activePersonaId, setActivePersonaId] = useState(() => initialRuntimeState.activePersonaId);
-  const [isConsolidatingMemory, setIsConsolidatingMemory] = useState(false);
-  const [memoryConsolidationStatus, setMemoryConsolidationStatus] = useState<string | null>(null);
-  const [memoryConsolidationReview, setMemoryConsolidationReview] = useState<MemoryConsolidationReview | null>(null);
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
 
   const activeCard = cards.find((card) => card.id === activeCardId) ?? null;
@@ -490,6 +473,40 @@ export function App() {
     imageProviderStatus,
     getRepositoryBackend,
   });
+  const {
+    isConsolidatingMemory,
+    memoryConsolidationStatus,
+    memoryConsolidationReview,
+    consolidateActiveCardMemory,
+    applyMemoryConsolidationReview,
+    cancelMemoryConsolidationReview,
+    shutdownRuntime,
+    startRuntime,
+    completeOnboarding,
+    addPersona,
+    editPersona,
+    removePersona,
+    makePersonaDefault,
+  } = useRuntimeSessionManagement({
+    activeCard,
+    providerSettings,
+    sessionApiKey,
+    personas,
+    activePersonaId,
+    setPersonas,
+    setActivePersonaId,
+    setRuntimeSettings,
+    setOnboardingDismissed,
+    setRuntimeRunning,
+    setRuleWarning,
+    setDraft,
+    setMapPrompt,
+    setImagePromptDraft,
+    setImageNegativePromptDraft,
+    stopGeneration,
+    captureRestorePoint,
+    commitManualActiveCardState,
+  });
 
   useEffect(() => {
     function handleWheelZoom(event: WheelEvent) {
@@ -520,116 +537,6 @@ export function App() {
       setPromptRuns((current) => applyPromptDebugRetention(current, runtimeSettings));
     }
   }, [runtimeSettings]);
-
-  async function consolidateActiveCardMemory() {
-    if (!activeCard || isConsolidatingMemory) {
-      return;
-    }
-    const entries = activeCard.memory.map((entry) => ({
-      id: entry.id,
-      label: entry.label,
-      detail: entry.detail,
-    }));
-    setMemoryConsolidationReview(null);
-    setIsConsolidatingMemory(true);
-    setMemoryConsolidationStatus("Consolidating memory...");
-    try {
-      const provider = createTextProvider(providerSettings, sessionApiKey, activeCard, "", 0);
-      const model = providerSettings.mode === "mock" ? "mock-narrator" : providerSettings.model;
-      const result = await runMemoryConsolidationSafely({ modelAdapter: provider, model, entries });
-      if (result.changed) {
-        const before = entries.length;
-        const proposedMemory = result.entries.map((entry) => ({
-            id: entry.id ?? createRuntimeEntityId("memory"),
-            label: entry.label,
-            detail: entry.detail,
-          }));
-        setMemoryConsolidationReview({
-          cardId: activeCard.id,
-          originalMemory: activeCard.memory.map((entry) => ({ ...entry })),
-          proposedMemory,
-        });
-        setMemoryConsolidationStatus(
-          `Review the proposed consolidation: ${before} to ${result.entries.length} entries. Nothing has changed yet.`,
-        );
-      } else {
-        setMemoryConsolidationStatus(
-          result.warnings[0] ?? "Memory is already concise; nothing to consolidate.",
-        );
-      }
-    } catch (error) {
-      setMemoryConsolidationStatus(`Memory consolidation failed: ${getErrorMessage(error)}`);
-    } finally {
-      setIsConsolidatingMemory(false);
-    }
-  }
-
-  function applyMemoryConsolidationReview() {
-    if (!activeCard || !memoryConsolidationReview || memoryConsolidationReview.cardId !== activeCard.id) {
-      setMemoryConsolidationReview(null);
-      setMemoryConsolidationStatus("The consolidation review no longer matches the active card; memory was not changed.");
-      return;
-    }
-    if (JSON.stringify(activeCard.memory) !== JSON.stringify(memoryConsolidationReview.originalMemory)) {
-      setMemoryConsolidationReview(null);
-      setMemoryConsolidationStatus("Memory changed while this review was open; the stale proposal was discarded.");
-      return;
-    }
-
-    const before = activeCard.memory.length;
-    const proposedMemory = memoryConsolidationReview.proposedMemory.map((entry) => ({ ...entry }));
-    captureRestorePoint();
-    commitManualActiveCardState({ ...activeCard, memory: proposedMemory });
-    setMemoryConsolidationReview(null);
-    setMemoryConsolidationStatus(`Memory consolidation applied: ${before} to ${proposedMemory.length} entries.`);
-  }
-
-  function cancelMemoryConsolidationReview() {
-    setMemoryConsolidationReview(null);
-    setMemoryConsolidationStatus("Memory consolidation cancelled; original memory was not changed.");
-  }
-
-  function shutdownRuntime() {
-    stopGeneration();
-    setRuntimeRunning(false);
-    setRuleWarning(null);
-    setMapPrompt(null);
-    setImagePromptDraft("");
-    setImageNegativePromptDraft("");
-    setDraft("");
-  }
-
-  function startRuntime() {
-    setRuntimeRunning(true);
-    setRuleWarning(null);
-    setDraft("");
-  }
-
-  function completeOnboarding() {
-    setRuntimeSettings((current) => ({ ...current, onboardingCompleted: true }));
-    setOnboardingDismissed(true);
-  }
-
-  function addPersona(name: string) {
-    const persona = createPersona(name);
-    setPersonas((current) => [...current, persona]);
-    setActivePersonaId(persona.id);
-  }
-
-  function editPersona(personaId: string, changes: Partial<Persona>) {
-    setPersonas((current) => updatePersona(current, personaId, changes));
-  }
-
-  function removePersona(personaId: string) {
-    captureRestorePoint();
-    const remaining = deletePersona(personas, personaId);
-    setPersonas(remaining);
-    setActivePersonaId(parseActivePersonaId(activePersonaId, remaining));
-  }
-
-  function makePersonaDefault(personaId: string) {
-    setPersonas((current) => setDefaultPersona(current, personaId));
-  }
 
   const restorePointViews = restorePoints.map((point) => ({
     id: point.id,

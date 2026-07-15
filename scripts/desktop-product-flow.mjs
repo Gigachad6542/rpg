@@ -51,6 +51,7 @@ if (!existsSync(databasePath)) throw new Error(`Previous packaged build did not 
 
 await step("current-build-migration-close-reopen-and-mutate", async () => {
   await withDesktop(options.currentExe, "current-migration", async ({ page }) => {
+    await verifyPackagedLocalProviderDiscovery(page);
     await openPhase2Card(page);
     await verifyTranscript(page, DURABLE_MARKER, true);
     await sendAndVerify(page, TRANSIENT_MARKER);
@@ -162,7 +163,7 @@ async function withDesktop(executable, label, operation) {
 }
 
 async function completeFirstRunAndProviderSetup(page) {
-  const onboarding = page.getByRole("dialog", { name: /Welcome to your local RPG runtime/i });
+  const onboarding = onboardingDialog(page);
   await onboarding.waitFor();
   await onboarding.getByRole("button", { name: /Add API key/i }).click();
   const providerRegion = page.getByRole("region", { name: /LLM API keys/i });
@@ -184,7 +185,7 @@ async function createPhase2Card(page) {
 }
 
 async function openPhase2Card(page) {
-  const onboarding = page.getByRole("dialog", { name: /Welcome to your local RPG runtime/i });
+  const onboarding = onboardingDialog(page);
   if (await onboarding.isVisible().catch(() => false)) {
     await onboarding.getByRole("button", { name: /Explore on my own/i }).click();
   }
@@ -194,6 +195,34 @@ async function openPhase2Card(page) {
     .filter({ hasText: "Phase 2 Migration RPG" });
   await card.getByRole("button", { name: /^Open$/ }).click();
   await page.getByRole("heading", { name: "Phase 2 Migration RPG" }).waitFor();
+}
+
+function onboardingDialog(page) {
+  // Keep the legacy title only so a current release can prove migration from an older package.
+  return page.getByRole("dialog", {
+    name: /Welcome to Local-First RPG|Welcome to your local RPG runtime/i,
+  });
+}
+
+async function verifyPackagedLocalProviderDiscovery(page) {
+  const result = await page.evaluate(async () => {
+    const internals = globalThis.__TAURI_INTERNALS__;
+    if (!internals || typeof internals.invoke !== "function") {
+      return { ok: false, error: "Tauri invoke bridge is unavailable." };
+    }
+    try {
+      const value = await internals.invoke("discover_local_text_providers");
+      return { ok: true, value };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  if (!result.ok || !Array.isArray(result.value)) {
+    throw new Error(
+      `Packaged local-provider discovery command returned an invalid result: ${result.error ?? "non-array response"}`,
+    );
+  }
 }
 
 async function sendAndVerify(page, marker) {

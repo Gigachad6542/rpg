@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::json;
 
 const HISTORICAL_SCHEMA_V1: &str = include_str!("../../tests/fixtures/schema-v1-0996b8d.sql");
 

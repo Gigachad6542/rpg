@@ -117,3 +117,12 @@ repository regression corpus still lived inside the production authority.
 GREEN: those tests now live in `runtime_repository/tests.rs`; the production
 authority is 1,732 lines and the test fixture paths remain explicit. All three
 architecture contracts, all 35 Rust tests, formatting, and clippy passed.
+
+RED: the fourth Rust architecture contract failed because normalized snapshot
+CRUD still occupied the top-level repository module.
+
+GREEN: load/overlay, save/transaction, normalized-table CRUD, pruning, legacy
+compatibility, and JSON row helpers now live in
+`runtime_repository/storage.rs`. The command-facing repository authority is
+367 lines and the cohesive storage module is 1,382 lines. All four architecture
+contracts, all 35 Rust tests, formatting, and clippy passed.

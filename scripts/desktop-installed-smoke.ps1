@@ -13,7 +13,7 @@ $runtimeDataRoot = Join-Path $tempRoot "RuntimeData"
 
 New-Item -ItemType Directory -Force -Path $installRoot, $roamingRoot, $localRoot, $tempRoot, $runtimeDataRoot | Out-Null
 
-function Install-SmokeBundle {
+function Stage-SmokeBundle {
   param(
     [Parameter(Mandatory = $true)][string]$BundleRoot,
     [Parameter(Mandatory = $true)][string]$InstallRoot,
@@ -28,7 +28,7 @@ function Install-SmokeBundle {
     $installerArgs = @("/a", "`"$($msi.FullName)`"", "/qn", "TARGETDIR=`"$InstallRoot`"")
     $installer = Start-Process -FilePath "msiexec.exe" -ArgumentList $installerArgs -Wait -PassThru
     if ($installer.ExitCode -ne 0) {
-      throw "MSI administrative install failed with code $($installer.ExitCode) for $($msi.FullName)."
+      throw "MSI administrative extraction failed with code $($installer.ExitCode) for $($msi.FullName)."
     }
   } elseif (Test-Path -LiteralPath $FallbackExe) {
     Copy-Item -LiteralPath $FallbackExe -Destination (Join-Path $InstallRoot "local-first-ai-rpg-runtime.exe")
@@ -40,7 +40,7 @@ function Install-SmokeBundle {
     Sort-Object FullName |
     Select-Object -First 1
   if (-not $exe) {
-    throw "Installed desktop executable was not found under $InstallRoot."
+    throw "Staged desktop executable was not found under $InstallRoot."
   }
   return $exe.FullName
 }
@@ -67,7 +67,7 @@ function Start-IsolatedRuntime {
 
   $process = [System.Diagnostics.Process]::Start($startInfo)
   if (-not $process) {
-    throw "Failed to start installed desktop executable at $ExePath."
+    throw "Failed to start staged desktop executable at $ExePath."
   }
   return $process
 }
@@ -97,13 +97,13 @@ function Wait-ForRuntimeDatabase {
 }
 
 try {
-  $exePath = Install-SmokeBundle -BundleRoot $bundleRoot -InstallRoot $installRoot -FallbackExe $releaseExe
+  $exePath = Stage-SmokeBundle -BundleRoot $bundleRoot -InstallRoot $installRoot -FallbackExe $releaseExe
 
   $first = Start-IsolatedRuntime -ExePath $exePath -RoamingRoot $roamingRoot -LocalRoot $localRoot -TempRoot $tempRoot -RuntimeDataRoot $runtimeDataRoot
   try {
     Start-Sleep -Seconds 5
     if ($first.HasExited) {
-      throw "Installed desktop smoke exited during first startup with code $($first.ExitCode)."
+      throw "MSI-payload smoke exited during first startup with code $($first.ExitCode)."
     }
   } finally {
     Stop-SmokeProcess $first
@@ -115,7 +115,7 @@ try {
   try {
     Start-Sleep -Seconds 5
     if ($second.HasExited) {
-      throw "Installed desktop smoke exited during restart with code $($second.ExitCode)."
+      throw "MSI-payload smoke exited during restart with code $($second.ExitCode)."
     }
   } finally {
     Stop-SmokeProcess $second
@@ -125,7 +125,7 @@ try {
     throw "Runtime database disappeared before restart verification: $($database.FullName)"
   }
 
-  Write-Output "Installed desktop smoke passed: staged $exePath and created $($database.FullName)."
+  Write-Output "MSI-payload smoke passed: staged $exePath and created $($database.FullName)."
 } finally {
   if (-not $env:KEEP_RPG_INSTALLED_SMOKE -and (Test-Path -LiteralPath $smokeRoot)) {
     Remove-Item -LiteralPath $smokeRoot -Recurse -Force

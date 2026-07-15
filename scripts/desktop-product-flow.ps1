@@ -26,7 +26,7 @@ if ([System.IO.Path]::GetExtension($currentMsiPath) -ne ".msi") {
 
 New-Item -ItemType Directory -Force -Path $workRoot, $previousInstallRoot, $currentInstallRoot, $profileRoot, $installEvidenceRoot | Out-Null
 
-function Install-PackagedMsi {
+function Extract-PackagedMsi {
   param(
     [Parameter(Mandatory = $true)][string]$MsiPath,
     [Parameter(Mandatory = $true)][string]$InstallRoot,
@@ -43,23 +43,23 @@ function Install-PackagedMsi {
   )
   $installer = Start-Process -FilePath "msiexec.exe" -ArgumentList $arguments -Wait -PassThru
   if ($installer.ExitCode -ne 0) {
-    throw "MSI administrative install failed with code $($installer.ExitCode). See $LogPath."
+    throw "MSI administrative extraction failed with code $($installer.ExitCode). See $LogPath."
   }
 
   $exe = Get-ChildItem -LiteralPath $InstallRoot -Recurse -File -Filter "local-first-ai-rpg-runtime.exe" |
     Sort-Object FullName |
     Select-Object -First 1
   if (-not $exe) {
-    throw "The installed package did not contain local-first-ai-rpg-runtime.exe under $InstallRoot."
+    throw "The extracted package did not contain local-first-ai-rpg-runtime.exe under $InstallRoot."
   }
   return $exe.FullName
 }
 
 try {
-  $previousLog = Join-Path $installEvidenceRoot "previous-msi-install.log"
-  $currentLog = Join-Path $installEvidenceRoot "current-msi-install.log"
-  $previousExe = Install-PackagedMsi -MsiPath $previousMsiPath -InstallRoot $previousInstallRoot -LogPath $previousLog
-  $currentExe = Install-PackagedMsi -MsiPath $currentMsiPath -InstallRoot $currentInstallRoot -LogPath $currentLog
+  $previousLog = Join-Path $installEvidenceRoot "previous-msi-extraction.log"
+  $currentLog = Join-Path $installEvidenceRoot "current-msi-extraction.log"
+  $previousExe = Extract-PackagedMsi -MsiPath $previousMsiPath -InstallRoot $previousInstallRoot -LogPath $previousLog
+  $currentExe = Extract-PackagedMsi -MsiPath $currentMsiPath -InstallRoot $currentInstallRoot -LogPath $currentLog
 
   & node (Join-Path $PSScriptRoot "desktop-product-flow.mjs") `
     --previous-exe $previousExe `

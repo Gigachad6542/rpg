@@ -1,0 +1,60 @@
+name: Local-First RPG bug report
+description: Report a reproducible non-security defect in the controlled beta.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security issue? Stop here. Do not submit this form; follow SECURITY.md privately.
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS Apple Silicon
+        - Browser development mode
+        - Other or unknown
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Use the mock provider when possible and list exact actions.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics
+      description: Inspect before pasting. Never include keys, private chat/card text, or a runtime database.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy confirmation
+      options:
+        - label: I removed secrets and private runtime content.
+          required: true

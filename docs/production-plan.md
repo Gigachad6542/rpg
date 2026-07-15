@@ -2,7 +2,7 @@
 
 Audit date: 2026-07-14
 
-Current working-tree readiness: **77/100 (launchable with caveats for a
+Current working-tree readiness: **79/100 (launchable with caveats for a
 controlled beta; not proven for broad public release)**. The local release gate
 is green, the packaged local-provider discovery regression is repaired, and a
 normal current-user NSIS install/reinstall/uninstall lifecycle now passes. The
@@ -62,7 +62,7 @@ for upgrade proof, and live-provider narrative quality is not yet measured.
 | Automated verification | 17/20 | The local release gate is broad and four critical browser journeys now pass; desktop UI automation remains narrower than unit coverage and live-provider evaluation has not run. |
 | Packaging and release operations | 14/20 | Signed fail-closed workflows and a real local NSIS lifecycle exist; current hosted signed/notarized evidence, clean-VM proof, and a published previous-version migration are absent. |
 | Product and UX maturity | 8/15 | Onboarding, sample content, imports, library tools, continuity, and explicit state controls are credible; the main UI/controller remains oversized and accessibility E2E is thin. |
-| Operational and project governance | 5/10 | Release, rollback, and runtime contracts exist; public support verification, security reporting, changelog discipline, and licensing are not yet release-complete. |
+| Operational and project governance | 7/10 | Release, rollback, runtime, security, support, contribution, changelog, conduct, issue, and PR contracts exist; licensing and verified public support/security intake remain incomplete. |
 
 ## Competitive Snapshot (verified 2026-07-14)
 
@@ -134,8 +134,8 @@ that flow is effortless would dilute the product.
   feature controllers and smaller acceptance suites without weakening behavior.
 - Continue accessibility acceptance coverage beyond the verified memory-dialog
   focus trap into tab linkage, drawers, and complete keyboard-only runtime flows.
-- Add release-complete governance: license decision, security-reporting policy,
-  changelog/release-note discipline, and verified public help/support destinations.
+- Make the owner licensing decision and configure verified public help,
+  support, and security-reporting destinations before broad distribution.
 
 ## Production Milestones
 

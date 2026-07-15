@@ -22,6 +22,9 @@ This folder keeps operational notes and verification evidence for `rpg`.
 
 ## Testing Evidence
 
+- [Release governance evidence](testing/release-governance-2026-07-14.tdd.md)
+  records the controlled-beta security, support, contribution, changelog,
+  conduct, issue, and pull-request surfaces plus their public-release limits.
 - [Runtime policy contract evidence](testing/runtime-policy-contracts-2026-07-14.tdd.md)
   records the enforced desktop single-writer window and honest stored-secret
   streaming fallback.

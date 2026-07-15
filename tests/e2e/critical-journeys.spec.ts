@@ -238,7 +238,7 @@ test("invalid runtime imports fail closed without replacing the active story", a
   await page.getByLabel(/Runtime export JSON/i).fill('{"version":999,"snapshot":{}}');
   await page.getByRole("button", { name: /Review runtime import/i }).click();
 
-  await expect(page.getByRole("region", { name: /Runtime import review/i })).toBeHidden();
+  await expect(page.getByRole("alertdialog", { name: /Replace current runtime data/i })).toBeHidden();
   await expect(page.getByRole("status", { name: /Data management status/i })).toContainText(
     /unsupported|invalid|version/i,
   );
@@ -276,7 +276,7 @@ test("a reviewed runtime replacement can be rolled back from its named restore p
   await page.getByRole("button", { name: /^Settings$/ }).click();
   await page.getByLabel(/Runtime export JSON/i).fill(originalRuntime);
   await page.getByRole("button", { name: /Review runtime import/i }).click();
-  await page.getByRole("button", { name: /Apply reviewed import/i }).click();
+  await page.getByRole("button", { name: /Replace runtime data/i }).click();
   await expect(page.getByRole("status", { name: /Data management status/i })).toContainText(/Imported runtime export/i);
 
   const restoreTemporaryRuntime = page.getByRole("button", {

@@ -2146,7 +2146,7 @@ pre {
   z-index: 35;
 }
 
-.runtime-import-backdrop {
+.destructive-action-backdrop {
   align-items: center;
   background: rgba(8, 11, 16, 0.78);
   display: grid;
@@ -2156,7 +2156,7 @@ pre {
   z-index: 40;
 }
 
-.runtime-import-dialog {
+.destructive-action-dialog {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -2170,13 +2170,13 @@ pre {
   width: min(520px, calc(100vw - 44px));
 }
 
-.runtime-import-dialog-heading {
+.destructive-action-dialog-heading {
   align-items: flex-start;
   display: flex;
   gap: 10px;
 }
 
-.runtime-import-dialog-heading h3 {
+.destructive-action-dialog-heading h3 {
   margin: 2px 0 0;
 }
 

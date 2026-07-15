@@ -2574,6 +2574,7 @@ export function App() {
       return;
     }
     const snapshot = point.snapshot;
+    captureRestorePoint();
     const restoredMessages = snapshot.chatSessions.reduce((count, session) => count + session.messages.length, 0);
     restoreSignatureRef.current = `${restoredMessages}:${snapshot.cards.length}`;
     applyResolvedRuntimeState(resolveRuntimeSnapshotState(snapshot, {

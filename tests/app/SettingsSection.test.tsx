@@ -217,6 +217,7 @@ describe("SettingsSection", () => {
     expect(makePersonaDefault).toHaveBeenCalledWith("persona_mara");
 
     fireEvent.click(within(personaPanel).getByRole("button", { name: /Delete Mara/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Delete persona$/i }));
     expect(removePersona).toHaveBeenCalledWith("persona_mara");
 
     const editorPanel = screen.getByRole("region", { name: /Persona editor/i });

@@ -6,6 +6,7 @@ import type { Lorebook, Persona } from "./runtimeTypes";
 import { getErrorMessage } from "./appUtils";
 import { parseChubLorebookPayload } from "./lorebookIo";
 import { buildEmbeddableAvatarDataUrl } from "./avatarImage";
+import { DestructiveActionDialog } from "./DestructiveActionDialog";
 
 export function PersonasPanel(props: {
   personas: Persona[];
@@ -18,6 +19,7 @@ export function PersonasPanel(props: {
 }) {
   const [newPersonaName, setNewPersonaName] = useState("");
   const [editingPersonaId, setEditingPersonaId] = useState<string | null>(null);
+  const [pendingDeletePersona, setPendingDeletePersona] = useState<Persona | null>(null);
   const [personaStatus, setPersonaStatus] = useState(
     "Paste a Chub-compatible lorebook JSON to attach it to this persona.",
   );
@@ -156,7 +158,7 @@ export function PersonasPanel(props: {
                 <button
                   type="button"
                   className="secondary-button danger-button compact-button"
-                  onClick={() => props.removePersona(persona.id)}
+                  onClick={() => setPendingDeletePersona(persona)}
                   disabled={props.personas.length <= 1}
                   aria-label={`Delete ${persona.name}`}
                 >
@@ -184,6 +186,22 @@ export function PersonasPanel(props: {
           Create persona
         </button>
       </section>
+      {pendingDeletePersona ? (
+        <DestructiveActionDialog
+          eyebrow="Delete persona"
+          title={`Delete ${pendingDeletePersona.name}?`}
+          cancelLabel="Cancel deletion"
+          confirmLabel="Delete persona"
+          cancel={() => setPendingDeletePersona(null)}
+          confirm={() => {
+            props.removePersona(pendingDeletePersona.id);
+            setPendingDeletePersona(null);
+          }}
+        >
+          <p>This removes the persona prompt, avatar, and attached lorebooks from the active runtime.</p>
+          <p className="panel-hint">A local restore point is captured immediately before deletion.</p>
+        </DestructiveActionDialog>
+      ) : null}
 
       <section className="panel" aria-label="Persona editor">
         <div className="section-title">
@@ -284,4 +302,3 @@ export function PersonasPanel(props: {
     </>
   );
 }
-

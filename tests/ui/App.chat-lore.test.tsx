@@ -509,6 +509,7 @@ describe("local-first card runtime UI: chat-lore", () => {
     H.fireEvent.change(H.within(personaPanel).getByLabelText(/New persona name/i), { target: { value: "Mara" } });
     H.fireEvent.click(H.within(personaPanel).getByRole("button", { name: /Create persona/i }));
     H.fireEvent.click(H.within(personaPanel).getByRole("button", { name: /Delete Mara/i }));
+    H.fireEvent.click(H.screen.getByRole("button", { name: /^Delete persona$/i }));
 
     await H.waitFor(() => {
       const points = JSON.parse(window.localStorage.getItem(H.LOCAL_RESTORE_POINTS_KEY) ?? "[]") as Array<{

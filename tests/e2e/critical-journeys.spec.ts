@@ -284,7 +284,11 @@ test("a reviewed runtime replacement can be rolled back from its named restore p
   }).first();
   await expect(restoreTemporaryRuntime).toBeVisible();
   await restoreTemporaryRuntime.click();
+  const restoreDialog = page.getByRole("alertdialog", { name: /Restore .*Temporary Restore Target/i });
+  await expect(restoreDialog.getByRole("button", { name: /Cancel restore/i })).toBeFocused();
+  await restoreDialog.getByRole("button", { name: /Restore selected point/i }).click();
   await expect(page.getByRole("status", { name: /Restore status/i })).toContainText(/Restored/i);
+  await expect(page.getByRole("button", { name: /Restore .*Ashfall Crossing/i }).first()).toBeVisible();
 
   await page.getByRole("button", { name: /^Runtime$/ }).click();
   await expect(page.getByRole("heading", { name: /Temporary Restore Target/i })).toBeVisible();

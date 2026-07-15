@@ -8,6 +8,7 @@ import {
   RuntimeImportReviewDialog,
   type RuntimeImportReviewView,
 } from "./RuntimeImportReviewDialog";
+import { DestructiveActionDialog } from "./DestructiveActionDialog";
 
 export type RuntimeSettingsView = {
   textStreaming: boolean;
@@ -57,6 +58,7 @@ export function SettingsSection(props: {
   restoreRuntimePoint: (id: string) => void;
 }) {
   const [runtimeImportDraft, setRuntimeImportDraft] = useState("");
+  const [pendingRestorePoint, setPendingRestorePoint] = useState<RestorePointView | null>(null);
 
   return (
     <div className="workspace-grid settings-grid">
@@ -285,7 +287,7 @@ export function SettingsSection(props: {
                   type="button"
                   className="secondary-button compact-button"
                   aria-label={`Restore ${point.label}`}
-                  onClick={() => props.restoreRuntimePoint(point.id)}
+                  onClick={() => setPendingRestorePoint(point)}
                 >
                   <RotateCcw size={15} />
                   Restore
@@ -297,6 +299,24 @@ export function SettingsSection(props: {
         <p className="status-line" role="status" aria-label="Restore status" aria-live="polite">
           {props.restoreStatus}
         </p>
+        {pendingRestorePoint ? (
+          <DestructiveActionDialog
+            eyebrow="Restore runtime"
+            title={`Restore ${pendingRestorePoint.label}?`}
+            cancelLabel="Cancel restore"
+            confirmLabel="Restore selected point"
+            cancel={() => setPendingRestorePoint(null)}
+            confirm={() => {
+              props.restoreRuntimePoint(pendingRestorePoint.id);
+              setPendingRestorePoint(null);
+            }}
+          >
+            <p>This replaces the current runtime with the selected local snapshot from {pendingRestorePoint.timeLabel}.</p>
+            <p className="panel-hint">
+              The current runtime is captured as a new local restore point immediately before replacement.
+            </p>
+          </DestructiveActionDialog>
+        ) : null}
       </section>
       <section className="panel" aria-label="About Local-First RPG">
         <div className="section-title">

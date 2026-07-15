@@ -134,10 +134,11 @@ that flow is effortless would dilute the product.
 - Track and reduce the 18 allowed Rust warnings and the two scoped
   `quick-xml` exceptions as upstream dependency paths move.
 - Continue decomposing the 2,945-line `App.tsx` controller, 4,752-line UI test
-  file, and 2,848-line top-level Rust repository authority into independently
+  file, and 1,732-line top-level Rust repository authority into independently
   tested feature/schema/CRUD modules without weakening behavior. Rust snapshot
   validation and schema evolution are now isolated in
-  `runtime_repository/validation.rs` and `runtime_repository/schema.rs`.
+  `runtime_repository/validation.rs` and `runtime_repository/schema.rs`; its
+  1,113-line regression corpus is isolated in `runtime_repository/tests.rs`.
 - Continue accessibility acceptance beyond the verified memory-dialog focus
   trap, current-page navigation, and linked keyboard-operable card tabs into the
   composer, runtime-replacement recovery, and remaining settings flows.

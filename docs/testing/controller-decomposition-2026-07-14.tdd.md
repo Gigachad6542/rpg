@@ -110,3 +110,10 @@ checks now live in the schema module. The top-level repository authority is now
 2,848 lines, with 666 lines of schema evolution isolated behind two internal
 entry points. Both architecture contracts, all 35 Rust tests (34 passed and one
 release-only ignore), formatting, and clippy passed.
+
+RED: the third Rust architecture contract failed because the 1,113-line
+repository regression corpus still lived inside the production authority.
+
+GREEN: those tests now live in `runtime_repository/tests.rs`; the production
+authority is 1,732 lines and the test fixture paths remain explicit. All three
+architecture contracts, all 35 Rust tests, formatting, and clippy passed.

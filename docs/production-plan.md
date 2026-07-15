@@ -21,10 +21,10 @@ constraint is resolved.
 ## Evidence Checked
 
 - Real repo root: `C:\Users\Dwthe\rpg project`.
-- Local release gate: `pnpm verify:release` passed in 294.8 seconds on 2026-07-14
-  with constrained-layout and forced-colors commit `4938de1` checked out.
-- Vitest coverage gate: 88 files and 669 tests passed.
-- Coverage: 91.85% statements/lines, 88.8% branches, and 93.49% functions.
+- Local release gate: `pnpm verify:release` passed in 283.0 seconds on 2026-07-14
+  with provider-management extraction commit `2d3aedf` checked out.
+- Vitest coverage gate: 89 files and 672 tests passed.
+- Coverage: 91.86% statements/lines, 88.83% branches, and 93.49% functions.
 - Enforced coverage floors: 90% statements/lines/functions and 85% branches.
 - Deterministic evals: Phase 1 passed; Phase 1.1 passed with 100 lore decisions,
   three long campaigns, and `liveCallsMade: 0`.
@@ -43,8 +43,8 @@ constraint is resolved.
   horizontal overflow across onboarding and all primary sections at 320 CSS
   pixels, verifies forced-colors Settings and Runtime, and covers keyboard
   access to the constrained scrollable transcript.
-- Frontend build: Vite production build passed; the main app chunk was 491.99
-  kB (138.88 kB gzip), plus separate React, icon, and Tauri chunks.
+- Frontend build: Vite production build passed; the main app chunk was 492.68
+  kB (138.92 kB gzip), plus separate React, icon, and Tauri chunks.
 - Dependency audit: `pnpm audit --prod` reported no known vulnerabilities.
 - Rust audit: `cargo audit` exited successfully with 18 allowed transitive
   warnings; two `quick-xml` advisories remain scoped exceptions in
@@ -62,13 +62,13 @@ constraint is resolved.
   sole canonical NSIS artifact, verified current-user registration and launch,
   preserved isolated SQLite data across a same-version reinstall and relaunch,
   then removed the registration and install directory on uninstall. The tested
-  NSIS SHA256 was `c7df7b6022f6cf42caa43662ba4adb159d01ed5424acfb249aee6cf6303c49f1`.
+  NSIS SHA256 was `43eb99e3ca056531f80e0ddd62dde3a3e8d190dbdac135129e9a27d11ad4b924`.
   This was a
   local development profile, not a clean VM or previous-version upgrade.
-- Packaged WebView product flow: passed in 14.9 seconds against the current MSI,
+- Packaged WebView product flow: passed in 14.7 seconds against the current MSI,
   including a real Tauri invocation of `discover_local_text_providers` and
   create/play/reopen/backup/restore/export continuity. The tested MSI SHA256 was
-  `2408f141a10e3c09a6ef1dadc94bbaa7c7df7a2adee5ad84e8b026d9c3c4dfa5`.
+  `1df68a639cfcc1c60add983c8f25a96369c34743370016192c715dc5e899ab34`.
   This different-commit, same-version run is runtime proof, not published
   semantic-version migration proof.
 - Desktop write policy: exactly one `main` window is declared and capability
@@ -176,8 +176,10 @@ that flow is effortless would dilute the product.
   blind pairwise scoring before recommending any second-call mode or model.
 - Track and reduce the 18 allowed Rust warnings and the two scoped
   `quick-xml` exceptions as upstream dependency paths move.
-- Continue decomposing the 2,836-line `App.tsx` controller and large feature
-  modules without weakening behavior. The former 4,752-line UI test file is
+- Continue decomposing the 2,675-line `App.tsx` controller and large feature
+  modules without weakening behavior. Provider/session-key state, secure-storage
+  status, health checks, and ComfyUI startup/manual discovery now live in a
+  focused 225-line hook with three direct tests. The former 4,752-line UI test file is
   now five independently runnable domain suites over a 234-line shared harness
   (81 behaviorally identical tests; largest domain suite 1,415 lines). The former
   3,789-line Rust repository authority is now a 367-line command/path/backup

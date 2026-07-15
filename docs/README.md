@@ -40,7 +40,8 @@ This folder keeps operational notes and verification evidence for `rpg`.
   GitHub attestation capability boundary.
 - [Controller decomposition evidence](testing/controller-decomposition-2026-07-14.tdd.md)
   records the behavior-preserving `App.tsx` extractions, Rust repository module
-  split, and 81-test UI integration suite decomposition.
+  split, 81-test UI integration suite decomposition, and provider/session-key/
+  ComfyUI orchestration hook with its portrait-timing regression proof.
 - [Release governance evidence](testing/release-governance-2026-07-14.tdd.md)
   records the controlled-beta security, support, contribution, changelog,
   conduct, issue, and pull-request surfaces plus their public-release limits.

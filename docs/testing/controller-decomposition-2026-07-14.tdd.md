@@ -173,3 +173,31 @@ archived, and derive the card from the selected continuity branch. All four
 lifecycle tests and all 19 chat/lore integration tests passed; typecheck and
 lint remained green. The controller is 2,835 lines after explicit typed wiring;
 the cohesive lifecycle authority is 138 lines.
+
+## Provider-management hook extraction
+
+RED: commit `d01579f` added three hook contracts and failed at module resolution
+because provider/session-key state, secure-storage status, provider health
+checks, and ComfyUI startup discovery still lived inside `App.tsx`.
+
+The first implementation passed those focused tests, typecheck, lint, and all
+21 provider integrations. The full 81-test App integration run then caught a
+real timing regression: changing ComfyUI generation-only settings such as steps
+or CFG restarted checkpoint discovery, temporarily marked the provider not
+ready, and suppressed automatic character portraits. The test was retained;
+the hook now restarts discovery only when mode, endpoint, model, or image API
+key changes, while a ref preserves the latest generation settings for the
+asynchronous result.
+
+GREEN: commit `2d3aedf` isolates the orchestration in the 225-line
+`useProviderManagement.ts`. All 81 App integrations plus the three direct hook
+contracts passed; TypeScript and ESLint were clean. `App.tsx` fell from 2,836
+to 2,675 lines without changing the provider UI or packaged runtime contract.
+
+The complete release gate passed from the beginning on
+`2d3aedff97ef613417231c92c5e31803d080e87e` in 283.0 seconds: 89 files / 672
+tests, 91.86% statements/lines, 88.83% branches, 93.49% functions, both
+deterministic evals, 14 Playwright journeys, clean production dependency audit,
+accepted Rust audit, 34 Rust tests, strict clippy, MSI/NSIS packaging, both
+desktop smokes, and the normal installer lifecycle. The packaged WebView
+product flow then passed in 14.7 seconds against the rebuilt MSI.

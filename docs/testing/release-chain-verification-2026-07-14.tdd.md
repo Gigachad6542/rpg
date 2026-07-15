@@ -76,8 +76,8 @@ pnpm exec vitest run tests/release/previousReleaseVerification.test.ts tests/rel
 
 ## Coverage and known gaps
 
-The complete `pnpm verify:release` lane passed in 294.8 seconds with 88 test
-files / 669 tests and 91.85% statements/lines, 88.8% branches, and 93.49%
+The complete `pnpm verify:release` lane passed in 283.0 seconds with 89 test
+files / 672 tests and 91.86% statements/lines, 88.83% branches, and 93.49%
 functions. All fourteen Playwright journeys, Rust checks, package builds, desktop
 smokes, and the normal NSIS lifecycle passed. The canonical production plan
 retains the complete current evidence.

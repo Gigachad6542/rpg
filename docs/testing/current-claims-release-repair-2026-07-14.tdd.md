@@ -73,17 +73,17 @@ Command:
 pnpm verify:release
 ```
 
-Latest result: PASS in 294.8 seconds with constrained-layout and forced-colors
-commit `4938de1` checked out.
+Latest result: PASS in 283.0 seconds with provider-management extraction commit
+`2d3aedf` checked out.
 
 ```text
 TypeScript: passed
 ESLint: passed
-Vitest: 88 files / 669 tests passed
-Coverage: 91.85% statements, 88.8% branches, 93.49% functions, 91.85% lines
+Vitest: 89 files / 672 tests passed
+Coverage: 91.86% statements, 88.83% branches, 93.49% functions, 91.86% lines
 Phase 1 deterministic eval: passed
 Phase 1.1 deterministic eval: passed; 100 lore decisions; 3 campaigns; 0 live calls
-Vite build: passed; main app chunk 491.99 kB / 138.88 kB gzip
+Vite build: passed; main app chunk 492.68 kB / 138.92 kB gzip
 Playwright: 14 passed, including three accessibility journeys covering
 zero-violation WCAG A/AA scans, 320 CSS-pixel reflow, and forced colors
 pnpm production audit: no known vulnerabilities
@@ -94,7 +94,7 @@ Windows MSI and NSIS: built
 Packaged executable smoke: passed
 Administrative-extraction SQLite smoke: passed
 Normal current-user NSIS install/reinstall/uninstall lifecycle: passed
-Tested NSIS SHA256: c7df7b6022f6cf42caa43662ba4adb159d01ed5424acfb249aee6cf6303c49f1
+Tested NSIS SHA256: 43eb99e3ca056531f80e0ddd62dde3a3e8d190dbdac135129e9a27d11ad4b924
 ```
 
 ## Packaged WebView proof
@@ -105,8 +105,8 @@ Command shape:
 pnpm desktop:product-flow -PreviousMsi <previous.msi> -CurrentMsi <current.msi> -EvidenceDir <ignored-dir>
 ```
 
-Result: PASS in 14.9 seconds against the freshly built 5,885,952-byte MSI
-(`2408f141a10e3c09a6ef1dadc94bbaa7c7df7a2adee5ad84e8b026d9c3c4dfa5`).
+Result: PASS in 14.7 seconds against the freshly built 5,885,952-byte MSI
+(`1df68a639cfcc1c60add983c8f25a96369c34743370016192c715dc5e899ab34`).
 This different-commit, same-version run exercised onboarding,
 provider setup, creation, play, close/reopen, SQLite continuity, backup restore,
 runtime export, and the new packaged discovery invocation. It is direct current

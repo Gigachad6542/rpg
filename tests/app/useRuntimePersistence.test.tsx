@@ -66,11 +66,13 @@ describe("useRuntimePersistence", () => {
       }),
     );
     repositoryCreateMock.mockResolvedValue(createStore({ saveSnapshot, backupDatabase }));
+    const currentSnapshot = createSnapshot();
+    const applyResolvedRuntimeState = vi.fn();
 
     const { result } = renderHook(() => useRuntimePersistence({
       initialSnapshot: null,
-      currentSnapshot: createSnapshot(),
-      applyResolvedRuntimeState: vi.fn(),
+      currentSnapshot,
+      applyResolvedRuntimeState,
       desktopRuntime: true,
     }));
 
@@ -93,11 +95,13 @@ describe("useRuntimePersistence", () => {
       }),
       saveSnapshot,
     }));
+    const currentSnapshot = createSnapshot();
+    const applyResolvedRuntimeState = vi.fn();
 
     const { result } = renderHook(() => useRuntimePersistence({
       initialSnapshot: null,
-      currentSnapshot: createSnapshot(),
-      applyResolvedRuntimeState: vi.fn(),
+      currentSnapshot,
+      applyResolvedRuntimeState,
       desktopRuntime: true,
     }));
 
@@ -108,7 +112,8 @@ describe("useRuntimePersistence", () => {
   });
 
   it("captures the current state before restoring an earlier local point", async () => {
-    repositoryCreateMock.mockResolvedValue(createStore());
+    const saveSnapshot = vi.fn(async () => undefined);
+    repositoryCreateMock.mockResolvedValue(createStore({ saveSnapshot }));
     const applyResolvedRuntimeState = vi.fn();
     const original = createSnapshot({ savedAt: "2026-07-15T00:00:00.000Z" });
     let current = original;
@@ -121,13 +126,16 @@ describe("useRuntimePersistence", () => {
     }));
 
     await waitFor(() => expect(result.current.hydration.phase).toBe("ready"));
+    await waitFor(() => expect(result.current.saveStatus).toBe("Saved to local SQLite repository."));
     act(() => result.current.captureRestorePoint(original));
     await waitFor(() => expect(result.current.restorePoints.length).toBeGreaterThan(0));
-    const originalPointId = result.current.restorePoints.at(-1)?.id;
+    const originalPointId = result.current.restorePoints[0]?.id;
     expect(originalPointId).toBeTruthy();
 
     current = createSnapshot({ activeCardId: initialCards[1].id, savedAt: "2026-07-15T00:01:00.000Z" });
     rerender();
+    await waitFor(() => expect(saveSnapshot).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.saveStatus).toBe("Saved to local SQLite repository."));
     const pointCountBeforeRestore = result.current.restorePoints.length;
     act(() => result.current.restoreRuntimeFromPoint(originalPointId!));
 

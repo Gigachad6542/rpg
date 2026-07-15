@@ -39,6 +39,19 @@ recorded here. Dates use `YYYY-MM-DD`; versions must match `package.json`,
 - pnpm 11.7.0 release tooling with frozen-lockfile supply-chain verification
   and an exact `esbuild@0.25.12` lifecycle-script allowlist.
 
+### Changed
+
+- Provider management, SQLite persistence, runtime data management, media
+  generation, and turn generation/streaming now have independently tested hook
+  boundaries; the main application controller is 1,502 lines, down from 3,369
+  at the start of the extraction sequence.
+
+### Fixed
+
+- A ref-backed turn lock now rejects a second same-tick generation request
+  before React state commits, preventing concurrent sends from capturing and
+  overwriting the same chat snapshot.
+
 ### Release status
 
 No public release has been published. Current builds and all `0.1.0` evidence

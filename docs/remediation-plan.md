@@ -12,8 +12,9 @@ second, everything else after.
 
 ## Current reconciliation (2026-07-14)
 
-- The local `pnpm verify:release` gate passes in 271.7 seconds: 92 Vitest files /
-  681 tests, 91.99% statements/lines, 88.88% branches, 93.56% functions, both deterministic
+- The local `pnpm verify:release` gate passes in 282.5 seconds on implementation
+  commit `a3f0a78`: 93 Vitest files / 684 tests, 92.05% statements/lines, 88.99%
+  branches, 93.56% functions, both deterministic
   evals, 14 Playwright journeys, JS/Rust audits, 34 Rust tests, clippy, desktop
   packaging,
   executable smoke, administrative-extraction SQLite smoke, and the normal
@@ -263,7 +264,7 @@ until accepted; no ComfyUI call fires from hidden-only content.
 
 ## Phase 2 — Decomposition and runtime hardening
 
-### 2.1 Break up App.tsx (~2,400 lines) and runtime_repository.rs (~2,600 lines)
+### 2.1 Break up App.tsx and runtime_repository.rs
 
 Do this **incrementally, riding along with Phases 0-1** — each extraction lands with
 the feature that needs it, not as a big-bang refactor:
@@ -275,6 +276,11 @@ the feature that needs it, not as a big-bang refactor:
 | Asset/image handling | App.tsx | `src/app/assetService.ts` (0.2) |
 | Provider orchestration | App.tsx | `src/app/providerController.ts` |
 | Rust: schema/migrations vs CRUD vs validation | runtime_repository.rs | `schema.rs`, `validation.rs` |
+
+Current state: `App.tsx` is 1,502 lines. Provider management, persistence,
+runtime data management, media generation, and turn generation/streaming now
+have independently tested hook boundaries. The 711-line turn hook also owns a
+synchronous re-entry lock, so two same-tick sends cannot start concurrent turns.
 
 **Done when:** App.tsx under ~800 lines, orchestration modules independently unit-tested.
 

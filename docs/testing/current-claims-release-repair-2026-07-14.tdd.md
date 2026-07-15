@@ -73,17 +73,17 @@ Command:
 pnpm verify:release
 ```
 
-Latest result: PASS in 271.7 seconds with media-generation extraction commit
-`6f02162` checked out.
+Latest result: PASS in 282.5 seconds with turn-generation extraction commit
+`a3f0a78` checked out.
 
 ```text
 TypeScript: passed
 ESLint: passed
-Vitest: 92 files / 681 tests passed
-Coverage: 91.99% statements, 88.88% branches, 93.56% functions, 91.99% lines
+Vitest: 93 files / 684 tests passed
+Coverage: 92.05% statements, 88.99% branches, 93.56% functions, 92.05% lines
 Phase 1 deterministic eval: passed
 Phase 1.1 deterministic eval: passed; 100 lore decisions; 3 campaigns; 0 live calls
-Vite build: passed; main app chunk 496.26 kB / 140.44 kB gzip
+Vite build: passed; 1,700 modules; main app chunk 496.95 kB / 140.75 kB gzip
 Playwright: 14 passed, including three accessibility journeys covering
 zero-violation WCAG A/AA scans, 320 CSS-pixel reflow, and forced colors
 pnpm production audit: no known vulnerabilities
@@ -94,7 +94,7 @@ Windows MSI and NSIS: built
 Packaged executable smoke: passed
 Administrative-extraction SQLite smoke: passed
 Normal current-user NSIS install/reinstall/uninstall lifecycle: passed
-Tested NSIS SHA256: af883ff2ec8442cf78ab1313a50ae1f36d6e5a659c407f3409a453bc5d2b0c46
+Tested NSIS SHA256: 476be068f9574af2335c0888d104aab45b393ed9bd55654247be1e165e1dfb53
 ```
 
 ## Packaged WebView proof
@@ -105,9 +105,9 @@ Command shape:
 pnpm desktop:product-flow -PreviousMsi <previous.msi> -CurrentMsi <current.msi> -EvidenceDir <ignored-dir>
 ```
 
-Result: PASS in 14.9 seconds against the freshly built 5,885,952-byte MSI
-(`8d9dd3183495022ca7e0377fd0cd065dcc2b4caadb7b226f54dd17d15b9d1328`).
-This different-commit, same-version run exercised onboarding,
+Result: PASS in 14.8 seconds against the freshly built 5,885,952-byte MSI
+(`9f9db91e42adabbb611704fb68bdc6a19cc924c0b16d29a73401d87de06f7bee`).
+This exact-implementation, same-version run exercised onboarding,
 provider setup, creation, play, close/reopen, SQLite continuity, backup restore,
 runtime export, and the new packaged discovery invocation. It is direct current
 package proof, not published semantic-version migration proof.
@@ -141,9 +141,10 @@ command no longer includes that token.
 3. Run migration/restore from a previous signed semantic-version package.
 4. Execute the paid live-provider evaluation with blind scoring and explicit
    cost limits.
-5. Continue decomposing the oversized application controller and large feature
-   modules while expanding settings accessibility acceptance coverage. The
-   former 4,752-line UI suite is already split into five domain suites.
+5. Continue decomposing the now 1,502-line application controller and large
+   feature modules while expanding native accessibility acceptance coverage.
+   Turn generation and streaming now live in a separately tested 711-line hook,
+   and the former 4,752-line UI suite is split into five domain suites.
 6. Resolve GitHub attestation eligibility (public repository or eligible
    Enterprise Cloud organization) or approve and review an equivalent
    attestation backend; do not bypass the preflight.

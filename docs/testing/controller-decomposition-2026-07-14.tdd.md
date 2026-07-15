@@ -219,7 +219,7 @@ four hydration-gate tests, four repository-branch tests, and seven data-flow
 tests. TypeScript and zero-warning ESLint remained green. `App.tsx` fell from
 2,675 to 2,454 lines without changing its persistence or recovery contract.
 
-The complete release gate passed from the beginning on
+At that media-extraction checkpoint, the complete release gate passed from the beginning on
 `68b40c1f373124d6ddccca222242e31be199c751` in 274.0 seconds: 90 files / 675
 tests, 91.93% statements/lines, 88.84% branches, 93.55% functions, both
 deterministic evals with zero live calls, 14 Playwright journeys, clean
@@ -269,6 +269,32 @@ tests, 91.99% statements/lines, 88.88% branches, 93.56% functions, both
 deterministic evals with zero live calls, 14 Playwright journeys, clean
 production dependency audit, accepted Rust audit, 34 Rust tests, strict clippy,
 MSI/NSIS packaging, both desktop smokes, and the normal installer lifecycle.
-The packaged WebView product flow then passed in 14.9 seconds against the
+The packaged WebView product flow at that checkpoint then passed in 14.9 seconds against the
 5,885,952-byte MSI with SHA256
 `8d9dd3183495022ca7e0377fd0cd065dcc2b4caadb7b226f54dd17d15b9d1328`.
+
+## Turn-generation controller extraction
+
+RED: commit `5edb50b` added three direct hook contracts and failed only at
+module resolution. They require a synchronous same-render lock to reject a
+second turn before React commits state, cancellation to preserve the original
+transcript and card state, and missing-card generation to fail closed before
+provider setup.
+
+GREEN: commit `a3f0a78` moves provider execution, hidden continuity, policy
+filtering, telemetry, lineage, regeneration, streaming, and abort ownership into
+the 711-line `useTurnGeneration.ts`. `App.tsx` fell from 2,089 to 1,502 lines.
+The hook uses a ref-backed in-flight lock in addition to UI state, closing the
+same-tick duplicate-send race that a state-only guard could not prevent. All 50
+application/UI files and 341 tests passed with clean TypeScript and zero-warning
+ESLint.
+
+The exact `pnpm verify:release` lane then passed on
+`a3f0a78015a90940d964e0f899e86f15fa634b95` in 282.5 seconds: 93 files / 684
+tests, 92.05% statements/lines, 88.99% branches, 93.56% functions, both
+deterministic evals with zero live calls, 14 Playwright journeys, clean
+production dependency audit, accepted Rust audit, 34 Rust tests, strict clippy,
+MSI/NSIS packaging, both desktop smokes, and the normal installer lifecycle.
+The packaged WebView product flow passed in 14.8 seconds against the exact
+5,885,952-byte MSI with SHA256
+`9f9db91e42adabbb611704fb68bdc6a19cc924c0b16d29a73401d87de06f7bee`.

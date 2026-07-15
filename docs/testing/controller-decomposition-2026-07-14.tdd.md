@@ -150,3 +150,16 @@ GREEN: `AppChrome.tsx` now owns current-page navigation, theme control, local
 save/repository status, active-card context, and runtime header actions. Its two
 focused interaction tests and all 81 App integration tests passed; typecheck
 and lint remained green. `App.tsx` is now 2,817 lines.
+
+## Chat deletion lifecycle extraction
+
+RED: the focused lifecycle suite could not resolve `chatLifecycle.ts`. Review
+of the controller path also showed that confirmed deletion retained only the
+card's non-archived chats, silently removing archived sibling history.
+
+GREEN: `deleteActiveChatState` now applies the confirmed deletion atomically
+across chats, active selection, card continuity, prompt runs, and generated
+media while retaining every archived sibling. Two focused lifecycle tests and
+all 19 chat/lore integration tests passed; typecheck and lint remained green.
+`App.tsx` is 2,822 lines, with the cross-surface mutation now isolated behind a
+typed result instead of distributed React setters.

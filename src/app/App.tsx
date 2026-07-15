@@ -248,6 +248,7 @@ import {
   type ResolvedRuntimeSnapshotState,
 } from "./runtimeSnapshotHydration";
 import { AppSidebar, AppTopbar } from "./AppChrome";
+import { deleteActiveChatState } from "./chatLifecycle";
 
 interface MemoryConsolidationReview {
   cardId: string;
@@ -1072,21 +1073,25 @@ export function App() {
       return;
     }
 
-    const remainingForCard = getCardChats(activeCard.id, chatSessions).filter((chat) => chat.id !== activeChat.id);
-    const fallback = remainingForCard[0] ?? initializeChatTurnState(
-      createChatSession(activeCard.id, `${activeCard.name} chat`),
+    const result = deleteActiveChatState({
       activeCard,
-    );
-    const fallbackCard = deriveCardForChat(activeCard, fallback);
+      activeChat,
+      cards,
+      chatSessions,
+      activeChatIds,
+      promptRuns,
+      generatedMaps,
+      createFallbackChat: () => initializeChatTurnState(
+        createChatSession(activeCard.id, `${activeCard.name} chat`),
+        activeCard,
+      ),
+    });
     setPendingDeleteChatId(null);
-    setChatSessions((current) => [
-      ...current.filter((chat) => chat.id !== activeChat.id && (chat.cardId !== activeCard.id || remainingForCard.some((candidate) => candidate.id === chat.id))),
-      ...(remainingForCard.length === 0 ? [fallback] : []),
-    ]);
-    setActiveChatIds((current) => ({ ...current, [activeCard.id]: fallback.id }));
-    setCards((current) => current.map((card) => (card.id === activeCard.id ? fallbackCard : card)));
-    setPromptRuns((current) => current.filter((run) => run.chatId !== activeChat.id));
-    setGeneratedMaps((current) => current.filter((artifact) => artifact.chatId !== activeChat.id));
+    setChatSessions(result.chatSessions);
+    setActiveChatIds(result.activeChatIds);
+    setCards(result.cards);
+    setPromptRuns(result.promptRuns);
+    setGeneratedMaps(result.generatedMaps);
     setMapArtifact(null);
     setPhotoArtifact(null);
     setMapPrompt(null);

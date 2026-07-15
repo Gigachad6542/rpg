@@ -75,6 +75,22 @@ describe("release workflow", () => {
     expect(releaseWorkflow).not.toMatch(/(?:^|\/)SHA256SUMS\.txt/m);
   });
 
+  it("provides an explicit signed bootstrap baseline without treating it as migration proof", () => {
+    const workflow = readWorkflow("release.yml");
+    const windowsRelease = readJob(workflow, "windows-desktop-release");
+
+    expect(workflow).toContain("release_mode:");
+    expect(workflow).toContain("bootstrap-baseline");
+    expect(workflow).toContain("CREATE SIGNED BASELINE");
+    expect(workflow).toContain("publish-bootstrap-baseline:");
+    expect(workflow).toContain("--prerelease");
+    expect(workflow).toContain("--target $env:GITHUB_SHA");
+    expect(workflow).toContain("bootstrap-baseline.json");
+    expect(windowsRelease).toContain("inputs.release_mode != 'bootstrap-baseline'");
+    expect(windowsRelease).toContain("inputs.release_mode == 'bootstrap-baseline'");
+    expect(workflow).toContain("A bootstrap baseline is not migration proof");
+  });
+
   it("keeps pnpm supply-chain policy in the workspace config supported by current pnpm", () => {
     const packageJson = JSON.parse(readFileSync(join(workspaceRoot, "package.json"), "utf8")) as {
       pnpm?: unknown;

@@ -54,6 +54,10 @@ describe("Phase 2 packaged desktop proof", () => {
 describe("Phase 2 hosted release controls", () => {
   it("requires exact-commit hosted CI, platform signing, retained evidence, and attestations", () => {
     const workflow = read(".github", "workflows", "release.yml");
+    const previousSignatureVerifier = read(
+      "scripts",
+      "verify-previous-windows-signature.ps1",
+    );
 
     expect(workflow).toContain("hosted-ci-gate:");
     expect(workflow).toMatch(/workflow_id:\s*["']?ci\.yml["']?/);
@@ -62,8 +66,13 @@ describe("Phase 2 hosted release controls", () => {
     expect(workflow).toContain("needs: hosted-ci-gate");
     expect(workflow).toContain("WINDOWS_CERTIFICATE_BASE64");
     expect(workflow).toContain("WINDOWS_CERTIFICATE_PASSWORD");
+    expect(workflow).toContain("WINDOWS_PUBLISHER_SUBJECT");
     expect(workflow).toContain("Import-PfxCertificate");
     expect(workflow).toContain("verify-windows-signatures.ps1");
+    expect(workflow).toContain("verify-previous-windows-signature.ps1");
+    expect(workflow).toContain("verify-previous-release-metadata.mjs");
+    expect(workflow).toContain("SHA256SUMS-windows.txt");
+    expect(workflow).toContain("release-provenance-windows.json");
     expect(workflow).toContain("desktop:product-flow");
     expect(workflow).toContain("previous-release");
     expect(workflow).toContain("APPLE_CERTIFICATE");
@@ -75,10 +84,14 @@ describe("Phase 2 hosted release controls", () => {
     expect(workflow).toContain("desktop:keychain-smoke:mac");
     expect(workflow).toContain("stapler validate");
     expect(workflow).toContain("actions/attest@v4");
+    expect(workflow).toContain("artifact-metadata: write");
     expect(workflow).toContain("sbom-path:");
     expect(workflow).toContain("publish-release:");
     expect(workflow).toContain("windows-desktop-release");
     expect(workflow).toContain("macos-desktop-release");
+    expect(previousSignatureVerifier).toContain("Get-AuthenticodeSignature");
+    expect(previousSignatureVerifier).toContain("ExpectedPublisherSubject");
+    expect(previousSignatureVerifier).toContain("TimeStamperCertificate");
   });
 
   it("runs an opt-in native macOS Keychain round trip and retains DMG evidence", () => {

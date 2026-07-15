@@ -20,6 +20,34 @@ async function expectNoAutomatedWcagViolations(page: Page, surface: string) {
   expect(summary, `${surface} contains automated WCAG A/AA violations`).toEqual([]);
 }
 
+async function expectNoHorizontalReflowFailures(page: Page, surface: string) {
+  const failures = await page.evaluate(() => {
+    const viewportWidth = document.documentElement.clientWidth;
+    const documentOverflow = Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - viewportWidth;
+    const interactiveOverflow = Array.from(
+      document.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])'),
+    )
+      .filter((element) => {
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return style.visibility !== "hidden" && style.display !== "none" && rect.width > 0 && rect.height > 0;
+      })
+      .map((element) => ({
+        name: element.getAttribute("aria-label") ?? element.textContent?.trim().slice(0, 80) ?? element.tagName,
+        left: element.getBoundingClientRect().left,
+        right: element.getBoundingClientRect().right,
+      }))
+      .filter(({ left, right }) => left < -1 || right > viewportWidth + 1);
+
+    return { documentOverflow, interactiveOverflow };
+  });
+
+  expect(failures, `${surface} must reflow without horizontal document or control overflow`).toEqual({
+    documentOverflow: 0,
+    interactiveOverflow: [],
+  });
+}
+
 async function auditMemoryDialog(page: Page, theme: string) {
   const inspectMemory = page.getByRole("button", { name: /Inspect memory/i });
   await inspectMemory.click();
@@ -119,4 +147,22 @@ test("light first-run onboarding passes automated WCAG A/AA checks", async ({ pa
   await page.reload();
   await expect(onboarding).toBeVisible();
   await expectNoAutomatedWcagViolations(page, "light onboarding");
+});
+
+test("primary surfaces reflow at 320 CSS pixels and remain valid in forced colors", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.goto("/");
+  const onboarding = page.getByRole("dialog", { name: /Welcome to Local-First RPG/i });
+  await expectNoHorizontalReflowFailures(page, "onboarding at 320 CSS pixels");
+  await onboarding.getByRole("button", { name: /Start mock demo/i }).click();
+
+  for (const section of ["Runtime", "Cards", "Lorebooks", "API Keys", "Settings"] as const) {
+    await page.getByRole("button", { name: new RegExp(`^${section}$`) }).click();
+    await expectNoHorizontalReflowFailures(page, `${section} at 320 CSS pixels`);
+  }
+
+  await page.emulateMedia({ forcedColors: "active" });
+  await expectNoAutomatedWcagViolations(page, "forced-colors Settings");
+  await page.getByRole("button", { name: /^Runtime$/ }).click();
+  await expectNoAutomatedWcagViolations(page, "forced-colors runtime");
 });

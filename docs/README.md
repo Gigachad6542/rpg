@@ -22,6 +22,10 @@ This folder keeps operational notes and verification evidence for `rpg`.
 
 ## Testing Evidence
 
+- [Browser critical-journey evidence](testing/browser-critical-journeys-2026-07-14.tdd.md)
+  records the four independent Playwright acceptance paths for offline
+  onboarding, template creation, reload persistence, reversible import review,
+  and keyboard-safe dialogs.
 - [Windows installer lifecycle TDD evidence](testing/windows-installer-lifecycle-2026-07-14.tdd.md)
   records stale-artifact prevention and the real current-user NSIS
   install/reinstall/uninstall proof, including cleanup checks and its remaining

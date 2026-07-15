@@ -29,8 +29,8 @@ Useful commands:
 | `pnpm typecheck` | Type-check TypeScript without emitting files. |
 | `pnpm test` | Run the Vitest suite. |
 | `pnpm test:coverage` | Run Vitest with V8 coverage. |
-| `pnpm e2e` | Run the Playwright browser smoke test. |
-| `pnpm e2e:install` | Install the Playwright Chromium browser used by the smoke test. |
+| `pnpm e2e` | Run the Playwright browser acceptance suite. |
+| `pnpm e2e:install` | Install the Playwright Chromium browser used by the acceptance suite. |
 | `pnpm build` | Build the frontend bundle. |
 | `pnpm verify` | Run the local CI gate: typecheck, lint, tests, Phase 1 runtime eval, build, dependency audit, Rust tests, and clippy. |
 | `pnpm verify:release` | Run the Windows release gate: local checks, coverage, browser smoke, audits, Rust checks, desktop packaging, executable and MSI-payload smokes, plus a fail-closed normal NSIS install/reinstall/uninstall lifecycle. |

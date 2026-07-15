@@ -2,7 +2,7 @@
 
 Audit date: 2026-07-14
 
-Current working-tree readiness: **74/100 (launchable with caveats for a
+Current working-tree readiness: **76/100 (launchable with caveats for a
 controlled beta; not proven for broad public release)**. The local release gate
 is green, the packaged local-provider discovery regression is repaired, and a
 normal current-user NSIS install/reinstall/uninstall lifecycle now passes. The
@@ -20,8 +20,9 @@ for upgrade proof, and live-provider narrative quality is not yet measured.
 - Enforced coverage floors: 90% statements/lines/functions and 85% branches.
 - Deterministic evals: Phase 1 passed; Phase 1.1 passed with 100 lore decisions,
   three long campaigns, and `liveCallsMade: 0`.
-- Browser smoke: 1 Playwright Chromium test passed after its stale onboarding
-  contract was aligned to the canonical product name.
+- Browser acceptance: 4 Playwright Chromium tests passed, covering the seeded
+  runtime smoke, one-click offline demo, template card creation and reload,
+  reversible export/import review, and memory-dialog focus trap/restoration.
 - Frontend build: Vite production build passed; the main app chunk was 486.13
   kB (137.16 kB gzip), plus separate React, icon, and Tauri chunks.
 - Dependency audit: `pnpm audit --prod` reported no known vulnerabilities.
@@ -53,7 +54,7 @@ for upgrade proof, and live-provider narrative quality is not yet measured.
 |---|---:|---|
 | Correctness and data safety | 18/20 | SQLite authority, migrations, recovery, deterministic lineage, backup/restore, and strong unit coverage are implemented. |
 | Security and privacy boundaries | 14/15 | Keychain references, scoped Tauri commands, fixed loopback discovery, import limits, redaction, and clean production audits are present; accepted Rust debt remains. |
-| Automated verification | 15/20 | The local release gate is broad, but browser coverage is one scenario and live-provider evaluation has not run. |
+| Automated verification | 17/20 | The local release gate is broad and four critical browser journeys now pass; desktop UI automation remains narrower than unit coverage and live-provider evaluation has not run. |
 | Packaging and release operations | 14/20 | Signed fail-closed workflows and a real local NSIS lifecycle exist; current hosted signed/notarized evidence, clean-VM proof, and a published previous-version migration are absent. |
 | Product and UX maturity | 8/15 | Onboarding, sample content, imports, library tools, continuity, and explicit state controls are credible; the main UI/controller remains oversized and accessibility E2E is thin. |
 | Operational and project governance | 5/10 | Release, rollback, and runtime contracts exist; public support verification, security reporting, changelog discipline, and licensing are not yet release-complete. |
@@ -125,7 +126,8 @@ that flow is effortless would dilute the product.
   feature controllers and smaller acceptance suites without weakening behavior.
 - Decide the multi-window write policy: single-window lock, revision checks, or explicit last-writer-wins behavior.
 - Align streaming UX with provider capability by disabling unavailable streaming paths for desktop stored-secret providers or adding a Tauri streaming command.
-- Improve accessibility acceptance coverage for tab linkage, dialog focus management, drawer behavior, and keyboard-only runtime flows.
+- Continue accessibility acceptance coverage beyond the verified memory-dialog
+  focus trap into tab linkage, drawers, and complete keyboard-only runtime flows.
 - Add release-complete governance: license decision, security-reporting policy,
   changelog/release-note discipline, and verified public help/support destinations.
 

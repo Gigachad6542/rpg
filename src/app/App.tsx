@@ -7,20 +7,6 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  BookOpen,
-  Eye,
-  KeyRound,
-  Layers3,
-  MessageSquare,
-  Moon,
-  PenLine,
-  Power,
-  RotateCcw,
-  Settings2,
-  ShieldCheck,
-  Sun,
-} from "lucide-react";
 import { syncGeneratedImageFiles } from "./imagePersistence";
 import { createSnapshotSaveQueue, type SnapshotSaveQueue } from "./snapshotSaveQueue";
 import {
@@ -222,9 +208,6 @@ import {
 } from "./appDefaults";
 import { PLAYABLE_SAMPLE_RPG } from "./starterContent";
 import { getReadinessChecklist } from "./readiness";
-import { APP_NAME } from "./productInfo";
-
-
 import {
   collectActiveLorebooks,
   createPersona,
@@ -264,6 +247,7 @@ import {
   resolveRuntimeSnapshotState,
   type ResolvedRuntimeSnapshotState,
 } from "./runtimeSnapshotHydration";
+import { AppSidebar, AppTopbar } from "./AppChrome";
 
 interface MemoryConsolidationReview {
   cardId: string;
@@ -2614,144 +2598,32 @@ export function App() {
         onRetry={retryHydration}
         onStartFresh={() => void archiveDatabaseAndStartFresh()}
       />
-      <aside className="sidebar" aria-label="Main navigation">
-        <div className="brand-lockup">
-          <span className="brand-mark" aria-hidden="true" />
-          <div>
-            <h1>{APP_NAME}</h1>
-            <p>Private character and RPG play</p>
-          </div>
-        </div>
-
-        <nav className="nav-list" aria-label="Main sections">
-          <button
-            className={`nav-item ${section === "runtime" ? "active" : ""}`}
-            type="button"
-            aria-current={section === "runtime" ? "page" : undefined}
-            onClick={() => setSection("runtime")}
-          >
-            <MessageSquare size={18} />
-            Runtime
-          </button>
-          <button
-            className={`nav-item ${section === "cards" ? "active" : ""}`}
-            type="button"
-            aria-current={section === "cards" ? "page" : undefined}
-            onClick={() => setSection("cards")}
-          >
-            <BookOpen size={18} />
-            Cards
-          </button>
-          <button
-            className={`nav-item ${section === "lorebooks" ? "active" : ""}`}
-            type="button"
-            aria-current={section === "lorebooks" ? "page" : undefined}
-            onClick={() => setSection("lorebooks")}
-          >
-            <Layers3 size={18} />
-            Lorebooks
-          </button>
-          <button
-            className={`nav-item ${section === "providers" ? "active" : ""}`}
-            type="button"
-            aria-current={section === "providers" ? "page" : undefined}
-            onClick={() => setSection("providers")}
-          >
-            <KeyRound size={18} />
-            API Keys
-          </button>
-          <button
-            className={`nav-item ${section === "settings" ? "active" : ""}`}
-            type="button"
-            aria-current={section === "settings" ? "page" : undefined}
-            onClick={() => setSection("settings")}
-          >
-            <Settings2 size={18} />
-            Settings
-          </button>
-        </nav>
-
-        <button
-          className="secondary-button full-width"
-          type="button"
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-        >
-          {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
-          {theme === "dark" ? "Light mode" : "Dark mode"}
-        </button>
-
-        <section className="storage-status" aria-label="Active card summary">
-          <div className="section-title">
-            <ShieldCheck size={16} />
-            <h2>Active Card</h2>
-          </div>
-          <dl className="compact-dl">
-            <div>
-              <dt>Name</dt>
-              <dd>{activeCard?.name ?? "Select a card"}</dd>
-            </div>
-            <div>
-              <dt>Type</dt>
-              <dd>{activeCard?.kind ?? "saved library"}</dd>
-            </div>
-            <div>
-              <dt>Local save</dt>
-              <dd role="status" aria-live="polite">
-                {saveStatus}
-              </dd>
-            </div>
-            <div>
-              <dt>Repository</dt>
-              <dd role="status" aria-live="polite">
-                {repositoryStatus}
-              </dd>
-            </div>
-          </dl>
-        </section>
-      </aside>
+      <AppSidebar
+        theme={theme}
+        section={section}
+        selectSection={setSection}
+        toggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
+        activeCard={activeCard}
+        saveStatus={saveStatus}
+        repositoryStatus={repositoryStatus}
+      />
 
       <section className="workspace" aria-label="Story workspace">
-        <header className="topbar">
-          <div className="title-stack">
-            <p className="eyebrow">
-              {activeCard ? (activeCard.kind === "rpg" ? "RPG card active" : "Character card active") : "No card active"}
-            </p>
-            <h2>{activeCard?.name ?? "Open a saved card"}</h2>
-            <p className="title-summary">
-              {activeCard?.summary ?? "The starter RPG is saved in the card library and will stay idle until opened."}
-            </p>
-          </div>
-          <div className="topbar-actions">
-            {section === "runtime" && activeCard ? (
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => {
-                  editCard(activeCard);
-                  setSection("cards");
-                }}
-              >
-                <PenLine size={17} />
-                Edit card
-              </button>
-            ) : null}
-            <button className="secondary-button" type="button" onClick={() => setMemoryOpen(true)} disabled={!activeCard}>
-              <Eye size={17} />
-              Inspect memory
-            </button>
-            {runtimeRunning && activeCard ? (
-              <button className="secondary-button danger-button" type="button" onClick={shutdownRuntime}>
-                <Power size={17} />
-                Shut down runtime
-              </button>
-            ) : activeCard ? (
-              <button className="secondary-button" type="button" onClick={startRuntime}>
-                <RotateCcw size={17} />
-                Start runtime
-              </button>
-            ) : null}
-          </div>
-        </header>
+        <AppTopbar
+          section={section}
+          activeCard={activeCard}
+          runtimeRunning={runtimeRunning}
+          editCard={() => {
+            if (!activeCard) {
+              return;
+            }
+            editCard(activeCard);
+            setSection("cards");
+          }}
+          openMemory={() => setMemoryOpen(true)}
+          shutdownRuntime={shutdownRuntime}
+          startRuntime={startRuntime}
+        />
 
         {section === "runtime" ? (
           activeCard ? (

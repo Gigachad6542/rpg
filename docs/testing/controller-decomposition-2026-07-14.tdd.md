@@ -140,3 +140,13 @@ All five suites passed together (5 files / 81 tests), and both `pnpm typecheck`
 and `pnpm lint` remained green. The original and split suites contain the same
 81 unique test names, providing a mechanical completeness check in addition to
 the behavioral run.
+
+## Application chrome extraction
+
+RED: `tests/ui/AppChrome.test.tsx` failed at module resolution because the
+sidebar and topbar still lived inside the stateful application controller.
+
+GREEN: `AppChrome.tsx` now owns current-page navigation, theme control, local
+save/repository status, active-card context, and runtime header actions. Its two
+focused interaction tests and all 81 App integration tests passed; typecheck
+and lint remained green. `App.tsx` is now 2,817 lines.

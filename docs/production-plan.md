@@ -133,7 +133,7 @@ that flow is effortless would dilute the product.
   blind pairwise scoring before recommending any second-call mode or model.
 - Track and reduce the 18 allowed Rust warnings and the two scoped
   `quick-xml` exceptions as upstream dependency paths move.
-- Continue decomposing the 2,945-line `App.tsx` controller and large feature
+- Continue decomposing the 2,817-line `App.tsx` controller and large feature
   modules without weakening behavior. The former 4,752-line UI test file is
   now five independently runnable domain suites over a 234-line shared harness
   (81 behaviorally identical tests; largest domain suite 1,415 lines). The former

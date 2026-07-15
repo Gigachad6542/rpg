@@ -32,10 +32,10 @@ This folder keeps operational notes and verification evidence for `rpg`.
   records the enforced desktop single-writer window and honest stored-secret
   streaming fallback.
 - [Browser critical-journey evidence](testing/browser-critical-journeys-2026-07-14.tdd.md)
-  records the seven independent Playwright acceptance paths for offline
+  records the eight independent Playwright acceptance paths for offline
   onboarding, template creation, reload persistence, reversible import review,
   keyboard-safe dialogs, linked keyboard-operable navigation/tabs, and
-  cancellable card and chat deletion.
+  cancellable card/chat deletion, and provider-failure recovery.
 - [Windows installer lifecycle TDD evidence](testing/windows-installer-lifecycle-2026-07-14.tdd.md)
   records stale-artifact prevention and the real current-user NSIS
   install/reinstall/uninstall proof, including cleanup checks and its remaining

@@ -191,3 +191,20 @@ test("chat deletion can be cancelled before the active branch is removed", async
   await page.getByRole("button", { name: /Confirm delete chat/i }).click();
   await expect(activeChat.locator("option:checked")).not.toHaveText(chatTitle!);
 });
+
+test("provider failure is visible and recoverable without reloading the runtime", async ({ page }) => {
+  const onboarding = await openFreshRuntime(page);
+  await onboarding.getByRole("button", { name: /Start mock demo/i }).click();
+  await page.getByRole("button", { name: /API Keys/i }).click();
+
+  const providerPanel = page.getByRole("region", { name: /LLM API keys/i });
+  await providerPanel.getByRole("combobox", { name: "Runtime mode", exact: true }).selectOption("openai-compatible");
+  await providerPanel.getByRole("combobox", { name: "Provider", exact: true }).selectOption("local");
+  await providerPanel.getByLabel(/Base URL/i).fill("http://127.0.0.1:9/v1");
+  await providerPanel.getByRole("button", { name: /Test text provider/i }).click();
+  await expect(providerPanel).toContainText(/fetch|connect|refused|failed|provider request/i);
+
+  await providerPanel.getByRole("combobox", { name: "Runtime mode", exact: true }).selectOption("mock");
+  await providerPanel.getByRole("button", { name: /Test text provider/i }).click();
+  await expect(providerPanel).toContainText(/Provider responded through mock/i);
+});

@@ -6,8 +6,8 @@ smoke.
 
 ## Result
 
-The Chromium acceptance lane now has seven independent journeys. All seven
-passed in 6.2 seconds with seven local workers.
+The Chromium acceptance lane now has eight independent journeys. All eight
+passed in 6.5 seconds with eight local workers.
 
 ## Characterization contracts
 
@@ -31,6 +31,9 @@ claim new product functionality. The added tests proved:
    the user confirms again.
 7. Active-chat deletion has the same focused cancel path and retains the active
    branch until the user completes a second explicit confirmation.
+8. A failed loopback text-provider health check surfaces an actionable error,
+   and the user can switch back to mock mode and receive a successful health
+   response without reloading or losing runtime state.
 
 The original seeded blank-card smoke remains and continues to verify mock-turn
 persistence plus compiled-prompt privacy.
@@ -41,7 +44,7 @@ persistence plus compiled-prompt privacy.
 pnpm e2e
 ```
 
-Result: 7 passed in 6.2 seconds.
+Result: 8 passed in 6.5 seconds.
 
 ```text
 pnpm typecheck
@@ -54,8 +57,8 @@ Result: both passed.
 
 - Extend destructive-action confirmation/recovery coverage to runtime
   replacement.
-- Extend the keyboard-only path through the composer, settings controls, and
-  provider-failure recovery.
+- Extend the keyboard-only path through the composer and remaining settings
+  controls.
 - Retain packaged desktop WebView product-flow coverage separately; browser E2E
   does not substitute for Tauri ACL, keychain, SQLite, or installer proof.
 
@@ -74,3 +77,8 @@ full six-test browser lane passed.
 The equivalent chat-deletion journey then drove the same explicit, focused
 cancel affordance for active branches. Its focused test, all 81 App integration
 tests, typecheck, lint, and the full seven-test browser lane passed.
+
+The provider recovery characterization then proved that an unreachable local
+endpoint produces visible failure state and that switching back to the offline
+mock provider recovers in place. The focused test and full eight-test browser
+lane passed without secrets or paid calls.

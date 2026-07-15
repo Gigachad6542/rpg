@@ -208,3 +208,38 @@ test("provider failure is visible and recoverable without reloading the runtime"
   await providerPanel.getByRole("button", { name: /Test text provider/i }).click();
   await expect(providerPanel).toContainText(/Provider responded through mock/i);
 });
+
+test("the composer preserves multiline drafts and sends with Enter", async ({ page }) => {
+  const onboarding = await openFreshRuntime(page);
+  await onboarding.getByRole("button", { name: /Start mock demo/i }).click();
+
+  const composer = page.getByLabel(/Message input/i);
+  await composer.fill("First line");
+  await composer.press("Shift+Enter");
+  await composer.type("Second line");
+  await expect(composer).toHaveValue("First line\nSecond line");
+  await expect(page.getByRole("log", { name: /Chat transcript/i })).not.toContainText("First line");
+
+  await composer.press("Enter");
+  await expect(composer).toHaveValue("");
+  await expect(page.getByRole("log", { name: /Chat transcript/i })).toContainText("First line");
+  await expect(page.getByRole("log", { name: /Chat transcript/i })).toContainText("Second line");
+});
+
+test("invalid runtime imports fail closed without replacing the active story", async ({ page }) => {
+  const onboarding = await openFreshRuntime(page);
+  await onboarding.getByRole("button", { name: /Start mock demo/i }).click();
+  await expect(page.getByRole("heading", { name: /Ashfall Crossing/i })).toBeVisible();
+
+  await page.getByRole("button", { name: /^Settings$/ }).click();
+  await page.getByLabel(/Runtime export JSON/i).fill('{"version":999,"snapshot":{}}');
+  await page.getByRole("button", { name: /Review runtime import/i }).click();
+
+  await expect(page.getByRole("region", { name: /Runtime import review/i })).toBeHidden();
+  await expect(page.getByRole("status", { name: /Data management status/i })).toContainText(
+    /unsupported|invalid|version/i,
+  );
+
+  await page.getByRole("button", { name: /^Runtime$/ }).click();
+  await expect(page.getByRole("heading", { name: /Ashfall Crossing/i })).toBeVisible();
+});

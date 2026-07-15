@@ -20,12 +20,13 @@ for upgrade proof, and live-provider narrative quality is not yet measured.
 - Enforced coverage floors: 90% statements/lines/functions and 85% branches.
 - Deterministic evals: Phase 1 passed; Phase 1.1 passed with 100 lore decisions,
   three long campaigns, and `liveCallsMade: 0`.
-- Browser acceptance: 8 Playwright Chromium tests passed, covering the seeded
+- Browser acceptance: 10 Playwright Chromium tests passed, covering the seeded
   runtime smoke, one-click offline demo, template card creation and reload,
   reversible export/import review, and memory-dialog focus trap/restoration.
   Additional journeys verify current-page navigation plus linked, roving,
   arrow/Home/End-key card-editor tabs, reversible card/chat deletion, and
-  visible local-provider failure followed by in-place mock-provider recovery.
+  visible local-provider failure followed by in-place mock-provider recovery,
+  multiline keyboard composition, and fail-closed invalid runtime imports.
 - Frontend build: Vite production build passed; the main app chunk was 486.13
   kB (137.16 kB gzip), plus separate React, icon, and Tauri chunks.
 - Dependency audit: `pnpm audit --prod` reported no known vulnerabilities.

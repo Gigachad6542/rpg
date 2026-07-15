@@ -32,7 +32,7 @@ This folder keeps operational notes and verification evidence for `rpg`.
   records the enforced desktop single-writer window and honest stored-secret
   streaming fallback.
 - [Browser critical-journey evidence](testing/browser-critical-journeys-2026-07-14.tdd.md)
-  records the eight independent Playwright acceptance paths for offline
+  records the ten independent Playwright acceptance paths for offline
   onboarding, template creation, reload persistence, reversible import review,
   keyboard-safe dialogs, linked keyboard-operable navigation/tabs, and
   cancellable card/chat deletion, and provider-failure recovery.

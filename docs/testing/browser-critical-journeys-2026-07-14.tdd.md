@@ -6,8 +6,8 @@ smoke.
 
 ## Result
 
-The Chromium acceptance lane now has eight independent journeys. All eight
-passed in 6.5 seconds with eight local workers.
+The Chromium acceptance lane now has ten independent journeys. All ten passed
+in 6.7 seconds with ten local workers.
 
 ## Characterization contracts
 
@@ -34,6 +34,10 @@ claim new product functionality. The added tests proved:
 8. A failed loopback text-provider health check surfaces an actionable error,
    and the user can switch back to mock mode and receive a successful health
    response without reloading or losing runtime state.
+9. The composer retains Shift+Enter line breaks without sending, then submits
+   the complete multiline action with Enter and clears the draft.
+10. An unsupported runtime-import version fails closed, never opens the
+    replacement review, and leaves the active story available.
 
 The original seeded blank-card smoke remains and continues to verify mock-turn
 persistence plus compiled-prompt privacy.
@@ -44,7 +48,7 @@ persistence plus compiled-prompt privacy.
 pnpm e2e
 ```
 
-Result: 8 passed in 6.5 seconds.
+Result: 10 passed in 6.7 seconds.
 
 ```text
 pnpm typecheck
@@ -55,10 +59,7 @@ Result: both passed.
 
 ## Remaining browser and desktop depth
 
-- Extend destructive-action confirmation/recovery coverage to runtime
-  replacement.
-- Extend the keyboard-only path through the composer and remaining settings
-  controls.
+- Extend the keyboard-only path through the remaining settings controls.
 - Retain packaged desktop WebView product-flow coverage separately; browser E2E
   does not substitute for Tauri ACL, keychain, SQLite, or installer proof.
 
@@ -82,3 +83,7 @@ The provider recovery characterization then proved that an unreachable local
 endpoint produces visible failure state and that switching back to the offline
 mock provider recovers in place. The focused test and full eight-test browser
 lane passed without secrets or paid calls.
+
+The composer and invalid-import characterizations then closed two more
+acceptance gaps: multiline keyboard semantics and fail-closed runtime
+replacement parsing. The full ten-test browser lane passed in 6.7 seconds.

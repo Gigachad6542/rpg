@@ -88,3 +88,15 @@ browser startup, repository hydration, and restore points, including chat-derive
 card state, prompt-debug retention, provider/persona parsing, and active media.
 Two focused hydration tests and all 81 App integration tests passed; typecheck
 and lint are green. `App.tsx` is now 2,945 lines.
+
+## Rust repository validation extraction
+
+RED: `tests/runtime/rustRepositoryArchitecture.test.ts` failed because
+`runtime_repository/validation.rs` did not exist.
+
+GREEN: snapshot caps, recursive value/ID validation, provider-reference
+sanitization, ComfyUI workflow secret detection, and image-provider
+sanitization now live in the dedicated Rust validation module. The top-level
+repository authority fell from 3,789 to 3,497 lines. The architecture contract,
+all 35 Rust tests (34 passed and the signed-release-only Keychain smoke ignored),
+`cargo fmt`, and clippy with `-D warnings` passed.

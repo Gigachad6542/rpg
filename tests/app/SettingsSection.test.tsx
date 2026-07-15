@@ -94,7 +94,7 @@ describe("SettingsSection", () => {
         applyRuntimeImport={vi.fn()}
         cancelRuntimeImport={vi.fn()}
         downloadDiagnostics={downloadDiagnostics}
-        restorePoints={[]}
+        restorePoints={[{ id: "restore_before_import", label: "Before runtime import", timeLabel: "Now" }]}
         restoreStatus="Restore points capture automatically as you play this session."
         restoreRuntimePoint={vi.fn()}
       />,
@@ -127,6 +127,7 @@ describe("SettingsSection", () => {
     expect(importRuntimeData).toHaveBeenCalledWith('{"schema":"rpg.runtime.export"}');
     expect(within(dataPanel).getByLabelText(/Runtime export JSON/i)).toHaveValue('{"schema":"rpg.runtime.export"}');
     expect(within(dataPanel).getByRole("status", { name: /Data management status/i })).toHaveTextContent("Idle.");
+    expect(screen.getByRole("button", { name: /Restore Before runtime import/i })).toBeEnabled();
   });
 
   it("requires explicit confirmation before applying a reviewed runtime import", () => {

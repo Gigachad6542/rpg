@@ -105,7 +105,6 @@ function renderContent(options: {
       setGeneratedMaps,
       newCard,
       setNewCard,
-      draft,
       setDraft,
       runtimeSettings,
       setRuntimeSettings,

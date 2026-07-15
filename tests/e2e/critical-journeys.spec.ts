@@ -144,3 +144,28 @@ test("main navigation and card editor tabs expose a complete keyboard contract",
   await expect(instructionsTab).toBeFocused();
   await expect(instructionsTab).toHaveAttribute("aria-selected", "true");
 });
+
+test("card deletion requires confirmation and offers an explicit recovery path", async ({ page }) => {
+  const onboarding = await openFreshRuntime(page);
+  await onboarding.getByRole("button", { name: /Explore on my own/i }).click();
+  await page.getByRole("button", { name: /^Cards$/ }).click();
+
+  await page.getByRole("button", { name: /Choice-driven mystery/i }).click();
+  await page.getByLabel(/^Name$/).fill("Disposable Mystery");
+  await page.getByRole("button", { name: /^Create card$/ }).click();
+  await page.getByRole("button", { name: /^Cards$/ }).click();
+
+  const card = page.locator("article.card-row", { hasText: "Disposable Mystery" });
+  await card.getByRole("button", { name: /^Delete$/ }).click();
+  await expect(card.getByRole("button", { name: /Confirm delete Disposable Mystery/i })).toBeVisible();
+  await expect(card.getByRole("button", { name: /Cancel delete/i })).toBeFocused();
+
+  await page.keyboard.press("Enter");
+  await expect(card.getByRole("button", { name: /^Delete$/ })).toBeVisible();
+  await expect(card.getByRole("button", { name: /Cancel delete/i })).toBeHidden();
+  await expect(card).toBeVisible();
+
+  await card.getByRole("button", { name: /^Delete$/ }).click();
+  await card.getByRole("button", { name: /Confirm delete Disposable Mystery/i }).click();
+  await expect(card).toBeHidden();
+});

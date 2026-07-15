@@ -49,6 +49,7 @@ describe("SettingsSection", () => {
     );
 
     const runtimePanel = screen.getByRole("region", { name: /Runtime settings/i });
+    expect(within(runtimePanel).getByText(/Desktop keys stored in the OS keychain use request\/response/i)).toBeInTheDocument();
     expect(within(runtimePanel).getByText(/full.*2 calls/i)).toBeInTheDocument();
     fireEvent.change(within(runtimePanel).getByLabelText(/Hidden continuity mode/i), {
       target: { value: "off" },

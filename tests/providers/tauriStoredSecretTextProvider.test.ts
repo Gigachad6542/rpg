@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { TauriStoredSecretTextProvider } from "../../src/providers/tauriStoredSecretTextProvider";
+import type { TextModelAdapter } from "../../src/providers/TextModelAdapter";
 import { estimateTextTokens } from "../../src/runtime/tokenBudget";
 
 describe("Tauri stored-secret text provider", () => {
@@ -29,6 +30,8 @@ describe("Tauri stored-secret text provider", () => {
       },
       invokeImpl: invokeImpl as unknown as <T>(command: string, args?: Record<string, unknown>) => Promise<T>,
     });
+
+    expect((provider as TextModelAdapter).streamText).toBeUndefined();
 
     await expect(
       provider.generateText({

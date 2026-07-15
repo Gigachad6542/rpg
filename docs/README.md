@@ -22,6 +22,9 @@ This folder keeps operational notes and verification evidence for `rpg`.
 
 ## Testing Evidence
 
+- [Runtime policy contract evidence](testing/runtime-policy-contracts-2026-07-14.tdd.md)
+  records the enforced desktop single-writer window and honest stored-secret
+  streaming fallback.
 - [Browser critical-journey evidence](testing/browser-critical-journeys-2026-07-14.tdd.md)
   records the four independent Playwright acceptance paths for offline
   onboarding, template creation, reload persistence, reversible import review,

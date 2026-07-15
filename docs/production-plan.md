@@ -2,7 +2,7 @@
 
 Audit date: 2026-07-14
 
-Current working-tree readiness: **76/100 (launchable with caveats for a
+Current working-tree readiness: **77/100 (launchable with caveats for a
 controlled beta; not proven for broad public release)**. The local release gate
 is green, the packaged local-provider discovery regression is repaired, and a
 normal current-user NSIS install/reinstall/uninstall lifecycle now passes. The
@@ -47,12 +47,17 @@ for upgrade proof, and live-provider narrative quality is not yet measured.
   including a real Tauri invocation of `discover_local_text_providers` and
   create/play/reopen/backup/restore/export continuity. This same-package run is
   runtime proof, not previous-version migration proof.
+- Desktop write policy: exactly one `main` window is declared and capability
+  scoped; contract tests reject additional renderer/Rust window creation.
+- Streaming policy: stored OS-keychain providers are explicitly non-streaming,
+  the pipeline falls back to request/response, and Settings tells users that
+  those replies appear once complete.
 
 ### Readiness scoring rubric
 
 | Area | Score | Evidence-based reason |
 |---|---:|---|
-| Correctness and data safety | 18/20 | SQLite authority, migrations, recovery, deterministic lineage, backup/restore, and strong unit coverage are implemented. |
+| Correctness and data safety | 19/20 | SQLite authority, migrations, recovery, deterministic lineage, backup/restore, a tested single-window writer policy, and strong unit coverage are implemented. |
 | Security and privacy boundaries | 14/15 | Keychain references, scoped Tauri commands, fixed loopback discovery, import limits, redaction, and clean production audits are present; accepted Rust debt remains. |
 | Automated verification | 17/20 | The local release gate is broad and four critical browser journeys now pass; desktop UI automation remains narrower than unit coverage and live-provider evaluation has not run. |
 | Packaging and release operations | 14/20 | Signed fail-closed workflows and a real local NSIS lifecycle exist; current hosted signed/notarized evidence, clean-VM proof, and a published previous-version migration are absent. |
@@ -124,8 +129,6 @@ that flow is effortless would dilute the product.
   `quick-xml` exceptions as upstream dependency paths move.
 - Decompose the 3,369-line `App.tsx` controller and 4,752-line UI test file into
   feature controllers and smaller acceptance suites without weakening behavior.
-- Decide the multi-window write policy: single-window lock, revision checks, or explicit last-writer-wins behavior.
-- Align streaming UX with provider capability by disabling unavailable streaming paths for desktop stored-secret providers or adding a Tauri streaming command.
 - Continue accessibility acceptance coverage beyond the verified memory-dialog
   focus trap into tab linkage, drawers, and complete keyboard-only runtime flows.
 - Add release-complete governance: license decision, security-reporting policy,

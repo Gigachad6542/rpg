@@ -62,6 +62,20 @@ SQLite normalized tables are the durable desktop source for cards, chats, messag
 
 Schema migrations are forward-only. Already-applied migration definitions should not be edited; add a new migration or code-level forward fix. Any migration that drops, rewrites, or denormalizes data needs backup/restore notes in the release notes.
 
+## Desktop Single-Writer Policy
+
+Desktop persistence is single-window by contract:
+
+- `tauri.conf.json` declares exactly one application window labeled `main`.
+- The default capability grants repository and secret commands only to `main`.
+- Renderer and Rust source must not create additional WebView windows.
+- The renderer snapshot save queue serializes/coalesces writes from that one
+  window before they cross the Tauri command boundary.
+
+Adding another writable window requires a new concurrency design (for example,
+snapshot revisions with compare-and-swap) and migration/recovery tests. Merely
+granting the existing persistence capability to another label is prohibited.
+
 ## Provider Boundary
 
 Provider calls must preserve the BYOK boundary:
@@ -72,6 +86,11 @@ Provider calls must preserve the BYOK boundary:
 - Hosted provider endpoints remain allowlisted.
 - Prompt/model/output sizes stay capped at the system boundary.
 - Provider status and diagnostics text are redacted before export or support sharing.
+- Session-key and local OpenAI-compatible adapters can stream. Desktop hosted
+  keys held in the OS keychain intentionally use a non-streaming Rust command;
+  the UI states that replies appear when the request completes, and the turn
+  pipeline falls back to `generateText` even when the global streaming
+  preference is enabled.
 
 ## Phase 1 Turn Runtime
 

@@ -7,6 +7,26 @@ import { describe, expect, it } from "vitest";
 const workspaceRoot = process.cwd();
 
 describe("Tauri secure-storage capabilities", () => {
+  it("enforces a single main-window writer for desktop persistence", () => {
+    const tauriConfig = JSON.parse(
+      readFileSync(join(workspaceRoot, "src-tauri", "tauri.conf.json"), "utf8"),
+    ) as { app?: { windows?: Array<{ label?: string }> } };
+    const capabilities = JSON.parse(
+      readFileSync(join(workspaceRoot, "src-tauri", "capabilities", "default.json"), "utf8"),
+    ) as { windows?: string[] };
+    const rendererSource = listSourceFiles(join(workspaceRoot, "src"))
+      .map((file) => readFileSync(file, "utf8"))
+      .join("\n");
+    const rustSource = listSourceFilesByExtension(join(workspaceRoot, "src-tauri", "src"), /\.rs$/)
+      .map((file) => readFileSync(file, "utf8"))
+      .join("\n");
+
+    expect(tauriConfig.app?.windows?.map((window) => window.label)).toEqual(["main"]);
+    expect(capabilities.windows).toEqual(["main"]);
+    expect(rendererSource).not.toMatch(/WebviewWindow|createWebviewWindow|WindowBuilder/);
+    expect(rustSource).not.toMatch(/WebviewWindowBuilder|WindowBuilder/);
+  });
+
   it("registers and grants only the scoped provider-secret commands", () => {
     const buildScript = readFileSync(join(workspaceRoot, "src-tauri", "build.rs"), "utf8");
     const capabilities = JSON.parse(
@@ -94,5 +114,16 @@ function listSourceFiles(root: string): string[] {
       return listSourceFiles(path);
     }
     return /\.(ts|tsx)$/.test(entry) ? [path] : [];
+  });
+}
+
+function listSourceFilesByExtension(root: string, extension: RegExp): string[] {
+  return readdirSync(root).flatMap((entry) => {
+    const path = join(root, entry);
+    const stat = statSync(path);
+    if (stat.isDirectory()) {
+      return listSourceFilesByExtension(path, extension);
+    }
+    return extension.test(entry) ? [path] : [];
   });
 }

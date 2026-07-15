@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { deleteActiveChatState } from "../../src/app/chatLifecycle";
+import {
+  archiveActiveChatState,
+  deleteActiveChatState,
+  restoreArchivedChatState,
+} from "../../src/app/chatLifecycle";
 import { createChatSession } from "../../src/app/chatSessions";
 import { initializeChatTurnState } from "../../src/app/chatTurnState";
 import { initialCards } from "../../src/app/appDefaults";
@@ -72,6 +76,64 @@ describe("chat lifecycle mutations", () => {
     expect(createFallbackChat).not.toHaveBeenCalled();
     expect(result.chatSessions.map((chat) => chat.id)).toEqual([existing.id]);
     expect(result.activeChatIds[card.id]).toBe(existing.id);
+  });
+
+  it("archives the last active chat without dropping older archives", () => {
+    const card = initialCards[0];
+    const active = initializeChatTurnState(
+      createChatSession(card.id, "Active", { id: "chat_active" }),
+      card,
+    );
+    const olderArchive = {
+      ...initializeChatTurnState(
+        createChatSession(card.id, "Older archive", { id: "chat_older_archive" }),
+        card,
+      ),
+      archived: true,
+    };
+    const fallback = initializeChatTurnState(
+      createChatSession(card.id, "Fallback", { id: "chat_fallback" }),
+      card,
+    );
+
+    const result = archiveActiveChatState({
+      activeCard: card,
+      activeChat: active,
+      cards: [card],
+      chatSessions: [active, olderArchive],
+      activeChatIds: { [card.id]: active.id },
+      createFallbackChat: () => fallback,
+    });
+
+    expect(result.chatSessions.map((chat) => [chat.id, chat.archived])).toEqual([
+      [active.id, true],
+      [olderArchive.id, true],
+      [fallback.id, false],
+    ]);
+    expect(result.activeChatIds[card.id]).toBe(fallback.id);
+  });
+
+  it("restores an archived chat as the active continuity branch", () => {
+    const card = initialCards[0];
+    const archived = {
+      ...initializeChatTurnState(
+        createChatSession(card.id, "Archived", { id: "chat_archived" }),
+        card,
+      ),
+      archived: true,
+    };
+
+    const result = restoreArchivedChatState({
+      activeCard: card,
+      archivedChat: archived,
+      cards: [card],
+      chatSessions: [archived],
+      activeChatIds: {},
+    });
+
+    expect(result.chatSessions).toHaveLength(1);
+    expect(result.chatSessions[0]).toMatchObject({ id: archived.id, archived: false });
+    expect(result.activeChatIds[card.id]).toBe(archived.id);
   });
 });
 

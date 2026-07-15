@@ -100,3 +100,13 @@ sanitization now live in the dedicated Rust validation module. The top-level
 repository authority fell from 3,789 to 3,497 lines. The architecture contract,
 all 35 Rust tests (34 passed and the signed-release-only Keychain smoke ignored),
 `cargo fmt`, and clippy with `-D warnings` passed.
+
+RED: the second Rust architecture contract failed because
+`runtime_repository/schema.rs` did not exist.
+
+GREEN: the ordered migration ledger, schema SQL, historical-constraint
+preflights, table rebuilds, backup-before-migration behavior, and integrity
+checks now live in the schema module. The top-level repository authority is now
+2,848 lines, with 666 lines of schema evolution isolated behind two internal
+entry points. Both architecture contracts, all 35 Rust tests (34 passed and one
+release-only ignore), formatting, and clippy passed.

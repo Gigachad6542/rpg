@@ -26,6 +26,10 @@ describe("release workflow", () => {
   it("publishes tagged Windows desktop artifacts with checksums", () => {
     const workflow = readWorkflow("release.yml");
     const packageJson = readFileSync(join(workspaceRoot, "package.json"), "utf8");
+    const windowsSmoke = readFileSync(
+      join(workspaceRoot, "scripts", "desktop-installed-smoke.ps1"),
+      "utf8",
+    );
 
     expect(workflow).toContain("tags:");
     expect(workflow).toContain("v*");
@@ -35,6 +39,8 @@ describe("release workflow", () => {
     expect(workflow).toContain("release:provenance");
     expect(workflow).toContain("actions/upload-artifact");
     expect(workflow).toContain("gh release create");
+    expect(windowsSmoke).toContain("MSI-payload smoke passed");
+    expect(windowsSmoke).not.toContain("Installed desktop smoke passed");
     expect(workflow).toContain("$releaseFiles = @($artifacts | ForEach-Object { $_.FullName }) + @($metadata | ForEach-Object { $_.FullName })");
     expect(workflow).not.toContain("$artifacts.FullName + $checksum");
   });

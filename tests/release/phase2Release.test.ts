@@ -20,6 +20,7 @@ describe("Phase 2 packaged desktop proof", () => {
     expect(orchestrator).toContain("CurrentMsi");
     expect(orchestrator).toContain("msiexec.exe");
     expect(orchestrator).toContain("/a");
+    expect(orchestrator).toContain("MSI administrative extraction failed");
     expect(driver).toContain("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS");
     expect(driver).toContain("connectOverCDP");
     expect(driver).toContain("Welcome to Local-First RPG");

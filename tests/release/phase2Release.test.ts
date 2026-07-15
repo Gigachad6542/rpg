@@ -22,7 +22,9 @@ describe("Phase 2 packaged desktop proof", () => {
     expect(orchestrator).toContain("/a");
     expect(driver).toContain("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS");
     expect(driver).toContain("connectOverCDP");
-    expect(driver).toContain("Welcome to your local RPG runtime");
+    expect(driver).toContain("Welcome to Local-First RPG");
+    expect(driver).toContain("discover_local_text_providers");
+    expect(driver).toContain("Packaged local-provider discovery command returned an invalid result");
     expect(driver).toContain("Mock provider active; no API key needed.");
     expect(driver).toContain("PHASE2_DURABLE_MARKER");
     expect(driver).toContain("PHASE2_TRANSIENT_MARKER");

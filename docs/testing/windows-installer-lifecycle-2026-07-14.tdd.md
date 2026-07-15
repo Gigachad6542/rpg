@@ -83,3 +83,14 @@ packaging, executable and MSI-payload smokes, and this installer lifecycle.
    Windows profile with signed artifacts.
 2. Exercise an actual previous signed version through install and upgrade, then
    run the migration/backup/restore/export product flow.
+
+## Hosted CI extension
+
+RED: `tests/release/windowsInstallerLifecycle.test.ts` failed because routine
+Windows CI stopped after the executable smoke and retained no lifecycle record.
+
+GREEN: the Windows `verify` job now runs the MSI-payload smoke followed by the
+normal installer lifecycle on its clean hosted profile, then uploads
+`windows-installer-lifecycle-evidence` for 30 days even when a later step fails.
+This workflow contract is locally verified; it becomes hosted evidence only
+after an authorized push produces a successful current-commit run.

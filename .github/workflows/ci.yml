@@ -51,7 +51,7 @@ jobs:
       - name: Build frontend
         run: pnpm build
 
-      - name: Browser smoke test
+      - name: Browser acceptance tests
         run: pnpm e2e
 
       - name: Production dependency audit
@@ -74,6 +74,21 @@ jobs:
 
       - name: Desktop executable smoke
         run: pnpm desktop:smoke
+
+      - name: Desktop MSI payload smoke
+        run: pnpm desktop:installed-smoke
+
+      - name: Normal Windows installer lifecycle
+        run: pnpm desktop:installer-lifecycle
+
+      - name: Retain Windows installer lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-lifecycle-evidence
+          path: release-evidence/windows/installer-lifecycle/**
+          if-no-files-found: warn
+          retention-days: 30
 
   verify-macos:
     name: Verify macOS compatibility

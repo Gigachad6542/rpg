@@ -119,6 +119,9 @@ that flow is effortless would dilute the product.
 - Execute the existing hosted workflow on the exact release commit with real
   Windows signing and Apple signing/notarization credentials; retain every
   signature, Gatekeeper, Keychain, SBOM, provenance, and attestation artifact.
+- Push the current commit so routine Windows CI can execute and retain the newly
+  required clean-runner NSIS lifecycle; the local workflow contract alone is not
+  hosted evidence.
 - Repeat the passing normal Windows lifecycle on a clean non-development
   machine or VM and add a true upgrade from a previous signed semantic version.
 - Run the hosted packaged flow with an actual previous signed semantic-version

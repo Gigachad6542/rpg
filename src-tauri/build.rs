@@ -12,6 +12,7 @@ fn main() {
             "generate_text_with_stored_secret",
             "persist_generated_image",
             "sync_generated_image_files",
+            "discover_local_text_providers",
             "download_chub_character",
         ]),
     ))

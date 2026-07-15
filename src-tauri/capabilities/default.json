@@ -15,6 +15,7 @@
     "allow-generate-text-with-stored-secret",
     "allow-persist-generated-image",
     "allow-sync-generated-image-files",
+    "allow-discover-local-text-providers",
     "allow-download-chub-character"
   ]
 }

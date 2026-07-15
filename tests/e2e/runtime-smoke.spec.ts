@@ -9,7 +9,7 @@ test("opens the seeded RPG card, sends a mock turn, and reloads persisted privat
 
   // A fresh runtime shows the first-run onboarding overlay, which covers the app
   // and intercepts pointer events. Dismiss it the way a real new user would.
-  const onboarding = page.getByRole("dialog", { name: /Welcome to your local RPG runtime/i });
+  const onboarding = page.getByRole("dialog", { name: /Welcome to Local-First RPG/i });
   await expect(onboarding).toBeVisible();
   await page.getByRole("button", { name: /Explore on my own/i }).click();
   await expect(onboarding).toBeHidden();

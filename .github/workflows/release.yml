@@ -179,7 +179,7 @@ jobs:
       - name: Upload Windows desktop artifacts and evidence
         uses: actions/upload-artifact@v4
         with:
-          name: local-first-ai-rpg-runtime-windows
+          name: local-first-rpg-windows
           path: |
             src-tauri/target/release/bundle/**/*.msi
             src-tauri/target/release/bundle/**/*.exe
@@ -272,7 +272,7 @@ jobs:
       - name: Upload macOS desktop artifacts and evidence
         uses: actions/upload-artifact@v4
         with:
-          name: local-first-ai-rpg-runtime-macos
+          name: local-first-rpg-macos
           path: |
             src-tauri/target/release/bundle/dmg/*.dmg
             src-tauri/target/release/bundle/dmg/SHA256SUMS-macos.txt
@@ -309,5 +309,5 @@ jobs:
             throw "Both signed platform artifact sets and checksum manifests are required."
           }
           $releaseFiles = @($artifacts | ForEach-Object { $_.FullName }) + @($metadata | ForEach-Object { $_.FullName })
-          $title = "Local-First AI RPG Runtime $env:GITHUB_REF_NAME"
+          $title = "Local-First RPG $env:GITHUB_REF_NAME"
           gh release create $env:GITHUB_REF_NAME $releaseFiles --generate-notes --title $title --verify-tag

@@ -195,6 +195,12 @@
           "markdownDescription": "Enables the delete_provider_secret command without any pre-configured scope."
         },
         {
+          "description": "Enables the discover_local_text_providers command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-discover-local-text-providers",
+          "markdownDescription": "Enables the discover_local_text_providers command without any pre-configured scope."
+        },
+        {
           "description": "Enables the download_chub_character command without any pre-configured scope.",
           "type": "string",
           "const": "allow-download-chub-character",
@@ -265,6 +271,12 @@
           "type": "string",
           "const": "deny-delete-provider-secret",
           "markdownDescription": "Denies the delete_provider_secret command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the discover_local_text_providers command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-discover-local-text-providers",
+          "markdownDescription": "Denies the discover_local_text_providers command without any pre-configured scope."
         },
         {
           "description": "Denies the download_chub_character command without any pre-configured scope.",

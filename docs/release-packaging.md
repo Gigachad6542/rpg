@@ -6,7 +6,10 @@ evidence, and publishes only after both platforms and hosted CI pass.
 
 The lane is implemented in `.github/workflows/release.yml`; it is not proof by
 itself. A release is proven only by a successful hosted run with real signing
-credentials, a previous signed Windows MSI, and retained artifacts.
+credentials, a cryptographically revalidated previous Windows release, and
+retained artifacts. The current private, user-owned GitHub repository is not
+eligible for GitHub's private-repository artifact-attestation service; the
+workflow now rejects that account state before signing jobs consume credentials.
 
 ## Local gates
 
@@ -29,30 +32,54 @@ flag.
 
 ## Hosted release contract
 
-The tag or manually dispatched workflow performs these gates in order:
+The candidate workflow performs these gates in order:
 
-1. Query `ci.yml` and require a successful hosted run whose `head_sha` is the
+1. Validate the requested release mode and confirm that GitHub artifact
+   attestation storage is supported for the repository/account combination.
+2. Query `ci.yml` and require a successful hosted run whose `head_sha` is the
    exact release commit.
-2. Build and verify timestamped Authenticode Windows artifacts.
-3. Normally install, relaunch across a same-version NSIS reinstall, and uninstall
+3. Build and verify timestamped Authenticode Windows artifacts, requiring every
+   signer subject to equal the configured trusted publisher identity.
+4. Normally install, relaunch across a same-version NSIS reinstall, and uninstall
    the current Windows package, retaining registry/filesystem lifecycle evidence.
-4. Download the previous stable signed MSI, administratively extract both MSI
-   payloads into isolated roots, and run the complete packaged flow:
+5. Download the previous release MSI, `SHA256SUMS-windows.txt`, and
+   `release-provenance-windows.json`. Before execution, independently require a
+   valid timestamped Authenticode signature from the trusted publisher, an exact
+   manifest digest, matching product/repository/platform/version provenance, a
+   provenance artifact name/size/digest match, a provenance source commit equal
+   to the release tag commit, and a semantic version strictly older than the
+   candidate. Administratively extract both validated MSI payloads into isolated
+   roots and run the complete packaged flow:
    first run, provider setup, create, play, close/reopen, migration continuity,
    backup restore, and runtime export.
-5. Build the macOS DMG with Developer ID signing and Apple notarization, validate
+6. Build the macOS DMG with Developer ID signing and Apple notarization, validate
    the stapled ticket and Gatekeeper acceptance, mount and relaunch the DMG, and
    execute a native Keychain set/get/delete round trip.
-6. Generate per-platform CycloneDX SBOMs, SHA-256 manifests, commit-bound
+7. Generate per-platform CycloneDX SBOMs, SHA-256 manifests, commit-bound
    provenance, and GitHub artifact attestations.
-7. Upload platform artifacts and evidence for 90 days. Only then may the tag job
+8. Upload platform artifacts and evidence for 90 days. Only then may the tag job
    publish the release.
+
+### First-release bootstrap
+
+The candidate lane cannot honestly prove cross-version migration before any
+signed release exists. Manual dispatch therefore offers a separate
+`bootstrap-baseline` mode. It requires the exact `CREATE SIGNED BASELINE`
+confirmation, exact-commit hosted CI, both signed platform lanes, and
+attestations, then publishes a prerelease whose metadata states that it is only
+a migration baseline. It deliberately skips previous-version migration and
+cannot be promoted as public-ready. After creating it, bump every synchronized
+manifest to a newer stable version and run the normal candidate lane with the
+baseline tag explicitly supplied. Only that second run can close the migration
+gate.
 
 Required Windows configuration:
 
 - `WINDOWS_CERTIFICATE_BASE64` secret
 - `WINDOWS_CERTIFICATE_PASSWORD` secret
 - `WINDOWS_TIMESTAMP_URL` repository variable
+- `WINDOWS_PUBLISHER_SUBJECT` repository variable containing the exact trusted
+  X.509 subject expected on current and previous release artifacts
 
 Required macOS configuration:
 
@@ -65,11 +92,20 @@ Required macOS configuration:
 Secrets must not be copied into logs, evidence, release notes, source, or test
 fixtures.
 
+GitHub-hosted attestations also require either a public repository or a private
+repository owned by an eligible GitHub Enterprise Cloud organization. The
+current private personal repository fails this preflight by design. Do not
+remove the gate to make a release run green; change repository/account state or
+adopt and review an equivalent attestation backend first. See
+[GitHub's artifact-attestation requirements](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations).
+
 ## Retained evidence
 
-Windows evidence includes the normal NSIS lifecycle JSON, MSI administrative-extraction logs, screenshots, the three runtime
-exports, the product-generated startup backup hash, migration/restore assertions,
-AuthentiCode results, and `phase2-windows-product-flow.json`.
+Windows evidence includes the normal NSIS lifecycle JSON, previous-release
+signature and metadata verification JSON, MSI administrative-extraction logs,
+screenshots, the three runtime exports, the product-generated startup backup
+hash, migration/restore assertions, Authenticode results, and
+`phase2-windows-product-flow.json`.
 
 macOS evidence includes DMG attach/copy/launch logs, SQLite continuity results,
 codesign and Gatekeeper results, `stapler validate`, and the native Keychain
@@ -115,7 +151,9 @@ an actual previous-version package for upgrade/migration evidence.
 
 ## Publication and rollback
 
-Do not publish a release when either platform job, the exact-commit CI gate,
-signature validation, migration/restore flow, SBOM/provenance generation, or
-attestation fails. Follow [Updater and Rollback Policy](updater-rollback-policy.md)
+Do not publish a candidate release when either platform job, the exact-commit CI
+gate, prior-release authenticity chain, signature validation,
+migration/restore flow, SBOM/provenance generation, or attestation fails. A
+bootstrap prerelease is only the explicitly labeled first half of the two-release
+sequence and does not relax candidate promotion. Follow [Updater and Rollback Policy](updater-rollback-policy.md)
 for manual updates, schema-safe rollback, and credential revocation.

@@ -108,7 +108,7 @@ pnpm test:coverage
 ```
 
 The latest 2026-07-14 scoped V8 report is 91.81% statements/lines, 88.75%
-branches, and 93.45% functions across 85 files / 657 tests. Enforced floors are 90%
+branches, and 93.45% functions across 86 files / 664 tests. Enforced floors are 90%
 statements/lines/functions and 85% branches.
 Remaining uncovered lines are mostly defensive UI guards and transitive edge branches rather than
 core runtime paths.

@@ -17,7 +17,7 @@ or publication run.
 ## Follow-up verification (2026-07-14)
 
 The original dated results below remain historical. The latest full release run
-passed in 203.4 seconds with 85 files / 657 tests, 91.81% statements/lines,
+passed in 261.7 seconds with 86 files / 664 tests, 91.81% statements/lines,
 88.75% branches, and 93.45% functions. Eleven Playwright journeys, both deterministic evals,
 production build, JS/Rust audits, 34 Rust tests, clippy, MSI/NSIS packaging,
 executable smoke, administrative-extraction persistence smoke, and the normal
@@ -183,3 +183,18 @@ The hosted workflow now:
    mounted-DMG continuity, and native Keychain evidence.
 4. A successful publish workflow showing `ci.yml`, Windows, and macOS all passed
    for the same exact release commit.
+
+## 2026-07-14 release-chain addendum
+
+Later TDD work repaired two gaps in the workflow described above:
+
+- a first release is now created only through an explicitly confirmed signed
+  bootstrap-prerelease mode whose evidence says it is not migration proof; and
+- a previous MSI is executed only after its Authenticode publisher/timestamp,
+  SHA-256 manifest, repository/product/version provenance, artifact digest and
+  size, GitHub tag commit, and strictly older version have all been verified.
+
+The workflow also fails early when GitHub artifact-attestation storage is not
+available. This is currently the case for the private, user-owned repository.
+Focused proof is indexed in
+`release-chain-verification-2026-07-14.tdd.md`; no hosted signed result is claimed.

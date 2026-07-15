@@ -14,14 +14,20 @@ A release may be published only when all of these are true:
   Gatekeeper.
 - The Windows previous-version migration, backup restoration, and complete
   packaged product flow passed using administratively extracted payloads from
-  real signed MSI packages.
+  real signed MSI packages. The previous MSI must first pass exact trusted
+  publisher/timestamp verification, checksum verification, provenance
+  repository/product/version/artifact verification, tag-to-source-commit
+  binding, and strict older-version ordering.
 - A clean non-development Windows machine completed the normal install, upgrade,
   repair, and uninstall lifecycle; `msiexec /a` evidence alone is insufficient.
 - The macOS mounted-DMG persistence smoke and native Keychain round trip passed.
 - Platform SHA-256 manifests, commit-bound provenance, a CycloneDX SBOM, and
   GitHub artifact attestations were retained with the release evidence.
 
-The release workflow enforces these requirements before its publish job. A
+The normal candidate workflow enforces these requirements before its publish
+job. Its separately confirmed bootstrap mode may publish only a clearly labeled
+signed prerelease baseline; that baseline has no migration proof and cannot be
+promoted as public-ready. A
 failed, cancelled, skipped, or missing prerequisite must not be overridden by
 publishing artifacts manually.
 
@@ -48,7 +54,8 @@ For an approved rollback:
 1. Stop distribution and close every running application instance.
 2. Preserve the current database and export, then locate the backup captured
    before the failed update.
-3. Verify the signed previous release, its checksum, provenance, and attestation.
+3. Verify the signed previous release, its timestamped trusted publisher,
+   checksum, tag-bound provenance, and attestation.
 4. Confirm its database/schema compatibility in the packaged migration fixture.
 5. Install the signed previous release and restore the compatible backup while
    the application is closed.

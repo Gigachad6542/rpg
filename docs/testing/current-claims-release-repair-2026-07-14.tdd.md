@@ -16,6 +16,17 @@ The packaged discovery defect is closed. The renderer command now appears in
 the Tauri build manifest, default window capability, generated permissions and
 schemas, release contract tests, and the hosted packaged product-flow driver.
 
+After that full local run, the hosted release contract received an additional
+fail-closed repair at commit `8159691`. Previous Windows artifacts are no longer
+trusted merely because they were downloaded from a repository release: the
+workflow verifies the exact publisher and timestamp, checksum manifest,
+provenance identity and artifact digest, release-tag commit, and strict older
+semantic version before execution. A separately confirmed bootstrap prerelease
+can establish the first signed migration baseline, but its retained metadata
+explicitly says it is not migration or public-readiness proof. The current
+private user-owned repository remains ineligible for GitHub private artifact
+attestations, so release intent now fails before credentials are consumed.
+
 ## RED checkpoints
 
 Commit `1ee34e4` (`test: cover desktop ACL and release identity regressions`):
@@ -62,12 +73,13 @@ Command:
 pnpm verify:release
 ```
 
-Latest result: PASS in 203.4 seconds at code commit `ef72f13`.
+Latest result: PASS in 261.7 seconds with release-chain code commit `8159691`
+checked out.
 
 ```text
 TypeScript: passed
 ESLint: passed
-Vitest: 85 files / 657 tests passed
+Vitest: 86 files / 664 tests passed
 Coverage: 91.81% statements, 88.75% branches, 93.45% functions, 91.81% lines
 Phase 1 deterministic eval: passed
 Phase 1.1 deterministic eval: passed; 100 lore decisions; 3 campaigns; 0 live calls
@@ -81,7 +93,7 @@ Windows MSI and NSIS: built
 Packaged executable smoke: passed
 Administrative-extraction SQLite smoke: passed
 Normal current-user NSIS install/reinstall/uninstall lifecycle: passed
-Tested NSIS SHA256: 595d740b16ead05ba7a1dcfef36410947c4013c09d114b99800b3661cc7b88b9
+Tested NSIS SHA256: 9fe017529a76efb5b9c7250e87c90b8f48d8ceaa1677ee51994e89a4c28b4a98
 ```
 
 ## Packaged WebView proof
@@ -131,3 +143,6 @@ command no longer includes that token.
 5. Continue decomposing the oversized application controller and large feature
    modules while expanding settings accessibility acceptance coverage. The
    former 4,752-line UI suite is already split into five domain suites.
+6. Resolve GitHub attestation eligibility (public repository or eligible
+   Enterprise Cloud organization) or approve and review an equivalent
+   attestation backend; do not bypass the preflight.

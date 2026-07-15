@@ -22,6 +22,10 @@ This folder keeps operational notes and verification evidence for `rpg`.
 
 ## Testing Evidence
 
+- [Trusted release-chain verification evidence](testing/release-chain-verification-2026-07-14.tdd.md)
+  records independent previous-MSI signature/checksum/provenance/tag/version
+  validation, the explicit first-release bootstrap sequence, and the current
+  GitHub attestation capability boundary.
 - [Controller decomposition evidence](testing/controller-decomposition-2026-07-14.tdd.md)
   records the behavior-preserving `App.tsx` extractions, Rust repository module
   split, and 81-test UI integration suite decomposition.

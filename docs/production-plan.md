@@ -9,13 +9,21 @@ normal current-user NSIS install/reinstall/uninstall lifecycle now passes. The
 score remains below public-launch level because no current exact-commit hosted
 release has produced signed Windows and notarized macOS artifacts, the installer
 has not been repeated on a clean VM, no previous signed semantic version exists
-for upgrade proof, and live-provider narrative quality is not yet measured.
+for upgrade proof, and live-provider narrative quality is not yet measured. The
+release workflow now has an honest two-release bootstrap path and independently
+revalidates previous-release signatures, timestamps, publisher identity,
+checksums, provenance, tag commit, and version ordering. That repair does not
+raise the score until hosted evidence exists. The current private personal
+repository is also ineligible for GitHub's private artifact-attestation service,
+and the workflow now fails before signing jobs until that account/repository
+constraint is resolved.
 
 ## Evidence Checked
 
 - Real repo root: `C:\Users\Dwthe\rpg project`.
-- Local release gate: `pnpm verify:release` passed in 203.4 seconds on 2026-07-14.
-- Vitest coverage gate: 85 files and 657 tests passed.
+- Local release gate: `pnpm verify:release` passed in 261.7 seconds on 2026-07-14
+  with release-chain code commit `8159691` checked out.
+- Vitest coverage gate: 86 files and 664 tests passed.
 - Coverage: 91.81% statements/lines, 88.75% branches, and 93.45% functions.
 - Enforced coverage floors: 90% statements/lines/functions and 85% branches.
 - Deterministic evals: Phase 1 passed; Phase 1.1 passed with 100 lore decisions,
@@ -47,7 +55,7 @@ for upgrade proof, and live-provider narrative quality is not yet measured.
   sole canonical NSIS artifact, verified current-user registration and launch,
   preserved isolated SQLite data across a same-version reinstall and relaunch,
   then removed the registration and install directory on uninstall. The tested
-  NSIS SHA256 was `595d740b16ead05ba7a1dcfef36410947c4013c09d114b99800b3661cc7b88b9`.
+  NSIS SHA256 was `9fe017529a76efb5b9c7250e87c90b8f48d8ceaa1677ee51994e89a4c28b4a98`.
   This was a
   local development profile, not a clean VM or previous-version upgrade.
 - Packaged WebView product flow: passed in 13.1 seconds against the current MSI,
@@ -61,6 +69,12 @@ for upgrade proof, and live-provider narrative quality is not yet measured.
 - Streaming policy: stored OS-keychain providers are explicitly non-streaming,
   the pipeline falls back to request/response, and Settings tells users that
   those replies appear once complete.
+- Release-chain verifier: 19 focused tests passed across three release suites.
+  Synthetic previous artifacts prove checksum/provenance/repository/tag-commit/
+  version failures are rejected, and an unsigned MSI with an absolute evidence
+  path reaches Authenticode validation and fails for the signature itself.
+- Release workflow syntax: local YAML parsing found six jobs, including the
+  fail-closed intent preflight and explicitly non-promotable bootstrap publisher.
 
 ### Readiness scoring rubric
 
@@ -113,6 +127,12 @@ that flow is effortless would dilute the product.
       fail-closed normal NSIS install/reinstall/uninstall lifecycle.
     - CI and release workflow inputs are pinned for pnpm and Rust.
     - A tag-triggered Windows release workflow builds, verifies, uploads MSI/NSIS artifacts, writes SHA256 checksums, and creates GitHub releases for `v*` tags.
+    - Candidate migration inputs are now revalidated against Authenticode
+      publisher/timestamp, checksum, provenance, GitHub tag commit, and strict
+      semantic-version ordering before the previous MSI is executed.
+    - A manually confirmed signed bootstrap prerelease can create the first
+      migration baseline without pretending that it proves migration; the next
+      higher-version candidate must consume that baseline and pass the full flow.
     - `pnpm clean` removes generated frontend, coverage, Playwright, and Tauri output.
 
 6. Share-safe runtime exports.
@@ -128,6 +148,10 @@ that flow is effortless would dilute the product.
 - Execute the existing hosted workflow on the exact release commit with real
   Windows signing and Apple signing/notarization credentials; retain every
   signature, Gatekeeper, Keychain, SBOM, provenance, and attestation artifact.
+- Resolve attestation capability by making the repository public, transferring
+  it to an eligible Enterprise Cloud organization, or approving and reviewing
+  an equivalent backend. The private user-owned repository is rejected by the
+  release preflight rather than silently omitting attestations.
 - Push the current commit so routine Windows CI can execute and retain the newly
   required clean-runner NSIS lifecycle; the local workflow contract alone is not
   hosted evidence.
@@ -135,6 +159,10 @@ that flow is effortless would dilute the product.
   machine or VM and add a true upgrade from a previous signed semantic version.
 - Run the hosted packaged flow with an actual previous signed semantic-version
   MSI and verify migration, rotating backup creation, restore, and export.
+- If no prior signed package exists, run the explicit bootstrap-baseline mode,
+  retain its signed prerelease, bump the synchronized version, and then run the
+  normal candidate against that exact older tag. The baseline run alone is not
+  a launch gate.
 - Run the opt-in live-provider evaluation with reviewed paid-call limits and
   blind pairwise scoring before recommending any second-call mode or model.
 - Track and reduce the 18 allowed Rust warnings and the two scoped
@@ -234,8 +262,8 @@ material gain over the current local lexical/feature-hash path.
 
 Ship the next build as a controlled beta, not a broad public release. The code
 blockers are fixed and locally verified. Remaining risk includes release
-operations, installer trust, clean-machine validation, and unmeasured live
-narrative benefit from the optional second model call.
+operations, attestation eligibility, installer trust, clean-machine validation,
+and unmeasured live narrative benefit from the optional second model call.
 
 ## Phase 2 Shipped-Product Lane (2026-07-13)
 
@@ -256,6 +284,8 @@ Implemented release gates:
 
 Operational proof still required before public launch:
 
+- Resolve GitHub artifact-attestation eligibility or approve an equivalent
+  reviewed backend without weakening the fail-closed promotion contract.
 - Run the hosted workflow with real Windows and Apple signing credentials.
 - Supply an actual previous signed Windows MSI and retain the successful
   migration/restore report.

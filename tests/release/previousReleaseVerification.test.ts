@@ -114,6 +114,8 @@ function runVerifier(
       options.currentVersion ?? "0.2.0",
       "--expected-repository",
       "Gigachad6542/rpg",
+      "--expected-source-commit",
+      "1".repeat(40),
       "--output",
       fixture.evidencePath,
     ],
@@ -177,5 +179,35 @@ describe("previous Windows release metadata verification", () => {
     expect(repositoryResult.stderr).toMatch(/repository/i);
     expect(digestResult.status).not.toBe(0);
     expect(digestResult.stderr).toMatch(/provenance|SHA-256/i);
+  });
+
+  it("rejects provenance that is not bound to the downloaded release tag commit", () => {
+    const fixture = createFixture();
+    const result = spawnSync(
+      process.execPath,
+      [
+        verifierPath,
+        "--msi",
+        fixture.msiPath,
+        "--checksums",
+        fixture.checksumPath,
+        "--provenance",
+        fixture.provenancePath,
+        "--previous-tag",
+        "v0.1.0",
+        "--current-version",
+        "0.2.0",
+        "--expected-repository",
+        "Gigachad6542/rpg",
+        "--expected-source-commit",
+        "4".repeat(40),
+        "--output",
+        fixture.evidencePath,
+      ],
+      { cwd: workspaceRoot, encoding: "utf8", windowsHide: true },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/release tag commit|source commit/i);
   });
 });

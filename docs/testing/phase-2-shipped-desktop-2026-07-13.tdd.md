@@ -17,8 +17,8 @@ or publication run.
 ## Follow-up verification (2026-07-14)
 
 The original dated results below remain historical. The latest full release run
-passed in 252.8 seconds with 86 files / 665 tests, 91.81% statements/lines,
-88.75% branches, and 93.45% functions. Eleven Playwright journeys, both deterministic evals,
+passed in 258.2 seconds with 87 files / 667 tests, 91.84% statements/lines,
+88.78% branches, and 93.39% functions. Eleven Playwright journeys, both deterministic evals,
 production build, JS/Rust audits, 34 Rust tests, clippy, MSI/NSIS packaging,
 executable smoke, administrative-extraction persistence smoke, and the normal
 NSIS lifecycle all passed.

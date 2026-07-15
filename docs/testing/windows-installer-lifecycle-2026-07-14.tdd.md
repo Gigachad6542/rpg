@@ -61,8 +61,8 @@ Result: PASS in 10.4 seconds. The evidence record reports:
 Ignored local evidence:
 `release-evidence/windows/installer-lifecycle/windows-installer-lifecycle.json`.
 
-The latest complete `pnpm verify:release` run passed in 252.8 seconds:
-86 files / 665 tests, 91.81% statements/lines, 88.75% branches, 93.45%
+The latest complete `pnpm verify:release` run passed in 258.2 seconds:
+87 files / 667 tests, 91.84% statements/lines, 88.78% branches, 93.39%
 functions, deterministic evals, Playwright, dependency/Rust audits, 34 Rust
 tests with the signed-release Keychain smoke ignored, clippy, clean MSI/NSIS
 packaging, executable and MSI-payload smokes, and this installer lifecycle.

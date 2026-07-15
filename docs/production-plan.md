@@ -21,10 +21,10 @@ constraint is resolved.
 ## Evidence Checked
 
 - Real repo root: `C:\Users\Dwthe\rpg project`.
-- Local release gate: `pnpm verify:release` passed in 252.8 seconds on 2026-07-14
-  with immutable-workflow code commit `9704a0e` checked out.
-- Vitest coverage gate: 86 files and 665 tests passed.
-- Coverage: 91.81% statements/lines, 88.75% branches, and 93.45% functions.
+- Local release gate: `pnpm verify:release` passed in 258.2 seconds on 2026-07-14
+  with runtime-import accessibility code commit `38517dc` checked out.
+- Vitest coverage gate: 87 files and 667 tests passed.
+- Coverage: 91.84% statements/lines, 88.78% branches, and 93.39% functions.
 - Enforced coverage floors: 90% statements/lines/functions and 85% branches.
 - Deterministic evals: Phase 1 passed; Phase 1.1 passed with 100 lore decisions,
   three long campaigns, and `liveCallsMade: 0`.
@@ -36,8 +36,8 @@ constraint is resolved.
   visible local-provider failure followed by in-place mock-provider recovery,
   multiline keyboard composition, fail-closed invalid runtime imports, and a
   reviewed whole-runtime replacement rolled back from a named restore point.
-- Frontend build: Vite production build passed; the main app chunk was 490.29
-  kB (138.33 kB gzip), plus separate React, icon, and Tauri chunks.
+- Frontend build: Vite production build passed; the main app chunk was 491.17
+  kB (138.58 kB gzip), plus separate React, icon, and Tauri chunks.
 - Dependency audit: `pnpm audit --prod` reported no known vulnerabilities.
 - Rust audit: `cargo audit` exited successfully with 18 allowed transitive
   warnings; two `quick-xml` advisories remain scoped exceptions in
@@ -55,7 +55,7 @@ constraint is resolved.
   sole canonical NSIS artifact, verified current-user registration and launch,
   preserved isolated SQLite data across a same-version reinstall and relaunch,
   then removed the registration and install directory on uninstall. The tested
-  NSIS SHA256 was `08339ea6eabd51d535f50749ed4ebce9efa5af8b2307207fd5833d9c2a55a25d`.
+  NSIS SHA256 was `8d62ae37c3fd7a09a17192fcf0892beaced7315e9df9e9d8c78ed19deeacc765`.
   This was a
   local development profile, not a clean VM or previous-version upgrade.
 - Packaged WebView product flow: passed in 13.1 seconds against the current MSI,
@@ -176,10 +176,11 @@ that flow is effortless would dilute the product.
   3,789-line Rust repository authority is now a 367-line command/path/backup
   boundary over independently gated validation, schema, normalized-storage
   CRUD, and a separate 1,113-line regression corpus.
-- Continue accessibility acceptance beyond the verified memory-dialog focus
-  trap, current-page navigation, linked keyboard-operable card tabs, multiline
-  composer, fail-closed replacement, and named replacement rollback into the
-  remaining settings flows.
+- Continue accessibility acceptance beyond the verified memory-dialog and
+  runtime-replacement focus traps, current-page navigation, linked
+  keyboard-operable card tabs, multiline composer, fail-closed replacement,
+  and named replacement rollback into the remaining settings flows and native
+  assistive-technology checks.
 - Make the owner licensing decision and configure verified public help,
   support, and security-reporting destinations before broad distribution.
 

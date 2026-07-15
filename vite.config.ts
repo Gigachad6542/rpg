@@ -21,6 +21,7 @@ export default defineConfig({
           if (id.includes("node_modules/lucide-react")) return "icons";
           if (id.includes("node_modules/react") || id.includes("node_modules/scheduler")) return "react";
           if (id.includes("node_modules/@tauri-apps")) return "tauri";
+          if (id.includes("node_modules/zod")) return "validation";
           return undefined;
         },
       },

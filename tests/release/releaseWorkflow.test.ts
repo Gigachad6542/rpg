@@ -91,17 +91,27 @@ describe("release workflow", () => {
     expect(workflow).toContain("A bootstrap baseline is not migration proof");
   });
 
-  it("keeps pnpm supply-chain policy in the workspace config supported by current pnpm", () => {
+  it("keeps pnpm supply-chain policy aligned with the pinned pnpm 9 toolchain", () => {
     const packageJson = JSON.parse(readFileSync(join(workspaceRoot, "package.json"), "utf8")) as {
-      pnpm?: unknown;
+      packageManager?: string;
+      engines?: { pnpm?: string };
+      pnpm?: {
+        overrides?: Record<string, string>;
+        onlyBuiltDependencies?: string[];
+      };
     };
-    const workspaceConfig = readFileSync(join(workspaceRoot, "pnpm-workspace.yaml"), "utf8");
+    const workflowSources = [readWorkflow("ci.yml"), readWorkflow("release.yml")];
 
-    expect(packageJson.pnpm).toBeUndefined();
-    expect(workspaceConfig).toContain("overrides:");
-    expect(workspaceConfig).toContain("esbuild: ^0.25.12");
-    expect(workspaceConfig).toContain("vite: ^6.4.3");
-    expect(workspaceConfig).toContain("onlyBuiltDependencies:");
+    expect(packageJson.packageManager).toBe("pnpm@9.15.9");
+    expect(packageJson.engines?.pnpm).toBe(">=9 <10");
+    expect(packageJson.pnpm?.overrides).toEqual({
+      esbuild: "^0.25.12",
+      vite: "^6.4.3",
+    });
+    expect(packageJson.pnpm?.onlyBuiltDependencies).toEqual(["esbuild"]);
+    for (const workflow of workflowSources) {
+      expect(workflow).toMatch(/name: Setup pnpm[\s\S]*?version: 9\.15\.9/);
+    }
   });
 
   it("pins every workflow action to an immutable commit with a readable version comment", () => {

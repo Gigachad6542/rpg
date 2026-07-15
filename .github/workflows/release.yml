@@ -6,20 +6,71 @@ on:
       - "v*"
   workflow_dispatch:
     inputs:
+      release_mode:
+        description: "Candidate requires previous-version migration; bootstrap creates a signed prerelease baseline only"
+        required: true
+        default: candidate
+        type: choice
+        options:
+          - candidate
+          - bootstrap-baseline
       previous_release_tag:
         description: "Previous signed release used for packaged migration proof (defaults to latest stable release)"
+        required: false
+        type: string
+      bootstrap_confirmation:
+        description: "For bootstrap-baseline only, enter CREATE SIGNED BASELINE"
         required: false
         type: string
 
 permissions:
   actions: read
   attestations: write
-  contents: write
+  artifact-metadata: write
+  contents: read
   id-token: write
 
 jobs:
+  release-intent:
+    name: Validate release intent and attestation capability
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail closed on invalid bootstrap or unsupported attestation storage
+        uses: actions/github-script@v7
+        env:
+          RELEASE_MODE: ${{ inputs.release_mode }}
+          BOOTSTRAP_CONFIRMATION: ${{ inputs.bootstrap_confirmation }}
+        with:
+          script: |
+            const mode = process.env.RELEASE_MODE || "candidate";
+            if (mode === "bootstrap-baseline") {
+              if (context.eventName !== "workflow_dispatch") {
+                core.setFailed("Bootstrap baseline creation is manual-only.");
+                return;
+              }
+              if (process.env.BOOTSTRAP_CONFIRMATION !== "CREATE SIGNED BASELINE") {
+                core.setFailed("Bootstrap baseline creation requires the exact CREATE SIGNED BASELINE confirmation.");
+                return;
+              }
+              if (context.ref !== `refs/heads/${context.payload.repository.default_branch}`) {
+                core.setFailed("Bootstrap baseline creation must run from the repository default branch.");
+                return;
+              }
+              core.warning("A bootstrap baseline is not migration proof and must never be promoted as a public-ready release.");
+            }
+
+            const { owner, repo } = context.repo;
+            const repository = await github.rest.repos.get({ owner, repo });
+            if (repository.data.private && repository.data.owner.type === "User") {
+              core.setFailed(
+                "GitHub artifact attestations for private repositories require Enterprise Cloud. " +
+                "Make the repository public, transfer it to an eligible organization, or adopt an approved alternate attestation backend before release.",
+              );
+            }
+
   hosted-ci-gate:
     name: Require successful hosted CI for exact release commit
+    needs: release-intent
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -79,12 +130,16 @@ jobs:
           WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
           WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
+          WINDOWS_PUBLISHER_SUBJECT: ${{ vars.WINDOWS_PUBLISHER_SUBJECT }}
         run: |
           if (-not $env:WINDOWS_CERTIFICATE_BASE64 -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
             throw "Windows signing certificate secrets are required."
           }
           if (-not $env:WINDOWS_TIMESTAMP_URL) {
             throw "Repository variable WINDOWS_TIMESTAMP_URL is required."
+          }
+          if (-not $env:WINDOWS_PUBLISHER_SUBJECT) {
+            throw "Repository variable WINDOWS_PUBLISHER_SUBJECT is required."
           }
           $certificatePath = Join-Path $env:RUNNER_TEMP "release-certificate.pfx"
           [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
@@ -94,8 +149,12 @@ jobs:
             if (-not $certificate -or -not $certificate.HasPrivateKey) {
               throw "Imported Windows certificate has no private key."
             }
+            if (-not [string]::Equals($certificate.Subject, $env:WINDOWS_PUBLISHER_SUBJECT, [System.StringComparison]::Ordinal)) {
+              throw "Imported Windows certificate subject '$($certificate.Subject)' does not match trusted publisher '$env:WINDOWS_PUBLISHER_SUBJECT'."
+            }
             "TAURI_WINDOWS_CERTIFICATE_THUMBPRINT=$($certificate.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
             "TAURI_WINDOWS_TIMESTAMP_URL=$env:WINDOWS_TIMESTAMP_URL" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "RELEASE_WINDOWS_PUBLISHER_SUBJECT=$env:WINDOWS_PUBLISHER_SUBJECT" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           } finally {
             Remove-Item -LiteralPath $certificatePath -Force -ErrorAction SilentlyContinue
           }
@@ -122,9 +181,11 @@ jobs:
         run: |
           ./scripts/verify-windows-signatures.ps1 `
             -BundleRoot "src-tauri/target/release/bundle" `
-            -EvidenceDir "release-evidence/windows/signatures"
+            -EvidenceDir "release-evidence/windows/signatures" `
+            -ExpectedPublisherSubject "$env:RELEASE_WINDOWS_PUBLISHER_SUBJECT"
 
-      - name: Download previous signed MSI
+      - name: Download previous signed release chain
+        if: ${{ inputs.release_mode != 'bootstrap-baseline' }}
         id: previous-release
         shell: pwsh
         env:
@@ -142,15 +203,59 @@ jobs:
           if (-not $tag) {
             throw "A previous signed stable release is required for packaged migration proof."
           }
+          $release = gh release view $tag --json tagName,isDraft,isPrerelease | ConvertFrom-Json
+          if ($release.isDraft) { throw "Previous release $tag is still a draft." }
+          if ($release.isPrerelease -and -not $env:REQUESTED_PREVIOUS_TAG) {
+            throw "Automatically selected previous release $tag must not be a prerelease."
+          }
           $target = Join-Path $env:RUNNER_TEMP "previous-release"
           New-Item -ItemType Directory -Force -Path $target | Out-Null
-          gh release download $tag --pattern "*.msi" --dir $target
-          $msi = Get-ChildItem -LiteralPath $target -File -Filter "*.msi" | Select-Object -First 1
-          if (-not $msi) { throw "Previous release $tag did not contain an MSI." }
+          gh release download $tag `
+            --pattern "*.msi" `
+            --pattern "SHA256SUMS-windows.txt" `
+            --pattern "release-provenance-windows.json" `
+            --dir $target
+          $msiFiles = @(Get-ChildItem -LiteralPath $target -File -Filter "*.msi")
+          if ($msiFiles.Count -ne 1) { throw "Previous release $tag must contain exactly one MSI; found $($msiFiles.Count)." }
+          $checksum = Get-Item -LiteralPath (Join-Path $target "SHA256SUMS-windows.txt")
+          $provenance = Get-Item -LiteralPath (Join-Path $target "release-provenance-windows.json")
+          $tagCommit = gh api "repos/$env:GITHUB_REPOSITORY/commits/$tag" --jq .sha
+          if ($LASTEXITCODE -ne 0 -or $tagCommit -notmatch '^[a-fA-F0-9]{40}$') {
+            throw "Could not resolve previous release tag $tag to an exact commit."
+          }
+          $msi = $msiFiles[0]
           "previous_msi=$($msi.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "previous_checksums=$($checksum.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "previous_provenance=$($provenance.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "previous_tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "previous_commit=$($tagCommit.ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Verify previous release Authenticode signer and timestamp
+        if: ${{ inputs.release_mode != 'bootstrap-baseline' }}
+        shell: pwsh
+        run: |
+          ./scripts/verify-previous-windows-signature.ps1 `
+            -MsiPath "${{ steps.previous-release.outputs.previous_msi }}" `
+            -ExpectedPublisherSubject "$env:RELEASE_WINDOWS_PUBLISHER_SUBJECT" `
+            -EvidenceDir "release-evidence/windows/previous-release"
+
+      - name: Verify previous release checksums, provenance, version and tag commit
+        if: ${{ inputs.release_mode != 'bootstrap-baseline' }}
+        shell: pwsh
+        run: |
+          $currentVersion = (Get-Content -LiteralPath "package.json" -Raw | ConvertFrom-Json).version
+          node scripts/verify-previous-release-metadata.mjs `
+            --msi "${{ steps.previous-release.outputs.previous_msi }}" `
+            --checksums "${{ steps.previous-release.outputs.previous_checksums }}" `
+            --provenance "${{ steps.previous-release.outputs.previous_provenance }}" `
+            --previous-tag "${{ steps.previous-release.outputs.previous_tag }}" `
+            --current-version $currentVersion `
+            --expected-repository "$env:GITHUB_REPOSITORY" `
+            --expected-source-commit "${{ steps.previous-release.outputs.previous_commit }}" `
+            --output "release-evidence/windows/previous-release/previous-release-verification.json"
 
       - name: Run previous-version migration and complete packaged product flow
+        if: ${{ inputs.release_mode != 'bootstrap-baseline' }}
         shell: pwsh
         run: |
           $currentMsi = Get-ChildItem -Path "src-tauri/target/release/bundle" -Recurse -File -Filter "*.msi" | Select-Object -First 1
@@ -159,6 +264,19 @@ jobs:
             -PreviousMsi "${{ steps.previous-release.outputs.previous_msi }}" `
             -CurrentMsi $currentMsi.FullName `
             -EvidenceDir "release-evidence/windows/product-flow"
+
+      - name: Record bootstrap baseline scope
+        if: ${{ inputs.release_mode == 'bootstrap-baseline' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "release-evidence/windows/bootstrap" | Out-Null
+          [ordered]@{
+            schema = "rpg.release.bootstrap-baseline"
+            version = 1
+            status = "baseline-only"
+            sourceCommit = $env:GITHUB_SHA
+            statement = "A bootstrap baseline is not migration proof and is not a public-ready release."
+          } | ConvertTo-Json | Set-Content -LiteralPath "release-evidence/windows/bootstrap/bootstrap-baseline.json" -Encoding utf8
 
       - name: Generate CycloneDX SBOM
         run: pnpm release:sbom -- --output release-evidence/windows/sbom-windows.cdx.json
@@ -289,6 +407,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
     steps:
       - name: Download verified platform artifacts
@@ -311,3 +430,54 @@ jobs:
           $releaseFiles = @($artifacts | ForEach-Object { $_.FullName }) + @($metadata | ForEach-Object { $_.FullName })
           $title = "Local-First RPG $env:GITHUB_REF_NAME"
           gh release create $env:GITHUB_REF_NAME $releaseFiles --generate-notes --title $title --verify-tag
+
+  publish-bootstrap-baseline:
+    needs:
+      - hosted-ci-gate
+      - windows-desktop-release
+      - macos-desktop-release
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.release_mode == 'bootstrap-baseline' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Checkout exact baseline commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Download verified platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Publish exact-commit signed bootstrap prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content -LiteralPath "package.json" -Raw | ConvertFrom-Json).version
+          $tag = "v$version"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            throw "Release $tag already exists; refusing to overwrite a baseline."
+          }
+          $artifacts = Get-ChildItem -Path "release-assets" -Recurse -File |
+            Where-Object { $_.Extension -in @(".msi", ".exe", ".dmg") }
+          $metadata = Get-ChildItem -Path "release-assets" -Recurse -File |
+            Where-Object {
+              $_.Name -like "SHA256SUMS-*.txt" -or
+              $_.Name -like "release-provenance-*.json" -or
+              $_.Name -like "sbom-*.cdx.json" -or
+              $_.Name -eq "bootstrap-baseline.json"
+            }
+          if (-not $artifacts -or ($metadata | Where-Object Name -like "SHA256SUMS-*.txt").Count -ne 2) {
+            throw "Both signed platform artifact sets and checksum manifests are required."
+          }
+          $releaseFiles = @($artifacts | ForEach-Object { $_.FullName }) + @($metadata | ForEach-Object { $_.FullName })
+          gh release create $tag $releaseFiles `
+            --target $env:GITHUB_SHA `
+            --prerelease `
+            --title "Local-First RPG $tag signed migration baseline" `
+            --notes "Signed bootstrap baseline only. This release has no previous-version migration proof and must not be promoted as public-ready."

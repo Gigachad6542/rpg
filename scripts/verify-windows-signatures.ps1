@@ -1,6 +1,7 @@
 param(
   [Parameter(Mandatory = $true)][string]$BundleRoot,
   [Parameter(Mandatory = $true)][string]$EvidenceDir,
+  [Parameter(Mandatory = $true)][string]$ExpectedPublisherSubject,
   [string]$ReleaseExecutable = "src-tauri\target\release\local-first-ai-rpg-runtime.exe"
 )
 
@@ -24,6 +25,16 @@ $results = foreach ($file in $files) {
   $signature = Get-AuthenticodeSignature -LiteralPath $file
   if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
     throw "Invalid Authenticode signature for ${file}: $($signature.Status) $($signature.StatusMessage)"
+  }
+  if (-not $signature.SignerCertificate -or -not [string]::Equals(
+      $signature.SignerCertificate.Subject,
+      $ExpectedPublisherSubject,
+      [System.StringComparison]::Ordinal
+    )) {
+    throw "Authenticode signer for ${file} does not match trusted publisher '$ExpectedPublisherSubject'."
+  }
+  if (-not $signature.TimeStamperCertificate) {
+    throw "Authenticode signature for ${file} is missing a trusted timestamp."
   }
   [ordered]@{
     file = Split-Path -Leaf $file

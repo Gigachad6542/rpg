@@ -243,3 +243,46 @@ test("invalid runtime imports fail closed without replacing the active story", a
   await page.getByRole("button", { name: /^Runtime$/ }).click();
   await expect(page.getByRole("heading", { name: /Ashfall Crossing/i })).toBeVisible();
 });
+
+test("a reviewed runtime replacement can be rolled back from its named restore point", async ({ page }) => {
+  const onboarding = await openFreshRuntime(page);
+  await onboarding.getByRole("button", { name: /Start mock demo/i }).click();
+
+  await page.getByRole("button", { name: /^Settings$/ }).click();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: /Export runtime data/i }).click();
+  const exportedPath = await (await downloadPromise).path();
+  expect(exportedPath).not.toBeNull();
+  const originalRuntime = await readFile(exportedPath!, "utf8");
+
+  await page.getByRole("button", { name: /^Cards$/ }).click();
+  const createCardPanel = page.getByRole("region", { name: /Create card/i });
+  await createCardPanel.getByRole("button", { name: /Choice-driven mystery/i }).click();
+  await createCardPanel.getByLabel(/^Name$/).fill("Temporary Restore Target");
+  await createCardPanel.getByRole("button", { name: /^Create card$/ }).click();
+  await expect(page.getByRole("heading", { name: /Temporary Restore Target/i })).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate((key) => {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw).cards?.some((card: { name?: string }) => card.name === "Temporary Restore Target") : false;
+      }, runtimeStorageKey),
+    )
+    .toBe(true);
+
+  await page.getByRole("button", { name: /^Settings$/ }).click();
+  await page.getByLabel(/Runtime export JSON/i).fill(originalRuntime);
+  await page.getByRole("button", { name: /Review runtime import/i }).click();
+  await page.getByRole("button", { name: /Apply reviewed import/i }).click();
+  await expect(page.getByRole("status", { name: /Data management status/i })).toContainText(/Imported runtime export/i);
+
+  const restoreTemporaryRuntime = page.getByRole("button", {
+    name: /Restore .*Temporary Restore Target/i,
+  }).first();
+  await expect(restoreTemporaryRuntime).toBeVisible();
+  await restoreTemporaryRuntime.click();
+  await expect(page.getByRole("status", { name: /Restore status/i })).toContainText(/Restored/i);
+
+  await page.getByRole("button", { name: /^Runtime$/ }).click();
+  await expect(page.getByRole("heading", { name: /Temporary Restore Target/i })).toBeVisible();
+});

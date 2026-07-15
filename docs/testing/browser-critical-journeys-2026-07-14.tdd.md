@@ -6,8 +6,9 @@ smoke.
 
 ## Result
 
-The Chromium acceptance lane now has ten independent journeys. The latest full
-release-gate run passed all ten in 6.5 seconds with ten local workers.
+The Chromium acceptance lane now has eleven independent journeys. The expanded
+standalone lane passed all eleven in 7.0 seconds with eleven local workers; the
+preceding full release gate passed the earlier ten-journey set in 6.5 seconds.
 
 ## Characterization contracts
 
@@ -38,6 +39,9 @@ claim new product functionality. The added tests proved:
    the complete multiline action with Enter and clears the draft.
 10. An unsupported runtime-import version fails closed, never opens the
     replacement review, and leaves the active story available.
+11. A reviewed whole-runtime replacement captures a named restore point; the
+    user can apply the import, select that specific recovery point, and restore
+    the replaced active story.
 
 The original seeded blank-card smoke remains and continues to verify mock-turn
 persistence plus compiled-prompt privacy.
@@ -48,7 +52,8 @@ persistence plus compiled-prompt privacy.
 pnpm e2e
 ```
 
-Latest full-gate result: 10 passed in 6.5 seconds.
+Expanded standalone result: 11 passed in 7.0 seconds. The complete release gate
+will be repeated before this count is promoted as final release-gate evidence.
 
 ```text
 pnpm typecheck
@@ -88,3 +93,8 @@ The composer and invalid-import characterizations then closed two more
 acceptance gaps: multiline keyboard semantics and fail-closed runtime
 replacement parsing. The full ten-test browser lane passed in 6.7 seconds.
 The later complete release gate repeated all ten in 6.5 seconds.
+
+The runtime-replacement journey then required restore controls to expose the
+point label in their accessible name. The unit contract failed on a generic
+`Restore` label, passed after the control was named, and the full eleven-test
+browser lane proved replacement plus rollback in 7.0 seconds.

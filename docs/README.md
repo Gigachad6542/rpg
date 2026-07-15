@@ -23,8 +23,8 @@ This folder keeps operational notes and verification evidence for `rpg`.
 ## Testing Evidence
 
 - [Controller decomposition evidence](testing/controller-decomposition-2026-07-14.tdd.md)
-  records the first behavior-preserving extraction from `App.tsx`, including
-  direct streamed-call telemetry and independently tested RPG state diffs.
+  records the behavior-preserving `App.tsx` extractions, Rust repository module
+  split, and 81-test UI integration suite decomposition.
 - [Release governance evidence](testing/release-governance-2026-07-14.tdd.md)
   records the controlled-beta security, support, contribution, changelog,
   conduct, issue, and pull-request surfaces plus their public-release limits.

@@ -126,3 +126,17 @@ compatibility, and JSON row helpers now live in
 `runtime_repository/storage.rs`. The command-facing repository authority is
 367 lines and the cohesive storage module is 1,382 lines. All four architecture
 contracts, all 35 Rust tests, formatting, and clippy passed.
+
+## UI integration suite decomposition
+
+The 4,752-line `tests/ui/App.test.tsx` integration suite was split without
+changing its 81 acceptance cases. Shared render, storage, Tauri-mock, and
+interaction fixtures now live in the 234-line `App.testHarness.tsx`; behavior
+is grouped into independently runnable core (21 tests), chat/lore (19),
+providers (21), media (13), and data (7) suites. The largest domain suite is
+1,415 lines instead of a single 4,752-line file.
+
+All five suites passed together (5 files / 81 tests), and both `pnpm typecheck`
+and `pnpm lint` remained green. The original and split suites contain the same
+81 unique test names, providing a mechanical completeness check in addition to
+the behavioral run.

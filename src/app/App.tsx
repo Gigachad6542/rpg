@@ -188,11 +188,9 @@ import {
 import {
   applyPromptDebugRetention,
   createTextProvider,
-  getAllowedProviderBaseUrl,
   getConfiguredTextModelInfo,
   getConfiguredTextModelInfoForModel,
   getProviderPricingSnapshots,
-  isHostedDesktopProvider,
   normalizeImageProviderQualitySettings,
   parseImageProviderSettings,
   parseProviderSettings,
@@ -265,6 +263,11 @@ import {
   readLegacyImpersonationPrompt,
 } from "./appControllerHelpers";
 import { buildRuntimeCardFromDraft } from "./runtimeCardFactory";
+import {
+  forgetStoredProviderKey,
+  resolveComfyUiCheckpointState,
+  saveProviderKeySecurely,
+} from "./providerController";
 
 interface MemoryConsolidationReview {
   cardId: string;
@@ -2557,122 +2560,56 @@ export function App() {
 
   function applyComfyUiCheckpointModels(models: string[], source: "startup" | "manual") {
     setComfyUiCheckpointModels(models);
-    if (models.length === 0) {
-      setImageProviderStatus(
-        "ComfyUI is reachable, but no image diffusion models are visible. Install a FLUX.2 model in models/diffusion_models, then refresh ComfyUI.",
-      );
-      return;
-    }
-
-    const sourceLabel = source === "startup" ? "Startup check" : "Image model refresh";
-    if (models.includes(imageProviderSettings.model)) {
-      setImageProviderStatus(
-        `${sourceLabel} ready: ${models.length} image model${models.length === 1 ? "" : "s"} visible. Selected ${imageProviderSettings.model}.`,
-      );
-      if (activeCard && activeChat) {
-        void generateMissingCharacterPortraits(activeCard, activeChat.id, activeChat.messages);
-      }
-      return;
-    }
-
-    const installedModel = models[0];
-    setImageProviderSettings((current) =>
-      current.mode === "comfyui" && !models.includes(current.model)
-        ? {
-            ...current,
-            model: installedModel,
-          }
-        : current,
-    );
-    setImageProviderStatus(
-      `${sourceLabel} ready: selected installed image model ${installedModel} because the saved model was not visible to ComfyUI.`,
-    );
-    if (activeCard && activeChat) {
+    const result = resolveComfyUiCheckpointState(imageProviderSettings, models, source);
+    setImageProviderSettings(result.settings);
+    setImageProviderStatus(result.status);
+    if (result.ready && activeCard && activeChat) {
       void generateMissingCharacterPortraits(activeCard, activeChat.id, activeChat.messages);
     }
   }
 
-  async function saveProviderKey() {
-    if (providerSettings.mode === "mock") {
-      setProviderKeyStatus("Mock provider active; no API key needed.");
-      return;
+  function applyProviderKeySaveResult(result: Awaited<ReturnType<typeof saveProviderKeySecurely>>) {
+    setProviderKeyStatus(result.status);
+    if (result.secureStorageStatus) {
+      setSecureStorageStatus(result.secureStorageStatus);
     }
-
-    if (providerSettings.providerId === "local" && !sessionApiKey.trim()) {
-      setProviderKeyStatus("Local OpenAI-compatible endpoint active without a stored API key.");
-      return;
+    if (result.settings) {
+      setProviderSettings(result.settings);
     }
-
-    if (!sessionApiKey.trim()) {
-      setProviderKeyStatus(
-        providerSettings.secretReference
-          ? "Stored OS keychain reference active. The raw key is not saved in local app data."
-          : isHostedDesktopProvider(providerSettings)
-            ? "Store this hosted provider key in the OS keychain before generation."
-            : "Enter a session API key to use the OpenAI-compatible provider path.",
-      );
-      return;
-    }
-
-    if (providerSettings.providerId === "local") {
-      setProviderKeyStatus("Local OpenAI-compatible endpoint active with a memory-only session key.");
-      return;
-    }
-
-    const status = await keyStorageRef.current.getStatus();
-    setSecureStorageStatus(status);
-    if (!status.available) {
-      setProviderKeyStatus(isTauriRuntime()
-        ? `Store this hosted provider key in the OS keychain before generation. Secure storage unavailable: ${
-            status.reason ?? "desktop keychain unavailable"
-          }`
-        : `Session key active in memory only; secure storage unavailable: ${status.reason ?? "desktop keychain unavailable"}`);
-      return;
-    }
-
-    try {
-      const normalizedBaseUrl = getAllowedProviderBaseUrl(providerSettings);
-      if (!normalizedBaseUrl) {
-        setProviderKeyStatus("Provider endpoint must be the known hosted URL or a loopback local endpoint.");
-        return;
-      }
-      const reference = await keyStorageRef.current.storeSecret({
-        providerId: providerSettings.providerId,
-        secretName: "apiKey",
-        secretValue: sessionApiKey.trim(),
-      });
-      setProviderSettings((current) => ({
-        ...current,
-        secretReference: {
-          ...reference,
-          providerBaseUrl: normalizedBaseUrl,
-        },
-      }));
+    if (result.clearSessionApiKey) {
       setSessionApiKey("");
-      setProviderKeyStatus("API key stored in OS keychain. Only a secret reference is saved locally.");
-    } catch (error) {
-      setProviderKeyStatus(getErrorMessage(error));
     }
   }
 
-  async function forgetProviderKey() {
-    if (!providerSettings.secretReference) {
-      setSessionApiKey("");
-      setProviderKeyStatus("No stored provider key reference to forget.");
-      return;
+  function saveProviderKey(): Promise<void> {
+    const operation = saveProviderKeySecurely({
+      settings: providerSettings,
+      sessionApiKey,
+      keyStorage: keyStorageRef.current,
+      desktopRuntime: isTauriRuntime(),
+    });
+    if (operation instanceof Promise) {
+      return operation.then(applyProviderKeySaveResult);
     }
+    applyProviderKeySaveResult(operation);
+    return Promise.resolve();
+  }
 
-    try {
-      await keyStorageRef.current.deleteSecret(providerSettings.secretReference);
-      setProviderSettings((current) => {
-        const { secretReference: _secretReference, ...rest } = current;
-        return rest;
-      });
+  function applyProviderKeyForgetResult(result: Awaited<ReturnType<typeof forgetStoredProviderKey>>) {
+    setProviderKeyStatus(result.status);
+    setProviderSettings(result.settings);
+    if (result.clearSessionApiKey) {
       setSessionApiKey("");
-      setProviderKeyStatus("Stored provider key reference removed.");
-    } catch (error) {
-      setProviderKeyStatus(getErrorMessage(error));
     }
+  }
+
+  function forgetProviderKey(): Promise<void> {
+    const operation = forgetStoredProviderKey(providerSettings, keyStorageRef.current);
+    if (operation instanceof Promise) {
+      return operation.then(applyProviderKeyForgetResult);
+    }
+    applyProviderKeyForgetResult(operation);
+    return Promise.resolve();
   }
 
   async function testTextProvider() {

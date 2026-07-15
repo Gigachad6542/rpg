@@ -55,3 +55,15 @@ player-rule composition, initial lore/story entities, and RPG-state defaults.
 The controller allocates the ID and applies the returned card. Two focused
 factory tests and all 81 main App tests passed; typecheck and lint remained
 green. `App.tsx` is now 3,140 lines.
+
+## Fourth extraction
+
+RED: `tests/app/providerController.test.ts` failed because secure-key and
+ComfyUI selection policy had no independent module.
+
+GREEN: `providerController.ts` now owns secure-storage preflight, hosted-key
+storage/forget results, secret-free return values, and ComfyUI checkpoint
+selection/status. Four focused policy tests and all 81 main App tests passed.
+The App test suite also caught and prevented an initial synchronous-status
+timing regression before the extraction landed. Typecheck and lint are green;
+`App.tsx` is now 3,077 lines.

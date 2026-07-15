@@ -141,6 +141,32 @@ describe("useRuntimeSessionManagement", () => {
     expect(result.current.memoryConsolidationReview).toBeNull();
   });
 
+  it("synchronously rejects duplicate consolidation work before React commits state", async () => {
+    let resolveConsolidation!: (value: Awaited<ReturnType<typeof runMemoryConsolidationSafely>>) => void;
+    runMemoryConsolidationMock.mockImplementation(
+      () => new Promise((resolve) => {
+        resolveConsolidation = resolve;
+      }),
+    );
+    const { result } = renderSession();
+
+    let first!: Promise<void>;
+    let duplicate!: Promise<void>;
+    act(() => {
+      first = result.current.consolidateActiveCardMemory();
+      duplicate = result.current.consolidateActiveCardMemory();
+    });
+
+    expect(runMemoryConsolidationMock).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      resolveConsolidation({ changed: false, entries: originalMemory, warnings: [] });
+      await Promise.all([first, duplicate]);
+    });
+
+    expect(result.current.isConsolidatingMemory).toBe(false);
+  });
+
   it("rejects a stale consolidation proposal without overwriting newer memory", async () => {
     const { result, captureRestorePoint, commitManualActiveCardState } = renderSession();
 

@@ -24,6 +24,17 @@ describe("Windows installer lifecycle release gate", () => {
     );
   });
 
+  it("runs on clean hosted Windows CI and retains lifecycle evidence", () => {
+    const ciWorkflow = readFileSync(
+      join(workspaceRoot, ".github", "workflows", "ci.yml"),
+      "utf8",
+    );
+
+    expect(ciWorkflow).toContain("pnpm desktop:installer-lifecycle");
+    expect(ciWorkflow).toContain("release-evidence/windows/installer-lifecycle/**");
+    expect(ciWorkflow).toContain("windows-installer-lifecycle-evidence");
+  });
+
   it("clears stale bundle output before producing release artifacts", () => {
     const desktopBuild = readFileSync(
       join(workspaceRoot, "scripts", "desktop-build.mjs"),

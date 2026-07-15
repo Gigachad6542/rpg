@@ -12,8 +12,8 @@ second, everything else after.
 
 ## Current reconciliation (2026-07-14)
 
-- The local `pnpm verify:release` gate passes in 261.7 seconds: 86 Vitest files /
-  664 tests, 91.81% statements/lines, 88.75% branches, 93.45% functions, both deterministic
+- The local `pnpm verify:release` gate passes in 252.8 seconds: 86 Vitest files /
+  665 tests, 91.81% statements/lines, 88.75% branches, 93.45% functions, both deterministic
   evals, Playwright, JS/Rust audits, 34 Rust tests, clippy, desktop packaging,
   executable smoke, administrative-extraction SQLite smoke, and the normal
   current-user NSIS lifecycle.

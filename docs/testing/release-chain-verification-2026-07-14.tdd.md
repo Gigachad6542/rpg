@@ -23,6 +23,7 @@ the existing Phase 2 release contract.
 | `800b0f9` | `pnpm exec vitest run tests/release/previousReleaseVerification.test.ts tests/release/phase2Release.test.ts tests/release/releaseWorkflow.test.ts` | RED: 6 intended failures because the metadata/signature verifiers and bootstrap workflow did not exist |
 | `0802d64` | `pnpm exec vitest run tests/release/previousReleaseVerification.test.ts` | RED: tag-commit binding remained absent with the verifier still unimplemented |
 | `b5477f2` | `pnpm exec vitest run tests/release/previousReleaseVerification.test.ts` | RED: an absolute evidence directory failed in path normalization before Authenticode inspection |
+| `735e31c` | `pnpm exec vitest run tests/release/releaseWorkflow.test.ts tests/release/phase2Release.test.ts` | RED: the immutable-action invariant failed on `actions/checkout@v4` while the other 13 tests passed |
 
 ## GREEN checkpoint
 
@@ -39,6 +40,11 @@ Commit `8159691` (`fix: verify the signed release chain`) implements:
 - early rejection of GitHub account/repository states that cannot store the
   required artifact attestations.
 
+Commit `9704a0e` (`security: pin workflow actions by commit`) additionally binds
+all 26 `uses:` references in `ci.yml` and `release.yml` to the exact upstream
+40-character commit resolved on 2026-07-14, while preserving readable version
+comments for upgrade review.
+
 ## Test specification
 
 | # | Guarantee | Test/command | Type | Result |
@@ -52,6 +58,14 @@ Commit `8159691` (`fix: verify the signed release chain`) implements:
 | 7 | Bootstrap is manual, confirmed, prerelease-only, and explicitly not migration proof | `releaseWorkflow.test.ts` | Contract | PASS |
 | 8 | Workflow YAML parses into six jobs | Python/PyYAML parse | Syntax | PASS |
 | 9 | TypeScript and ESLint accept the final implementation | `pnpm typecheck`, `pnpm lint` | Static | PASS |
+| 10 | Every CI/release action is immutable-commit pinned and both workflows still parse as YAML | immutable action contract plus PyYAML parse | Supply chain | PASS |
+
+Immutable-action GREEN command:
+
+```text
+pnpm exec vitest run tests/release/releaseWorkflow.test.ts tests/release/phase2Release.test.ts
+2 files / 14 tests passed
+```
 
 Focused GREEN command:
 
@@ -62,8 +76,8 @@ pnpm exec vitest run tests/release/previousReleaseVerification.test.ts tests/rel
 
 ## Coverage and known gaps
 
-The complete `pnpm verify:release` lane passed in 261.7 seconds with 86 test
-files / 664 tests and 91.81% statements/lines, 88.75% branches, and 93.45%
+The complete `pnpm verify:release` lane passed in 252.8 seconds with 86 test
+files / 665 tests and 91.81% statements/lines, 88.75% branches, and 93.45%
 functions. All eleven Playwright journeys, Rust checks, package builds, desktop
 smokes, and the normal NSIS lifecycle passed. The canonical production plan
 retains the complete current evidence.

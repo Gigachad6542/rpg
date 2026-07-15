@@ -21,9 +21,9 @@ constraint is resolved.
 ## Evidence Checked
 
 - Real repo root: `C:\Users\Dwthe\rpg project`.
-- Local release gate: `pnpm verify:release` passed in 261.7 seconds on 2026-07-14
-  with release-chain code commit `8159691` checked out.
-- Vitest coverage gate: 86 files and 664 tests passed.
+- Local release gate: `pnpm verify:release` passed in 252.8 seconds on 2026-07-14
+  with immutable-workflow code commit `9704a0e` checked out.
+- Vitest coverage gate: 86 files and 665 tests passed.
 - Coverage: 91.81% statements/lines, 88.75% branches, and 93.45% functions.
 - Enforced coverage floors: 90% statements/lines/functions and 85% branches.
 - Deterministic evals: Phase 1 passed; Phase 1.1 passed with 100 lore decisions,
@@ -55,7 +55,7 @@ constraint is resolved.
   sole canonical NSIS artifact, verified current-user registration and launch,
   preserved isolated SQLite data across a same-version reinstall and relaunch,
   then removed the registration and install directory on uninstall. The tested
-  NSIS SHA256 was `9fe017529a76efb5b9c7250e87c90b8f48d8ceaa1677ee51994e89a4c28b4a98`.
+  NSIS SHA256 was `08339ea6eabd51d535f50749ed4ebce9efa5af8b2307207fd5833d9c2a55a25d`.
   This was a
   local development profile, not a clean VM or previous-version upgrade.
 - Packaged WebView product flow: passed in 13.1 seconds against the current MSI,
@@ -125,7 +125,9 @@ that flow is effortless would dilute the product.
     - `verify:release` now includes desktop package build and packaged executable smoke.
     - Windows builds clear stale bundle output and the release gate performs a
       fail-closed normal NSIS install/reinstall/uninstall lifecycle.
-    - CI and release workflow inputs are pinned for pnpm and Rust.
+    - All 26 CI/release action references are pinned to immutable upstream
+      commits with reviewed version comments; pnpm and Rust versions are also
+      fixed.
     - A tag-triggered Windows release workflow builds, verifies, uploads MSI/NSIS artifacts, writes SHA256 checksums, and creates GitHub releases for `v*` tags.
     - Candidate migration inputs are now revalidated against Authenticode
       publisher/timestamp, checksum, provenance, GitHub tag commit, and strict

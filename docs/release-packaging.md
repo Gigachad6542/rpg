@@ -60,6 +60,11 @@ The candidate workflow performs these gates in order:
 8. Upload platform artifacts and evidence for 90 days. Only then may the tag job
    publish the release.
 
+Every third-party or GitHub-maintained `uses:` entry in `ci.yml` and
+`release.yml` is pinned to a full commit SHA. The trailing version comment is
+informational; dependency updates must review and replace the immutable SHA,
+not switch back to a mutable major tag.
+
 ### First-release bootstrap
 
 The candidate lane cannot honestly prove cross-version migration before any

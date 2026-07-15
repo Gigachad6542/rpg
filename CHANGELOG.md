@@ -24,6 +24,8 @@ recorded here. Dates use `YYYY-MM-DD`; versions must match `package.json`,
 - OS-keychain references for hosted desktop provider keys, scoped Tauri
   commands, endpoint/size/time limits, export sanitization, and migration
   backups.
+- Immutable commit pins for all 26 GitHub Actions dependencies in the CI and
+  release workflows.
 
 ### Release status
 

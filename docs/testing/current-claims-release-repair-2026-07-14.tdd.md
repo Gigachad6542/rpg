@@ -73,13 +73,13 @@ Command:
 pnpm verify:release
 ```
 
-Latest result: PASS in 261.7 seconds with release-chain code commit `8159691`
+Latest result: PASS in 252.8 seconds with immutable-workflow code commit `9704a0e`
 checked out.
 
 ```text
 TypeScript: passed
 ESLint: passed
-Vitest: 86 files / 664 tests passed
+Vitest: 86 files / 665 tests passed
 Coverage: 91.81% statements, 88.75% branches, 93.45% functions, 91.81% lines
 Phase 1 deterministic eval: passed
 Phase 1.1 deterministic eval: passed; 100 lore decisions; 3 campaigns; 0 live calls
@@ -93,7 +93,7 @@ Windows MSI and NSIS: built
 Packaged executable smoke: passed
 Administrative-extraction SQLite smoke: passed
 Normal current-user NSIS install/reinstall/uninstall lifecycle: passed
-Tested NSIS SHA256: 9fe017529a76efb5b9c7250e87c90b8f48d8ceaa1677ee51994e89a4c28b4a98
+Tested NSIS SHA256: 08339ea6eabd51d535f50749ed4ebce9efa5af8b2307207fd5833d9c2a55a25d
 ```
 
 ## Packaged WebView proof

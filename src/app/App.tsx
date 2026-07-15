@@ -20,7 +20,7 @@ import {
   ShieldCheck,
   Sun,
 } from "lucide-react";
-import { persistGeneratedImageLocally, syncGeneratedImageFiles } from "./imagePersistence";
+import { syncGeneratedImageFiles } from "./imagePersistence";
 import { createSnapshotSaveQueue, type SnapshotSaveQueue } from "./snapshotSaveQueue";
 import {
   loadLocalRestorePoints,
@@ -78,7 +78,7 @@ import { runMemoryConsolidationSafely } from "../runtime/memoryConsolidation";
 import {
   validatePlayerAction as validatePlayerActionWithRules,
 } from "../runtime/playerRuleEngine";
-import { ComfyUIImageProvider, fetchComfyUIImageModels } from "../providers/comfyUIProvider";
+import { fetchComfyUIImageModels } from "../providers/comfyUIProvider";
 import {
   requireSecureKeyStorage,
   type KeyStorage,
@@ -191,7 +191,6 @@ import {
   getConfiguredTextModelInfo,
   getConfiguredTextModelInfoForModel,
   getProviderPricingSnapshots,
-  normalizeImageProviderQualitySettings,
   parseImageProviderSettings,
   parseProviderSettings,
   parseRuntimeSettings,
@@ -268,6 +267,7 @@ import {
   resolveComfyUiCheckpointState,
   saveProviderKeySecurely,
 } from "./providerController";
+import { generateConfiguredImageArtifact } from "./assetService";
 
 interface MemoryConsolidationReview {
   cardId: string;
@@ -2471,71 +2471,16 @@ export function App() {
     negativePrompt: string;
     metadata: Record<string, unknown>;
   }): Promise<GeneratedMapArtifact> {
-    const effectiveImageProviderSettings = normalizeImageProviderQualitySettings(imageProviderSettings);
-    if (effectiveImageProviderSettings !== imageProviderSettings) {
-      setImageProviderSettings(effectiveImageProviderSettings);
-    }
-
-    if (
-      effectiveImageProviderSettings.mode === "prompt-only" ||
-      !effectiveImageProviderSettings.workflowJson.trim()
-    ) {
-      return {
-        ...input.baseArtifact,
-        status:
-          effectiveImageProviderSettings.mode === "comfyui"
-            ? "error"
-            : input.baseArtifact.status,
-        error:
-          effectiveImageProviderSettings.mode === "comfyui"
-            ? "Paste a ComfyUI API workflow in Image Provider settings to generate an image."
-            : undefined,
-      };
-    }
-
-    const provider = new ComfyUIImageProvider({
-      endpoint: effectiveImageProviderSettings.endpoint,
-      workflowJson: effectiveImageProviderSettings.workflowJson,
-      model: effectiveImageProviderSettings.model,
-      apiKey: imageSessionApiKey,
-      pollTimeoutMs: effectiveImageProviderSettings.pollTimeoutMs,
+    const result = await generateConfiguredImageArtifact({
+      settings: imageProviderSettings,
+      sessionApiKey: imageSessionApiKey,
+      ...input,
+      desktopRuntime: isTauriRuntime(),
     });
-    const result = await provider.generateImage({
-      model: effectiveImageProviderSettings.model,
-      prompt: input.prompt,
-      negativePrompt: input.negativePrompt,
-      width: effectiveImageProviderSettings.width,
-      height: effectiveImageProviderSettings.height,
-      seed: effectiveImageProviderSettings.seed,
-      steps: effectiveImageProviderSettings.steps,
-      cfg: effectiveImageProviderSettings.cfg,
-      samplerName: effectiveImageProviderSettings.samplerName,
-      scheduler: effectiveImageProviderSettings.scheduler,
-      metadata: input.metadata,
-    });
-    const imageUrl = result.images[0]?.url;
-    if (!imageUrl) {
-      return {
-        ...input.baseArtifact,
-        provider: result.providerId,
-        status: "error",
-        error: "Image provider finished without an image output.",
-      };
+    if (result.settings !== imageProviderSettings) {
+      setImageProviderSettings(result.settings);
     }
-
-    const generatedArtifact: GeneratedMapArtifact = {
-      ...input.baseArtifact,
-      provider: result.providerId,
-      status: "generated",
-      imageUrl,
-    };
-    if (isTauriRuntime()) {
-      const durableImageUrl = await persistGeneratedImageLocally(generatedArtifact.id, imageUrl);
-      if (durableImageUrl) {
-        return { ...generatedArtifact, imageUrl: durableImageUrl };
-      }
-    }
-    return generatedArtifact;
+    return result.artifact;
   }
 
   async function refreshComfyUICheckpoints() {

@@ -67,3 +67,13 @@ selection/status. Four focused policy tests and all 81 main App tests passed.
 The App test suite also caught and prevented an initial synchronous-status
 timing regression before the extraction landed. Typecheck and lint are green;
 `App.tsx` is now 3,077 lines.
+
+## Fifth extraction
+
+RED: `tests/app/assetService.test.ts` failed because configured image execution
+still existed only inside the React controller.
+
+GREEN: `assetService.ts` now owns provider construction, quality normalization,
+prompt-only behavior, malformed-output handling, and desktop durable-asset URL
+replacement. Four focused service tests and all 81 main App tests passed;
+typecheck and lint are green. `App.tsx` is now 3,022 lines.

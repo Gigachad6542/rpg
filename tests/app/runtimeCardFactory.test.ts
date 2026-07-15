@@ -8,6 +8,7 @@ describe("runtimeCardFactory", () => {
     const card = buildRuntimeCardFromDraft(
       {
         ...defaultNewCard,
+        kind: "rpg",
         name: "  Ember Road  ",
         summary: " ",
         characterName: " ",
@@ -33,7 +34,9 @@ describe("runtimeCardFactory", () => {
         knownPlaces: [],
       },
     });
-    expect(card.playerRules.map((rule) => rule.text)).toEqual(expect.arrayContaining(["Keep promises", "Track supplies"]));
+    expect(card.playerRules.map((rule) => rule.description)).toEqual(
+      expect.arrayContaining(["Keep promises", "Track supplies"]),
+    );
     expect(card.lorebooks[0]?.name).toBe("Frontier lore");
   });
 
@@ -51,6 +54,6 @@ describe("runtimeCardFactory", () => {
     expect(card.kind).toBe("character");
     expect(card.characterName).toBe("Sera Vale");
     expect(card.rpg).toBeUndefined();
-    expect(card.storyEntities[0]?.name).toBe("Sera Vale");
+    expect(card.storyEntities.map((entity) => entity.name)).toEqual(["Player Character", "Sera Vale"]);
   });
 });

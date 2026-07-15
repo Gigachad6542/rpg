@@ -44,3 +44,14 @@ entry disabling, and imported-message counting moved to
 `appControllerHelpers.ts`. Its four focused tests and all 81 main App tests
 passed (85 total); typecheck and lint remained green. `App.tsx` is now 3,178
 lines.
+
+## Third extraction
+
+RED: `tests/app/runtimeCardFactory.test.ts` failed at module resolution because
+card construction still lived inside the React controller.
+
+GREEN: `runtimeCardFactory.ts` now owns draft normalization, default/custom
+player-rule composition, initial lore/story entities, and RPG-state defaults.
+The controller allocates the ID and applies the returned card. Two focused
+factory tests and all 81 main App tests passed; typecheck and lint remained
+green. `App.tsx` is now 3,140 lines.

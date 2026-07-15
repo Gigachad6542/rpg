@@ -180,11 +180,7 @@ import {
   sanitizeMapNegativePrompt,
 } from "./imagePromptPlanning";
 import {
-  createCustomPlayerRule,
-  createDefaultCharacterPlayerRules,
-  createDefaultRpgPlayerRules,
   createEmptyLorebook,
-  createInitialLorebooks,
   createInitialStoryEntities,
   normalizeRuntimeCards,
   toHiddenContinuityCard,
@@ -268,6 +264,7 @@ import {
   isAbortError,
   readLegacyImpersonationPrompt,
 } from "./appControllerHelpers";
+import { buildRuntimeCardFromDraft } from "./runtimeCardFactory";
 
 interface MemoryConsolidationReview {
   cardId: string;
@@ -985,48 +982,8 @@ export function App() {
     }
     setNewCardError(null);
 
-    const customRuleText = newCard.playerRules
-      .split("\n")
-      .map((rule) => rule.trim())
-      .filter(Boolean);
-    const baseRules = newCard.kind === "rpg" ? createDefaultRpgPlayerRules() : createDefaultCharacterPlayerRules();
-    const customRules = customRuleText.map((rule) => createCustomPlayerRule(rule, rule));
     const cardId = createRuntimeEntityId("card");
-
-    const card: RuntimeCard = {
-      id: cardId,
-      name: newCard.name.trim(),
-      kind: newCard.kind,
-      summary: newCard.summary.trim() || "User-created runtime card.",
-      characterName: newCard.characterName.trim() || newCard.name.trim(),
-      characterDescription: newCard.characterDescription.trim(),
-      scenario: newCard.scenario.trim(),
-      greeting: newCard.greeting.trim(),
-      exampleDialogs: newCard.exampleDialogs.trim(),
-      systemPrompt: newCard.systemPrompt.trim() || "Follow this card's local rules and continuity.",
-      preHistoryInstructions: newCard.preHistoryInstructions.trim(),
-      postHistoryInstructions: newCard.postHistoryInstructions.trim(),
-      playerRules: [...baseRules, ...customRules],
-      mapEnabled: newCard.mapEnabled,
-      lorebooks: createInitialLorebooks(cardId, newCard.lorebookName),
-      memory: [],
-      storyEntities: createInitialStoryEntities(cardId, {
-        cardKind: newCard.kind,
-        cardCharacterName: newCard.characterName.trim() || newCard.name.trim(),
-      }),
-      rpg:
-        newCard.kind === "rpg"
-          ? {
-              location: "Unmapped starting area",
-              health: "not configured",
-              inventory: [],
-              quests: [],
-              flags: {},
-              knownPlaces: [],
-              mapStyle: "birdseye map, readable labels, clean cartographic layout",
-            }
-          : undefined,
-    };
+    const card = buildRuntimeCardFromDraft(newCard, cardId);
 
     setCards((current) => [...current, card]);
     const chat = initializeChatTurnState(createChatSession(card.id, `${card.name} chat`), card);

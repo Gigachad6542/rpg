@@ -36,4 +36,16 @@ describe("Rust runtime repository architecture", () => {
     expect(regressionTests).toContain("fn save_load_round_trip_and_prune_runtime_rows");
     expect(repository.split(/\r?\n/u).length).toBeLessThan(1_800);
   });
+
+  it("keeps normalized snapshot CRUD in a dedicated storage module", async () => {
+    const repository = await readFile("src-tauri/src/runtime_repository.rs", "utf8");
+    const storage = await readFile("src-tauri/src/runtime_repository/storage.rs", "utf8");
+
+    expect(repository).toContain("mod storage;");
+    expect(repository).toContain("use storage::{");
+    expect(storage).toContain("pub(super) fn load_runtime_snapshot_at_path");
+    expect(storage).toContain("pub(super) fn save_runtime_snapshot_at_path");
+    expect(storage).toContain("fn prune_deleted_runtime_rows");
+    expect(repository.split(/\r?\n/u).length).toBeLessThan(450);
+  });
 });

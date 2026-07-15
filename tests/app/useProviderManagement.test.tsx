@@ -9,6 +9,7 @@ import {
   initialCards,
 } from "../../src/app/appDefaults";
 import { useProviderManagement } from "../../src/app/useProviderManagement";
+import type { ImageProviderSettings, ProviderSettings } from "../../src/app/runtimeTypes";
 import type { KeyStorage } from "../../src/security/keyStorage";
 
 vi.mock("../../src/providers/comfyUIProvider", () => ({
@@ -46,8 +47,8 @@ describe("useProviderManagement", () => {
     };
 
     const { result } = renderHook(() => {
-      const [providerSettings, setProviderSettings] = useState(hostedSettings);
-      const [imageProviderSettings, setImageProviderSettings] = useState({
+      const [providerSettings, setProviderSettings] = useState<ProviderSettings>(hostedSettings);
+      const [imageProviderSettings, setImageProviderSettings] = useState<ImageProviderSettings>({
         ...defaultImageProviderSettings,
         mode: "prompt-only" as const,
       });
@@ -77,8 +78,8 @@ describe("useProviderManagement", () => {
   it("reports prompt-only image mode without contacting ComfyUI", async () => {
     const keyStorage = createKeyStorage();
     const { result } = renderHook(() => {
-      const [providerSettings, setProviderSettings] = useState(defaultProviderSettings);
-      const [imageProviderSettings, setImageProviderSettings] = useState({
+      const [providerSettings, setProviderSettings] = useState<ProviderSettings>(defaultProviderSettings);
+      const [imageProviderSettings, setImageProviderSettings] = useState<ImageProviderSettings>({
         ...defaultImageProviderSettings,
         mode: "prompt-only" as const,
       });
@@ -104,8 +105,8 @@ describe("useProviderManagement", () => {
     fetchComfyUIImageModelsMock.mockResolvedValue(["flux2.safetensors", "other.safetensors"]);
     const keyStorage = createKeyStorage();
     const { result } = renderHook(() => {
-      const [providerSettings, setProviderSettings] = useState(defaultProviderSettings);
-      const [imageProviderSettings, setImageProviderSettings] = useState({
+      const [providerSettings, setProviderSettings] = useState<ProviderSettings>(defaultProviderSettings);
+      const [imageProviderSettings, setImageProviderSettings] = useState<ImageProviderSettings>({
         ...defaultImageProviderSettings,
         model: "missing.safetensors",
       });
@@ -119,7 +120,7 @@ describe("useProviderManagement", () => {
         keyStorage,
         desktopRuntime: false,
       });
-      return { management, imageProviderSettings };
+      return { management, imageProviderSettings, setImageProviderSettings };
     });
 
     await waitFor(() => expect(result.current.imageProviderSettings.model).toBe("flux2.safetensors"));
@@ -128,5 +129,9 @@ describe("useProviderManagement", () => {
       "other.safetensors",
     ]);
     expect(result.current.management.imageProviderStatus).toContain("Startup check ready");
+
+    await waitFor(() => expect(fetchComfyUIImageModelsMock).toHaveBeenCalledTimes(2));
+    act(() => result.current.setImageProviderSettings((current) => ({ ...current, steps: 1, cfg: 1 })));
+    expect(fetchComfyUIImageModelsMock).toHaveBeenCalledTimes(2);
   });
 });

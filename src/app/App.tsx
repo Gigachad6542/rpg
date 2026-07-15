@@ -65,12 +65,7 @@ import { runMemoryConsolidationSafely } from "../runtime/memoryConsolidation";
 import {
   validatePlayerAction as validatePlayerActionWithRules,
 } from "../runtime/playerRuleEngine";
-import { fetchComfyUIImageModels } from "../providers/comfyUIProvider";
-import {
-  requireSecureKeyStorage,
-  type KeyStorage,
-  type SecureStorageStatus,
-} from "../security/keyStorage";
+import { requireSecureKeyStorage } from "../security/keyStorage";
 import {
   loadLocalRuntimeSnapshot,
   saveLocalRuntimeSnapshot,
@@ -237,11 +232,6 @@ import {
   isAbortError,
 } from "./appControllerHelpers";
 import { buildRuntimeCardFromDraft } from "./runtimeCardFactory";
-import {
-  forgetStoredProviderKey,
-  resolveComfyUiCheckpointState,
-  saveProviderKeySecurely,
-} from "./providerController";
 import { generateConfiguredImageArtifact } from "./assetService";
 import {
   resolveRuntimeSnapshotState,
@@ -253,6 +243,7 @@ import {
   deleteActiveChatState,
   restoreArchivedChatState,
 } from "./chatLifecycle";
+import { useProviderManagement } from "./useProviderManagement";
 
 interface MemoryConsolidationReview {
   cardId: string;
@@ -269,7 +260,7 @@ export function App() {
   const repositoryStoreRef = useRef<RuntimeRepository | null>(null);
   const snapshotSaveQueueRef = useRef<SnapshotSaveQueue<RepositoryRuntimeSnapshot> | null>(null);
   const pendingReviewRef = useRef<Record<string, string[]>>({});
-  const keyStorageRef = useRef<KeyStorage>(requireSecureKeyStorage());
+  const keyStorageRef = useRef(requireSecureKeyStorage());
   const [theme, setTheme] = useState<Theme>(() => initialRuntimeState.theme);
   const [section, setSection] = useState<MainSection>("runtime");
   const [cards, setCards] = useState<RuntimeCard[]>(() => initialRuntimeState.cards);
@@ -294,17 +285,11 @@ export function App() {
   const [isGeneratingMapImage, setIsGeneratingMapImage] = useState(false);
   const [isGeneratingPhoto, setIsGeneratingPhoto] = useState(false);
   const [newCard, setNewCard] = useState(defaultNewCard);
-  const [providerKeyStatus, setProviderKeyStatus] = useState(() => initialRuntimeState.providerKeyStatus);
-  const [providerTestStatus, setProviderTestStatus] = useState("No provider test has run yet.");
   const [providerSettings, setProviderSettings] = useState<ProviderSettings>(() => initialRuntimeState.providerSettings);
   const [imageProviderSettings, setImageProviderSettings] = useState<ImageProviderSettings>(() => initialRuntimeState.imageProviderSettings);
-  const [comfyUiCheckpointModels, setComfyUiCheckpointModels] = useState<string[]>([]);
-  const [imageProviderStatus, setImageProviderStatus] = useState("ComfyUI image model check has not run yet.");
   const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettings>(() => initialRuntimeState.runtimeSettings);
   const [personas, setPersonas] = useState<Persona[]>(() => initialRuntimeState.personas);
   const [activePersonaId, setActivePersonaId] = useState(() => initialRuntimeState.activePersonaId);
-  const [sessionApiKey, setSessionApiKey] = useState("");
-  const [imageSessionApiKey, setImageSessionApiKey] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [streamingReply, setStreamingReply] = useState("");
   const [isConsolidatingMemory, setIsConsolidatingMemory] = useState(false);
@@ -333,16 +318,41 @@ export function App() {
   const [newCardError, setNewCardError] = useState<string | null>(null);
   const [lorebookEntryError, setLorebookEntryError] = useState<string | null>(null);
   const [mediaPreview, setMediaPreview] = useState<MediaPreviewArtifact | null>(null);
-  const [secureStorageStatus, setSecureStorageStatus] = useState<SecureStorageStatus>({
-    available: false,
-    storageKind: "memory-only",
-    reason: "Secure storage status has not been checked yet.",
-  });
   const turnAbortControllerRef = useRef<AbortController | null>(null);
 
   const activeCard = cards.find((card) => card.id === activeCardId) ?? null;
   const activePersona = getActivePersona(personas, activePersonaId);
   const activeChat = activeCard ? getActiveChatForCard(activeCard.id, chatSessions, activeChatIds) : undefined;
+  const {
+    providerKeyStatus,
+    setProviderKeyStatus,
+    providerTestStatus,
+    comfyUiCheckpointModels,
+    imageProviderStatus,
+    sessionApiKey,
+    setSessionApiKey,
+    imageSessionApiKey,
+    setImageSessionApiKey,
+    secureStorageStatus,
+    saveProviderKey,
+    forgetProviderKey,
+    testTextProvider,
+    refreshComfyUICheckpoints,
+  } = useProviderManagement({
+    initialProviderKeyStatus: initialRuntimeState.providerKeyStatus,
+    providerSettings,
+    setProviderSettings,
+    imageProviderSettings,
+    setImageProviderSettings,
+    providerTestCard: activeCard ?? cards[0],
+    keyStorage: keyStorageRef.current,
+    desktopRuntime: isTauriRuntime(),
+    onComfyUiReady: () => {
+      if (activeCard && activeChat) {
+        void generateMissingCharacterPortraits(activeCard, activeChat.id, activeChat.messages);
+      }
+    },
+  });
   const messages = useMemo(() => filterPersistedOpeningMessages(activeChat?.messages ?? []), [activeChat?.messages]);
   const visibleMessages = messages.filter((message) => message.role !== "system");
   const activeLoreSelection = useMemo(
@@ -487,7 +497,7 @@ export function App() {
     setGeneratedMaps(state.generatedMaps);
     setMapArtifact(state.mapArtifact);
     setPhotoArtifact(state.photoArtifact);
-  }, []);
+  }, [setProviderKeyStatus]);
 
   const hydrateFromSnapshot = useCallback((
     snapshot: RepositoryRuntimeSnapshot,
@@ -557,67 +567,6 @@ export function App() {
     window.addEventListener("wheel", handleWheelZoom, { capture: true, passive: false });
     return () => window.removeEventListener("wheel", handleWheelZoom, { capture: true });
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (imageProviderSettings.mode !== "comfyui") {
-      setComfyUiCheckpointModels([]);
-      setImageProviderStatus("Prompt-only image mode active.");
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setImageProviderStatus("Checking ComfyUI startup requirements...");
-    void fetchComfyUIImageModels({
-      endpoint: imageProviderSettings.endpoint,
-      apiKey: imageSessionApiKey,
-    })
-      .then((models) => {
-        if (cancelled) {
-          return;
-        }
-        setComfyUiCheckpointModels(models);
-        if (models.length === 0) {
-          setImageProviderStatus(
-            "ComfyUI is reachable, but no image diffusion models are visible. Install a FLUX.2 model in models/diffusion_models, then refresh ComfyUI.",
-          );
-          return;
-        }
-
-        if (models.includes(imageProviderSettings.model)) {
-          setImageProviderStatus(
-            `Startup check ready: ${models.length} image model${models.length === 1 ? "" : "s"} visible. Selected ${imageProviderSettings.model}.`,
-          );
-          return;
-        }
-
-        const installedModel = models[0];
-        setImageProviderSettings((current) =>
-          current.mode === "comfyui" && !models.includes(current.model)
-            ? {
-                ...current,
-                model: installedModel,
-              }
-            : current,
-        );
-        setImageProviderStatus(
-          `Startup check ready: selected installed image model ${installedModel} because the saved model was not visible to ComfyUI.`,
-        );
-      })
-      .catch((error) => {
-        if (cancelled) {
-          return;
-        }
-        setComfyUiCheckpointModels([]);
-        setImageProviderStatus(`ComfyUI startup check failed: ${getErrorMessage(error)}`);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [imageProviderSettings.endpoint, imageProviderSettings.mode, imageProviderSettings.model, imageSessionApiKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -699,20 +648,6 @@ export function App() {
       });
     }
   }
-
-  useEffect(() => {
-    let cancelled = false;
-
-    void keyStorageRef.current.getStatus().then((status) => {
-      if (!cancelled) {
-        setSecureStorageStatus(status);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     setMapArtifact(activeCard ? findGeneratedMapForChat(generatedMaps, activeCard.id, activeChat?.id, "map") : null);
@@ -2427,102 +2362,6 @@ export function App() {
       setImageProviderSettings(result.settings);
     }
     return result.artifact;
-  }
-
-  async function refreshComfyUICheckpoints() {
-    if (imageProviderSettings.mode !== "comfyui") {
-      setComfyUiCheckpointModels([]);
-      setImageProviderStatus("Prompt-only image mode active.");
-      return;
-    }
-
-    setImageProviderStatus("Checking ComfyUI image models...");
-    try {
-      const models = await fetchComfyUIImageModels({
-        endpoint: imageProviderSettings.endpoint,
-        apiKey: imageSessionApiKey,
-      });
-      applyComfyUiCheckpointModels(models, "manual");
-    } catch (error) {
-      setComfyUiCheckpointModels([]);
-      setImageProviderStatus(`ComfyUI image model check failed: ${getErrorMessage(error)}`);
-    }
-  }
-
-  function applyComfyUiCheckpointModels(models: string[], source: "startup" | "manual") {
-    setComfyUiCheckpointModels(models);
-    const result = resolveComfyUiCheckpointState(imageProviderSettings, models, source);
-    setImageProviderSettings(result.settings);
-    setImageProviderStatus(result.status);
-    if (result.ready && activeCard && activeChat) {
-      void generateMissingCharacterPortraits(activeCard, activeChat.id, activeChat.messages);
-    }
-  }
-
-  function applyProviderKeySaveResult(result: Awaited<ReturnType<typeof saveProviderKeySecurely>>) {
-    setProviderKeyStatus(result.status);
-    if (result.secureStorageStatus) {
-      setSecureStorageStatus(result.secureStorageStatus);
-    }
-    if (result.settings) {
-      setProviderSettings(result.settings);
-    }
-    if (result.clearSessionApiKey) {
-      setSessionApiKey("");
-    }
-  }
-
-  function saveProviderKey(): Promise<void> {
-    const operation = saveProviderKeySecurely({
-      settings: providerSettings,
-      sessionApiKey,
-      keyStorage: keyStorageRef.current,
-      desktopRuntime: isTauriRuntime(),
-    });
-    if (operation instanceof Promise) {
-      return operation.then(applyProviderKeySaveResult);
-    }
-    applyProviderKeySaveResult(operation);
-    return Promise.resolve();
-  }
-
-  function applyProviderKeyForgetResult(result: Awaited<ReturnType<typeof forgetStoredProviderKey>>) {
-    setProviderKeyStatus(result.status);
-    setProviderSettings(result.settings);
-    if (result.clearSessionApiKey) {
-      setSessionApiKey("");
-    }
-  }
-
-  function forgetProviderKey(): Promise<void> {
-    const operation = forgetStoredProviderKey(providerSettings, keyStorageRef.current);
-    if (operation instanceof Promise) {
-      return operation.then(applyProviderKeyForgetResult);
-    }
-    applyProviderKeyForgetResult(operation);
-    return Promise.resolve();
-  }
-
-  async function testTextProvider() {
-    setProviderTestStatus("Testing provider...");
-    try {
-      const providerCard = activeCard ?? cards[0];
-      const provider = createTextProvider(providerSettings, sessionApiKey, providerCard, "Provider test", 0);
-      const response = await provider.generateText({
-        model: providerSettings.mode === "mock" ? "mock-narrator" : providerSettings.model,
-        prompt: "Return a short provider health check response.",
-        maxOutputTokens: 80,
-        temperature: 0,
-        metadata: {
-          testOnly: true,
-        },
-      });
-      setProviderTestStatus(
-        `Provider responded through ${response.providerId} / ${response.model}. Estimated tokens: ${response.usage.totalTokens}.`,
-      );
-    } catch (error) {
-      setProviderTestStatus(getErrorMessage(error));
-    }
   }
 
   function shutdownRuntime() {

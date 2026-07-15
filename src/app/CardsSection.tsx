@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { Archive, ArchiveRestore, BookOpen, Download, Plus, Rocket, Search, Settings2, Star, Trash2 } from "lucide-react";
 import { type CompiledPrompt } from "../runtime/promptCompiler";
 import type { LoreTriggerProvenance } from "../runtime/loreTriggerEngine";
@@ -422,6 +422,32 @@ export function SelectedCardEditorPanel(props: {
   const editorTab = props.cardTab === "chat" || props.cardTab === "map" ? "instructions" : props.cardTab;
   const tabs: CardTab[] =
     props.activeCard.kind === "rpg" ? ["instructions", "rules", "lorebooks", "rpg"] : ["instructions", "rules", "lorebooks"];
+  const tabRefs = useRef<Partial<Record<CardTab, HTMLButtonElement | null>>>({});
+
+  function selectAndFocusTab(tab: CardTab) {
+    props.setCardTab(tab);
+    tabRefs.current[tab]?.focus();
+  }
+
+  function handleTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, tab: CardTab) {
+    const currentIndex = tabs.indexOf(tab);
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowRight") {
+      nextIndex = (currentIndex + 1) % tabs.length;
+    } else if (event.key === "ArrowLeft") {
+      nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = tabs.length - 1;
+    }
+
+    if (nextIndex === null) {
+      return;
+    }
+    event.preventDefault();
+    selectAndFocusTab(tabs[nextIndex]);
+  }
 
   return (
     <section className="panel selected-card-panel" aria-label="Selected card editor">
@@ -433,11 +459,18 @@ export function SelectedCardEditorPanel(props: {
         {tabs.map((tab) => (
           <button
             key={tab}
+            ref={(element) => {
+              tabRefs.current[tab] = element;
+            }}
+            id={`card-editor-tab-${tab}`}
             role="tab"
             type="button"
             aria-selected={editorTab === tab}
+            aria-controls={`card-editor-panel-${tab}`}
+            tabIndex={editorTab === tab ? 0 : -1}
             className={editorTab === tab ? "active" : ""}
             onClick={() => props.setCardTab(tab)}
+            onKeyDown={(event) => handleTabKeyDown(event, tab)}
           >
             {renderTabIcon(tab)}
             <span>{formatTabLabel(tab)}</span>
@@ -445,30 +478,36 @@ export function SelectedCardEditorPanel(props: {
         ))}
       </div>
 
-      {editorTab === "instructions" ? (
-        <InstructionsPanel activeCard={props.activeCard} updateActiveCard={props.updateActiveCard} />
-      ) : null}
-      {editorTab === "rules" ? (
-        <RulesPanel
-          activeCard={props.activeCard}
-          compiledPrompt={props.compiledPrompt}
-          compiledPromptResult={props.compiledPromptResult}
-          updateActiveCard={props.updateActiveCard}
-        />
-      ) : null}
-      {editorTab === "lorebooks" ? (
-        <LorebooksPanel
-          activeCard={props.activeCard}
-          activeLorebookEntries={props.activeLorebookEntries}
-          activeLoreTriggers={props.activeLoreTriggers}
-          updateActiveLorebook={props.updateActiveLorebook}
-          addLorebookEntry={props.addLorebookEntry}
-          lorebookEntryError={props.lorebookEntryError}
-        />
-      ) : null}
-      {editorTab === "rpg" && props.activeCard.rpg ? (
-        <RpgStatePanel rpg={props.activeCard.rpg} updateRpgState={props.updateRpgState} />
-      ) : null}
+      <div
+        id={`card-editor-panel-${editorTab}`}
+        role="tabpanel"
+        aria-labelledby={`card-editor-tab-${editorTab}`}
+      >
+        {editorTab === "instructions" ? (
+          <InstructionsPanel activeCard={props.activeCard} updateActiveCard={props.updateActiveCard} />
+        ) : null}
+        {editorTab === "rules" ? (
+          <RulesPanel
+            activeCard={props.activeCard}
+            compiledPrompt={props.compiledPrompt}
+            compiledPromptResult={props.compiledPromptResult}
+            updateActiveCard={props.updateActiveCard}
+          />
+        ) : null}
+        {editorTab === "lorebooks" ? (
+          <LorebooksPanel
+            activeCard={props.activeCard}
+            activeLorebookEntries={props.activeLorebookEntries}
+            activeLoreTriggers={props.activeLoreTriggers}
+            updateActiveLorebook={props.updateActiveLorebook}
+            addLorebookEntry={props.addLorebookEntry}
+            lorebookEntryError={props.lorebookEntryError}
+          />
+        ) : null}
+        {editorTab === "rpg" && props.activeCard.rpg ? (
+          <RpgStatePanel rpg={props.activeCard.rpg} updateRpgState={props.updateRpgState} />
+        ) : null}
+      </div>
     </section>
   );
 }

@@ -2870,6 +2870,7 @@ export function App() {
           <button
             className={`nav-item ${section === "runtime" ? "active" : ""}`}
             type="button"
+            aria-current={section === "runtime" ? "page" : undefined}
             onClick={() => setSection("runtime")}
           >
             <MessageSquare size={18} />
@@ -2878,6 +2879,7 @@ export function App() {
           <button
             className={`nav-item ${section === "cards" ? "active" : ""}`}
             type="button"
+            aria-current={section === "cards" ? "page" : undefined}
             onClick={() => setSection("cards")}
           >
             <BookOpen size={18} />
@@ -2886,6 +2888,7 @@ export function App() {
           <button
             className={`nav-item ${section === "lorebooks" ? "active" : ""}`}
             type="button"
+            aria-current={section === "lorebooks" ? "page" : undefined}
             onClick={() => setSection("lorebooks")}
           >
             <Layers3 size={18} />
@@ -2894,6 +2897,7 @@ export function App() {
           <button
             className={`nav-item ${section === "providers" ? "active" : ""}`}
             type="button"
+            aria-current={section === "providers" ? "page" : undefined}
             onClick={() => setSection("providers")}
           >
             <KeyRound size={18} />
@@ -2902,6 +2906,7 @@ export function App() {
           <button
             className={`nav-item ${section === "settings" ? "active" : ""}`}
             type="button"
+            aria-current={section === "settings" ? "page" : undefined}
             onClick={() => setSection("settings")}
           >
             <Settings2 size={18} />

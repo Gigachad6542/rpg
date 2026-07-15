@@ -6,8 +6,8 @@ smoke.
 
 ## Result
 
-The Chromium acceptance lane now has four independent journeys. All four passed
-in 6.2 seconds with four local workers.
+The Chromium acceptance lane now has five independent journeys. All five passed
+in 6.3 seconds with five local workers.
 
 ## Characterization contracts
 
@@ -23,6 +23,9 @@ claim new product functionality. The added tests proved:
    the only enabled control, closes on Escape, and restores focus to the opener.
 4. A downloaded runtime export can be parsed into the review surface and then
    cancelled without changing the active runtime.
+5. Main-section navigation exposes the current page, and the card editor uses a
+   linked tab/tab-panel contract with roving focus plus Arrow, Home, and End key
+   navigation.
 
 The original seeded blank-card smoke remains and continues to verify mock-turn
 persistence plus compiled-prompt privacy.
@@ -33,7 +36,7 @@ persistence plus compiled-prompt privacy.
 pnpm e2e
 ```
 
-Result: 4 passed in 6.2 seconds.
+Result: 5 passed in 6.3 seconds.
 
 ```text
 pnpm typecheck
@@ -44,8 +47,15 @@ Result: both passed.
 
 ## Remaining browser and desktop depth
 
-- Add full keyboard-only navigation across top-level sections and card-editor
-  tabs.
 - Add destructive-action confirmation/recovery acceptance paths.
+- Extend the keyboard-only path through the composer, settings controls, and
+  provider-failure recovery.
 - Retain packaged desktop WebView product-flow coverage separately; browser E2E
   does not substitute for Tauri ACL, keychain, SQLite, or installer proof.
+
+## Keyboard-contract TDD checkpoint
+
+The added journey first failed because active navigation buttons had no
+`aria-current`, and card-editor tabs had no linked panels, roving `tabIndex`, or
+arrow-key behavior. The implementation then added those semantics and the
+focused test, full five-test browser lane, typecheck, and lint all passed.

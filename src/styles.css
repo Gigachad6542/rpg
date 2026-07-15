@@ -50,11 +50,17 @@ p {
   --border-strong: #e7b892;
   --text: #3d1f12;
   --muted: #94614a;
+  --muted-strong: #85503a;
   --faint: #bd8d72;
   --accent: #e5431f;
   --accent-strong: #c22f0f;
   --accent-soft: rgba(229, 67, 31, 0.12);
+  --accent-text: #b52a0e;
+  --primary-bg: #b52a0e;
+  --primary-bg-hover: #922409;
+  --primary-text: #fffaf4;
   --gold: #f08a1c;
+  --gold-text: #8a4300;
   --gold-soft: rgba(240, 138, 28, 0.16);
   --violet: #e2701a;
   --danger: #b12414;
@@ -89,11 +95,17 @@ p {
   --border-strong: #6b4130;
   --text: #fce9dd;
   --muted: #cd9c86;
+  --muted-strong: #cd9c86;
   --faint: #9a6f5c;
   --accent: #ff6a33;
   --accent-strong: #ff8a5a;
   --accent-soft: rgba(255, 106, 51, 0.18);
+  --accent-text: #ff8a5a;
+  --primary-bg: #ff6a33;
+  --primary-bg-hover: #ff8a5a;
+  --primary-text: #1a0f0a;
   --gold: #ffb24d;
+  --gold-text: #ffb24d;
   --gold-soft: rgba(255, 178, 77, 0.18);
   --violet: #ff8a44;
   --danger: #ff7a63;
@@ -198,7 +210,7 @@ h3 {
 }
 
 .eyebrow {
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 850;
   text-transform: uppercase;
 }
@@ -246,7 +258,7 @@ h3 {
 }
 
 .nav-item.active svg {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .nav-item:hover,
@@ -265,13 +277,13 @@ h3 {
 }
 
 .primary-button {
-  background: var(--accent);
+  background: var(--primary-bg);
   box-shadow: var(--shadow-tight);
-  color: #ffffff;
+  color: var(--primary-text);
 }
 
 .primary-button:hover {
-  background: var(--accent-strong);
+  background: var(--primary-bg-hover);
   transform: translateY(-1px);
 }
 
@@ -690,7 +702,7 @@ textarea:focus-visible {
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--accent-text);
   background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
@@ -1267,7 +1279,7 @@ textarea:focus-visible {
 }
 
 .message-role {
-  color: var(--muted);
+  color: var(--text);
   font-size: 12px;
   font-weight: 860;
   gap: 6px;
@@ -1671,7 +1683,7 @@ input {
 .kind-pill.rpg {
   background: var(--gold-soft);
   border-color: color-mix(in srgb, var(--gold) 34%, var(--border));
-  color: var(--gold);
+  color: var(--gold-text);
 }
 
 .card-row.selected {
@@ -1683,21 +1695,21 @@ input {
 
 .compact-dl {
   display: grid;
-  gap: 8px;
+  grid-template-columns: minmax(86px, 0.55fr) minmax(0, 1fr);
   margin: 0;
 }
 
-.compact-dl div {
-  align-items: start;
+.compact-dl dt,
+.compact-dl dd {
   border-bottom: 1px solid var(--border);
-  display: grid;
-  gap: 10px;
-  grid-template-columns: minmax(86px, 0.55fr) minmax(0, 1fr);
+  margin-bottom: 8px;
   padding-bottom: 8px;
 }
 
-.compact-dl div:last-child {
+.compact-dl dt:last-of-type,
+.compact-dl dd:last-of-type {
   border-bottom: 0;
+  margin-bottom: 0;
   padding-bottom: 0;
 }
 
@@ -2011,7 +2023,7 @@ pre {
   background: var(--panel-soft);
   border: 1px solid var(--border);
   border-radius: 999px;
-  color: var(--muted);
+  color: var(--muted-strong);
   font-size: 12px;
   font-weight: 820;
   min-height: 26px;
@@ -2573,7 +2585,7 @@ input[type="search"] {
   align-items: center;
   display: flex;
   gap: 8px;
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: 13px;
   font-weight: 800;
 }

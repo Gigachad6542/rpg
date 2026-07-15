@@ -85,26 +85,18 @@ export function AppSidebar({
           <h2>Active Card</h2>
         </div>
         <dl className="compact-dl">
-          <div>
-            <dt>Name</dt>
-            <dd>{activeCard?.name ?? "Select a card"}</dd>
-          </div>
-          <div>
-            <dt>Type</dt>
-            <dd>{activeCard?.kind ?? "saved library"}</dd>
-          </div>
-          <div>
-            <dt>Local save</dt>
-            <dd role="status" aria-live="polite">
-              {saveStatus}
-            </dd>
-          </div>
-          <div>
-            <dt>Repository</dt>
-            <dd role="status" aria-live="polite">
-              {repositoryStatus}
-            </dd>
-          </div>
+          <dt>Name</dt>
+          <dd>{activeCard?.name ?? "Select a card"}</dd>
+          <dt>Type</dt>
+          <dd>{activeCard?.kind ?? "saved library"}</dd>
+          <dt>Local save</dt>
+          <dd>
+            <span role="status" aria-live="polite">{saveStatus}</span>
+          </dd>
+          <dt>Repository</dt>
+          <dd>
+            <span role="status" aria-live="polite">{repositoryStatus}</span>
+          </dd>
         </dl>
       </section>
     </aside>

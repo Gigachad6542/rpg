@@ -324,9 +324,9 @@ export function SettingsSection(props: {
           <h3>About {APP_NAME}</h3>
         </div>
         <dl className="compact-dl">
-          <div><dt>Version</dt><dd>{APP_VERSION}</dd></div>
-          <div><dt>Data</dt><dd>Local SQLite and OS keychain references</dd></div>
-          <div><dt>Updates</dt><dd>Manual, signed releases; automatic updating is not enabled.</dd></div>
+          <dt>Version</dt><dd>{APP_VERSION}</dd>
+          <dt>Data</dt><dd>Local SQLite and OS keychain references</dd>
+          <dt>Updates</dt><dd>Manual, signed releases; automatic updating is not enabled.</dd>
         </dl>
         <div className="button-row">
           <a className="secondary-button compact-button" href={APP_HELP_URL} target="_blank" rel="noreferrer">

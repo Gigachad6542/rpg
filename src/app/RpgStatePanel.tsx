@@ -13,18 +13,12 @@ export function RpgStatePanel(props: {
         <h3>RPG State</h3>
       </div>
       <dl className="compact-dl">
-        <div>
-          <dt>Location</dt>
-          <dd>{props.rpg.location}</dd>
-        </div>
-        <div>
-          <dt>Health</dt>
-          <dd>{props.rpg.health}</dd>
-        </div>
-        <div>
-          <dt>Inventory</dt>
-          <dd>{props.rpg.inventory.join(", ") || "none"}</dd>
-        </div>
+        <dt>Location</dt>
+        <dd>{props.rpg.location}</dd>
+        <dt>Health</dt>
+        <dd>{props.rpg.health}</dd>
+        <dt>Inventory</dt>
+        <dd>{props.rpg.inventory.join(", ") || "none"}</dd>
       </dl>
       <div className="rpg-editor-grid">
         <label className="field">

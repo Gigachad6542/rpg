@@ -12,7 +12,7 @@ second, everything else after.
 
 ## Current reconciliation (2026-07-14)
 
-- The local `pnpm verify:release` gate passes in 224.8 seconds: 85 Vitest files /
+- The local `pnpm verify:release` gate passes in 203.4 seconds: 85 Vitest files /
   657 tests, 91.81% statements/lines, 88.75% branches, 93.45% functions, both deterministic
   evals, Playwright, JS/Rust audits, 34 Rust tests, clippy, desktop packaging,
   executable smoke, administrative-extraction SQLite smoke, and the normal

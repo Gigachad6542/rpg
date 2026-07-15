@@ -62,7 +62,7 @@ Command:
 pnpm verify:release
 ```
 
-Latest result: PASS in 224.8 seconds at code commit `e0218f4`.
+Latest result: PASS in 203.4 seconds at code commit `ef72f13`.
 
 ```text
 TypeScript: passed
@@ -71,8 +71,8 @@ Vitest: 85 files / 657 tests passed
 Coverage: 91.81% statements, 88.75% branches, 93.45% functions, 91.81% lines
 Phase 1 deterministic eval: passed
 Phase 1.1 deterministic eval: passed; 100 lore decisions; 3 campaigns; 0 live calls
-Vite build: passed; main app chunk 490.25 kB / 138.32 kB gzip
-Playwright: 10 passed
+Vite build: passed; main app chunk 490.29 kB / 138.33 kB gzip
+Playwright: 11 passed
 pnpm production audit: no known vulnerabilities
 Rust audit: exit 0 with 18 allowed warnings
 Rust tests: 34 passed; 1 signed-release-only Keychain test ignored
@@ -81,7 +81,7 @@ Windows MSI and NSIS: built
 Packaged executable smoke: passed
 Administrative-extraction SQLite smoke: passed
 Normal current-user NSIS install/reinstall/uninstall lifecycle: passed
-Tested NSIS SHA256: 2603adb91bbb75e8605cc767c4323e02539616fd267ed43e4b7223c87c0a9a2d
+Tested NSIS SHA256: 595d740b16ead05ba7a1dcfef36410947c4013c09d114b99800b3661cc7b88b9
 ```
 
 ## Packaged WebView proof
@@ -92,8 +92,8 @@ Command shape:
 pnpm desktop:product-flow -PreviousMsi <current.msi> -CurrentMsi <current.msi> -EvidenceDir <ignored-dir>
 ```
 
-Result: PASS in 13.8 seconds against the freshly built 5,885,952-byte MSI
-(`653c0a5949a5286f95f53132d1876380585405a9c4a5858b8ecf1e5b51d22b73`).
+Result: PASS in 13.1 seconds against the freshly built 5,885,952-byte MSI
+(`af60083f0f0bd9765a4ef8a5188bd376f9765be4160055b6ed6d0a93abe5fd77`).
 This same-package run exercised onboarding,
 provider setup, creation, play, close/reopen, SQLite continuity, backup restore,
 runtime export, and the new packaged discovery invocation. It is direct current

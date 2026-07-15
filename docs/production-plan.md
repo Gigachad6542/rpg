@@ -2,7 +2,7 @@
 
 Audit date: 2026-07-14
 
-Current working-tree readiness: **81/100 (launchable with caveats for a
+Current working-tree readiness: **82/100 (launchable with caveats for a
 controlled beta; not proven for broad public release)**. The local release gate
 is green, the packaged local-provider discovery regression is repaired, and a
 normal current-user NSIS install/reinstall/uninstall lifecycle now passes. The
@@ -14,21 +14,22 @@ for upgrade proof, and live-provider narrative quality is not yet measured.
 ## Evidence Checked
 
 - Real repo root: `C:\Users\Dwthe\rpg project`.
-- Local release gate: `pnpm verify:release` passed in 224.8 seconds on 2026-07-14.
+- Local release gate: `pnpm verify:release` passed in 203.4 seconds on 2026-07-14.
 - Vitest coverage gate: 85 files and 657 tests passed.
 - Coverage: 91.81% statements/lines, 88.75% branches, and 93.45% functions.
 - Enforced coverage floors: 90% statements/lines/functions and 85% branches.
 - Deterministic evals: Phase 1 passed; Phase 1.1 passed with 100 lore decisions,
   three long campaigns, and `liveCallsMade: 0`.
-- Browser acceptance: 10 Playwright Chromium tests passed, covering the seeded
+- Browser acceptance: 11 Playwright Chromium tests passed, covering the seeded
   runtime smoke, one-click offline demo, template card creation and reload,
   reversible export/import review, and memory-dialog focus trap/restoration.
   Additional journeys verify current-page navigation plus linked, roving,
   arrow/Home/End-key card-editor tabs, reversible card/chat deletion, and
   visible local-provider failure followed by in-place mock-provider recovery,
-  multiline keyboard composition, and fail-closed invalid runtime imports.
-- Frontend build: Vite production build passed; the main app chunk was 490.25
-  kB (138.32 kB gzip), plus separate React, icon, and Tauri chunks.
+  multiline keyboard composition, fail-closed invalid runtime imports, and a
+  reviewed whole-runtime replacement rolled back from a named restore point.
+- Frontend build: Vite production build passed; the main app chunk was 490.29
+  kB (138.33 kB gzip), plus separate React, icon, and Tauri chunks.
 - Dependency audit: `pnpm audit --prod` reported no known vulnerabilities.
 - Rust audit: `cargo audit` exited successfully with 18 allowed transitive
   warnings; two `quick-xml` advisories remain scoped exceptions in
@@ -46,13 +47,13 @@ for upgrade proof, and live-provider narrative quality is not yet measured.
   sole canonical NSIS artifact, verified current-user registration and launch,
   preserved isolated SQLite data across a same-version reinstall and relaunch,
   then removed the registration and install directory on uninstall. The tested
-  NSIS SHA256 was `2603adb91bbb75e8605cc767c4323e02539616fd267ed43e4b7223c87c0a9a2d`.
+  NSIS SHA256 was `595d740b16ead05ba7a1dcfef36410947c4013c09d114b99800b3661cc7b88b9`.
   This was a
   local development profile, not a clean VM or previous-version upgrade.
-- Packaged WebView product flow: passed in 13.8 seconds against the current MSI,
+- Packaged WebView product flow: passed in 13.1 seconds against the current MSI,
   including a real Tauri invocation of `discover_local_text_providers` and
   create/play/reopen/backup/restore/export continuity. The tested MSI SHA256 was
-  `653c0a5949a5286f95f53132d1876380585405a9c4a5858b8ecf1e5b51d22b73`.
+  `af60083f0f0bd9765a4ef8a5188bd376f9765be4160055b6ed6d0a93abe5fd77`.
   This same-package run is
   runtime proof, not previous-version migration proof.
 - Desktop write policy: exactly one `main` window is declared and capability
@@ -67,9 +68,9 @@ for upgrade proof, and live-provider narrative quality is not yet measured.
 |---|---:|---|
 | Correctness and data safety | 19/20 | SQLite authority, migrations, recovery, deterministic lineage, backup/restore, a tested single-window writer policy, and strong unit coverage are implemented. |
 | Security and privacy boundaries | 14/15 | Keychain references, scoped Tauri commands, fixed loopback discovery, import limits, redaction, and clean production audits are present; accepted Rust debt remains. |
-| Automated verification | 18/20 | The local release gate is broad and ten critical browser journeys now pass; desktop UI automation remains narrower than unit coverage and live-provider evaluation has not run. |
+| Automated verification | 18/20 | The local release gate is broad and eleven critical browser journeys now pass; desktop UI automation remains narrower than unit coverage and live-provider evaluation has not run. |
 | Packaging and release operations | 14/20 | Signed fail-closed workflows and a real local NSIS lifecycle exist; current hosted signed/notarized evidence, clean-VM proof, and a published previous-version migration are absent. |
-| Product and UX maturity | 9/15 | Onboarding, sample content, imports, library tools, continuity, explicit recovery controls, and critical keyboard paths are credible; the main controller remains oversized and settings accessibility is not yet exhaustive. |
+| Product and UX maturity | 10/15 | Onboarding, sample content, imports, library tools, continuity, named recovery controls, reversible runtime replacement, and critical keyboard paths are credible; the main controller remains oversized and settings accessibility is not yet exhaustive. |
 | Operational and project governance | 7/10 | Release, rollback, runtime, security, support, contribution, changelog, conduct, issue, and PR contracts exist; licensing and verified public support/security intake remain incomplete. |
 
 ## Competitive Snapshot (verified 2026-07-14)
@@ -147,7 +148,8 @@ that flow is effortless would dilute the product.
   CRUD, and a separate 1,113-line regression corpus.
 - Continue accessibility acceptance beyond the verified memory-dialog focus
   trap, current-page navigation, linked keyboard-operable card tabs, multiline
-  composer, and fail-closed runtime replacement into the remaining settings flows.
+  composer, fail-closed replacement, and named replacement rollback into the
+  remaining settings flows.
 - Make the owner licensing decision and configure verified public help,
   support, and security-reporting destinations before broad distribution.
 

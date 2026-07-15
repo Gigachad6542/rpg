@@ -31,7 +31,7 @@ were repaired. That full release gate passed with 69 files / 620 tests, and
 the current MSI product flow successfully invoked the command through the real
 packaged WebView.
 
-The latest 2026-07-14 full gate passed in 224.8 seconds with 85 files / 657
+The latest 2026-07-14 full gate passed in 203.4 seconds with 85 files / 657
 tests, 91.81% statements/lines, 88.75% branches, and 93.45% functions. The
 original Phase 3 conversion counts below remain historical.
 

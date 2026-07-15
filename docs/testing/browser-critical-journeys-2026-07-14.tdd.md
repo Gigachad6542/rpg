@@ -6,9 +6,8 @@ smoke.
 
 ## Result
 
-The Chromium acceptance lane now has eleven independent journeys. The expanded
-standalone lane passed all eleven in 7.0 seconds with eleven local workers; the
-preceding full release gate passed the earlier ten-journey set in 6.5 seconds.
+The Chromium acceptance lane now has eleven independent journeys. The complete
+release gate passed all eleven in 7.0 seconds with eleven local workers.
 
 ## Characterization contracts
 
@@ -52,8 +51,7 @@ persistence plus compiled-prompt privacy.
 pnpm e2e
 ```
 
-Expanded standalone result: 11 passed in 7.0 seconds. The complete release gate
-will be repeated before this count is promoted as final release-gate evidence.
+Latest full-gate result: 11 passed in 7.0 seconds.
 
 ```text
 pnpm typecheck

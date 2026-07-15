@@ -53,14 +53,7 @@ import {
 } from "../runtime/playerRuleEngine";
 import { requireSecureKeyStorage } from "../security/keyStorage";
 import { loadLocalRuntimeSnapshot } from "./localRuntimeStore";
-import {
-  buildRuntimeDiagnostics,
-  buildVersionedRuntimeExport,
-  parseVersionedRuntimeExport,
-  type RuntimeExportSnapshot,
-} from "./runtimeDataBundle";
 import { SettingsSection } from "./SettingsSection";
-import type { RepositoryRuntimeSnapshot } from "./runtimeRepositoryStore";
 import { OnboardingOverlay } from "./OnboardingOverlay";
 import { shouldShowOnboarding } from "./startupPersistencePolicy";
 import { HydrationGate } from "./HydrationGate";
@@ -99,7 +92,6 @@ import {
   getErrorMessage,
   parseList,
   toBoundedNumber,
-  toRuntimeExportSnapshot,
 } from "./appUtils";
 import {
   buildWriteForMeDraft,
@@ -201,7 +193,6 @@ import {
   type TextModelCallOutcome,
 } from "./modelCallTelemetryAdapter";
 import {
-  countImportedMessages,
   disableLoreEntriesInCard,
   disableLoreEntriesInPersona,
   isAbortError,
@@ -220,6 +211,7 @@ import {
 } from "./chatLifecycle";
 import { useProviderManagement } from "./useProviderManagement";
 import { useRuntimePersistence } from "./useRuntimePersistence";
+import { useRuntimeDataManagement } from "./useRuntimeDataManagement";
 
 interface MemoryConsolidationReview {
   cardId: string;
@@ -269,9 +261,7 @@ export function App() {
   const [isConsolidatingMemory, setIsConsolidatingMemory] = useState(false);
   const [memoryConsolidationStatus, setMemoryConsolidationStatus] = useState<string | null>(null);
   const [memoryConsolidationReview, setMemoryConsolidationReview] = useState<MemoryConsolidationReview | null>(null);
-  const [dataManagementStatus, setDataManagementStatus] = useState("Runtime export, import, and diagnostics are ready.");
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
-  const [pendingImportSnapshot, setPendingImportSnapshot] = useState<RuntimeExportSnapshot | null>(null);
   const [pendingDeleteChatId, setPendingDeleteChatId] = useState<string | null>(null);
   const [pendingDeleteCardId, setPendingDeleteCardId] = useState<string | null>(null);
   const [newCardError, setNewCardError] = useState<string | null>(null);
@@ -473,6 +463,24 @@ export function App() {
     currentSnapshot,
     applyResolvedRuntimeState,
   });
+  const {
+    dataManagementStatus,
+    pendingImportReview,
+    exportRuntimeData,
+    importRuntimeData,
+    applyRuntimeImport,
+    cancelRuntimeImport,
+    downloadDiagnostics,
+  } = useRuntimeDataManagement({
+    currentSnapshot,
+    captureRestorePoint,
+    hydrateFromSnapshot,
+    repositoryStatus,
+    saveStatus,
+    providerKeyStatus,
+    imageProviderStatus,
+    getRepositoryBackend,
+  });
 
   useEffect(() => {
     return () => turnAbortControllerRef.current?.abort();
@@ -522,53 +530,6 @@ export function App() {
     setImagePromptDraft(mapArtifact.prompt);
     setImageNegativePromptDraft(mapArtifact.negativePrompt);
   }, [mapArtifact]);
-
-  function exportRuntimeData() {
-    const bundle = buildVersionedRuntimeExport(toRuntimeExportSnapshot(currentSnapshot));
-    downloadJson(`local-first-rpg-runtime-${formatDownloadTimestamp(bundle.exportedAt)}.json`, bundle);
-    setDataManagementStatus(`Runtime export downloaded: schema v${bundle.version}.`);
-  }
-
-  function importRuntimeData(rawJson: string) {
-    try {
-      const snapshot = parseVersionedRuntimeExport(rawJson);
-      setPendingImportSnapshot(snapshot);
-      const chats = Array.isArray(snapshot.chatSessions) ? snapshot.chatSessions.length : 0;
-      const messages = countImportedMessages(snapshot);
-      setDataManagementStatus(
-        `Import parsed: ${snapshot.cards.length} cards, ${chats} chats, ${messages} messages. Review before applying.`,
-      );
-    } catch (error) {
-      setPendingImportSnapshot(null);
-      setDataManagementStatus(getErrorMessage(error));
-    }
-  }
-
-  function applyRuntimeImport() {
-    if (!pendingImportSnapshot) return;
-    captureRestorePoint();
-    hydrateFromSnapshot(pendingImportSnapshot as RepositoryRuntimeSnapshot, "Imported runtime export.");
-    setDataManagementStatus(`Imported runtime export saved at ${pendingImportSnapshot.savedAt}.`);
-    setPendingImportSnapshot(null);
-  }
-
-  function cancelRuntimeImport() {
-    setPendingImportSnapshot(null);
-    setDataManagementStatus("Runtime import cancelled; current data was not changed.");
-  }
-
-  function downloadDiagnostics() {
-    const diagnostics = buildRuntimeDiagnostics({
-      snapshot: toRuntimeExportSnapshot(currentSnapshot),
-      repositoryStatus,
-      saveStatus,
-      providerKeyStatus,
-      imageProviderStatus,
-      runtimeBackend: getRepositoryBackend(),
-    });
-    downloadJson(`local-first-rpg-diagnostics-${formatDownloadTimestamp(diagnostics.exportedAt)}.json`, diagnostics);
-    setDataManagementStatus(`Diagnostics downloaded: schema v${diagnostics.version}.`);
-  }
 
   function selectCard(card: RuntimeCard) {
     const openedCard = card.archived ? { ...card, archived: false } : card;
@@ -2412,12 +2373,7 @@ export function App() {
             dataManagementStatus={dataManagementStatus}
             exportRuntimeData={exportRuntimeData}
             importRuntimeData={importRuntimeData}
-            pendingImportReview={pendingImportSnapshot ? {
-              cards: pendingImportSnapshot.cards.length,
-              chats: pendingImportSnapshot.chatSessions?.length ?? 0,
-              messages: countImportedMessages(pendingImportSnapshot),
-              savedAt: pendingImportSnapshot.savedAt,
-            } : null}
+            pendingImportReview={pendingImportReview}
             applyRuntimeImport={applyRuntimeImport}
             cancelRuntimeImport={cancelRuntimeImport}
             downloadDiagnostics={downloadDiagnostics}

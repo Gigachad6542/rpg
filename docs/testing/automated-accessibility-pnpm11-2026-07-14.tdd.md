@@ -110,22 +110,22 @@ The complete RED/GREEN record is in
 
 ## Complete release verification
 
-The canonical command passed from the beginning with product commit `2d3aedf`
+The canonical command passed from the beginning with product commit `68b40c1`
 checked out:
 
 ```text
 pnpm verify:release
-PASS in 283.0 seconds
+PASS in 274.0 seconds
 ```
 
 Integrated results:
 
 - TypeScript and ESLint passed.
-- 89 Vitest files / 672 tests passed.
-- V8 coverage: 91.86% statements/lines, 88.83% branches, 93.49% functions.
+- 90 Vitest files / 675 tests passed.
+- V8 coverage: 91.93% statements/lines, 88.84% branches, 93.55% functions.
 - Phase 1 and Phase 1.1 deterministic evals passed; Phase 1.1 made zero live
   provider calls.
-- Vite built 1,696 modules; the main app chunk was 492.68 kB / 138.92 kB gzip.
+- Vite built 1,697 modules; the main app chunk was 493.53 kB / 139.17 kB gzip.
 - All 14 Playwright journeys passed in 22.4 seconds, including three
   accessibility journeys.
 - Production dependency audit reported no known vulnerabilities.
@@ -140,16 +140,16 @@ Current local artifacts:
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| MSI | 5,885,952 | `1df68a639cfcc1c60add983c8f25a96369c34743370016192c715dc5e899ab34` |
-| NSIS | 4,191,423 | `43eb99e3ca056531f80e0ddd62dde3a3e8d190dbdac135129e9a27d11ad4b924` |
+| MSI | 5,885,952 | `a5cb3ab8989668e57560ff75147480809c6a89018e01c2561385c9a04781b1dc` |
+| NSIS | 4,194,558 | `b937e9bca12b7c7211a7a078cf6c11ab8ed01329c427f57c2bd5b779c9e79930` |
 | Release executable | 15,366,144 | `439e3b82ef9d3ab06193ac7b3272d44c0acd835f4eaff9df2547fc0c9c18f2c8` |
 
 The installer-lifecycle record completed at
-`2026-07-15T04:27:01.8932154Z`; first launch, same-version repair/reinstall,
+`2026-07-15T04:44:02.6313724Z`; first launch, same-version repair/reinstall,
 second-launch persistence, uninstall-registration removal, and install-directory
 removal were all true.
 
-The separate packaged WebView product flow passed in 14.7 seconds using the
+The separate packaged WebView product flow passed in 14.6 seconds using the
 retained different-commit `0.1.0` MSI as the previous package and the current
 MSI above. It exercised create/play/export, current-build migration, reopen,
 backup retention, restore, and export. Because both packages are `0.1.0` and

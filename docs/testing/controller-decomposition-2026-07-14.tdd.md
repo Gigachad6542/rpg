@@ -194,10 +194,37 @@ GREEN: commit `2d3aedf` isolates the orchestration in the 225-line
 contracts passed; TypeScript and ESLint were clean. `App.tsx` fell from 2,836
 to 2,675 lines without changing the provider UI or packaged runtime contract.
 
-The complete release gate passed from the beginning on
-`2d3aedff97ef613417231c92c5e31803d080e87e` in 283.0 seconds: 89 files / 672
+At that tranche's checkpoint, the complete release gate passed from the
+beginning on `2d3aedff97ef613417231c92c5e31803d080e87e` in 283.0 seconds: 89 files / 672
 tests, 91.86% statements/lines, 88.83% branches, 93.49% functions, both
 deterministic evals, 14 Playwright journeys, clean production dependency audit,
 accepted Rust audit, 34 Rust tests, strict clippy, MSI/NSIS packaging, both
 desktop smokes, and the normal installer lifecycle. The packaged WebView
 product flow then passed in 14.7 seconds against the rebuilt MSI.
+
+## Runtime-persistence hook extraction
+
+RED: commit `839582d` added three hook contracts and failed only at module
+resolution because repository hydration, startup-backup ordering, autosave,
+restore-point recovery, and repository diagnostics still lived inside
+`App.tsx`. The contracts require desktop hydration to remain loading with zero
+writes until both load and startup backup complete, require a failed desktop
+load to block all writes, and require the current state to be captured before
+an earlier restore point is applied.
+
+GREEN: commit `68b40c1` isolates that authority in the 302-line
+`useRuntimePersistence.ts`. The three direct contracts and 100 UI/controller
+tests passed together (103 total), including all 81 App domain integrations,
+four hydration-gate tests, four repository-branch tests, and seven data-flow
+tests. TypeScript and zero-warning ESLint remained green. `App.tsx` fell from
+2,675 to 2,454 lines without changing its persistence or recovery contract.
+
+The complete release gate passed from the beginning on
+`68b40c1f373124d6ddccca222242e31be199c751` in 274.0 seconds: 90 files / 675
+tests, 91.93% statements/lines, 88.84% branches, 93.55% functions, both
+deterministic evals with zero live calls, 14 Playwright journeys, clean
+production dependency audit, accepted Rust audit, 34 Rust tests, strict clippy,
+MSI/NSIS packaging, both desktop smokes, and the normal installer lifecycle.
+The packaged WebView product flow then passed in 14.6 seconds against the
+5,885,952-byte MSI with SHA256
+`a5cb3ab8989668e57560ff75147480809c6a89018e01c2561385c9a04781b1dc`.

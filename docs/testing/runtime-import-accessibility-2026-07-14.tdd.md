@@ -83,15 +83,15 @@ named restore point.
 
 ## Complete verification
 
-The latest `pnpm verify:release` passed from the beginning in 283.0 seconds with
-commit `2d3aedf` checked out:
+The latest `pnpm verify:release` passed from the beginning in 274.0 seconds with
+commit `68b40c1` checked out:
 
 - TypeScript and ESLint passed.
-- 89 Vitest files / 672 tests passed.
-- Coverage passed at 91.86% statements/lines, 88.83% branches, and 93.49%
+- 90 Vitest files / 675 tests passed.
+- Coverage passed at 91.93% statements/lines, 88.84% branches, and 93.55%
   functions.
 - Both deterministic eval lanes passed with zero live-provider calls.
-- Vite built 1,696 modules; the main app chunk was 492.68 kB / 138.92 kB gzip.
+- Vite built 1,697 modules; the main app chunk was 493.53 kB / 139.17 kB gzip.
 - All 14 Playwright journeys passed in 22.4 seconds, including three
   accessibility journeys for zero-violation WCAG A/AA scans, 320 CSS-pixel
   reflow, and forced colors.
@@ -108,11 +108,11 @@ Latest local artifacts:
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| MSI | 5,885,952 | `1df68a639cfcc1c60add983c8f25a96369c34743370016192c715dc5e899ab34` |
-| NSIS | 4,191,423 | `43eb99e3ca056531f80e0ddd62dde3a3e8d190dbdac135129e9a27d11ad4b924` |
+| MSI | 5,885,952 | `a5cb3ab8989668e57560ff75147480809c6a89018e01c2561385c9a04781b1dc` |
+| NSIS | 4,194,558 | `b937e9bca12b7c7211a7a078cf6c11ab8ed01329c427f57c2bd5b779c9e79930` |
 | Release executable | 15,366,144 | `439e3b82ef9d3ab06193ac7b3272d44c0acd835f4eaff9df2547fc0c9c18f2c8` |
 
-The lifecycle record completed at `2026-07-15T04:27:01.8932154Z`; all five
+The lifecycle record completed at `2026-07-15T04:44:02.6313724Z`; all five
 install, persistence, registration-removal, and directory-removal assertions
 were true.
 

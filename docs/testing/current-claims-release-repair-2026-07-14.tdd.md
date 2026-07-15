@@ -73,17 +73,17 @@ Command:
 pnpm verify:release
 ```
 
-Latest result: PASS in 283.0 seconds with provider-management extraction commit
-`2d3aedf` checked out.
+Latest result: PASS in 274.0 seconds with runtime-persistence extraction commit
+`68b40c1` checked out.
 
 ```text
 TypeScript: passed
 ESLint: passed
-Vitest: 89 files / 672 tests passed
-Coverage: 91.86% statements, 88.83% branches, 93.49% functions, 91.86% lines
+Vitest: 90 files / 675 tests passed
+Coverage: 91.93% statements, 88.84% branches, 93.55% functions, 91.93% lines
 Phase 1 deterministic eval: passed
 Phase 1.1 deterministic eval: passed; 100 lore decisions; 3 campaigns; 0 live calls
-Vite build: passed; main app chunk 492.68 kB / 138.92 kB gzip
+Vite build: passed; main app chunk 493.53 kB / 139.17 kB gzip
 Playwright: 14 passed, including three accessibility journeys covering
 zero-violation WCAG A/AA scans, 320 CSS-pixel reflow, and forced colors
 pnpm production audit: no known vulnerabilities
@@ -94,7 +94,7 @@ Windows MSI and NSIS: built
 Packaged executable smoke: passed
 Administrative-extraction SQLite smoke: passed
 Normal current-user NSIS install/reinstall/uninstall lifecycle: passed
-Tested NSIS SHA256: 43eb99e3ca056531f80e0ddd62dde3a3e8d190dbdac135129e9a27d11ad4b924
+Tested NSIS SHA256: b937e9bca12b7c7211a7a078cf6c11ab8ed01329c427f57c2bd5b779c9e79930
 ```
 
 ## Packaged WebView proof
@@ -105,8 +105,8 @@ Command shape:
 pnpm desktop:product-flow -PreviousMsi <previous.msi> -CurrentMsi <current.msi> -EvidenceDir <ignored-dir>
 ```
 
-Result: PASS in 14.7 seconds against the freshly built 5,885,952-byte MSI
-(`1df68a639cfcc1c60add983c8f25a96369c34743370016192c715dc5e899ab34`).
+Result: PASS in 14.6 seconds against the freshly built 5,885,952-byte MSI
+(`a5cb3ab8989668e57560ff75147480809c6a89018e01c2561385c9a04781b1dc`).
 This different-commit, same-version run exercised onboarding,
 provider setup, creation, play, close/reopen, SQLite continuity, backup restore,
 runtime export, and the new packaged discovery invocation. It is direct current

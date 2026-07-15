@@ -21,7 +21,7 @@ pnpm exec vitest run tests/app/modelCallTelemetryAdapter.test.ts tests/app/autho
   the App-level post-pipeline fallback remains a defensive compatibility path.
 - `authoritativeStateMutations.ts` owns deterministic diffs for location,
   health, inventory, quests, flags, and known places.
-- `App.tsx` fell from 3,369 to 3,222 lines without changing UI behavior.
+- `App.tsx` first fell from 3,369 to 3,222 lines without changing UI behavior.
 
 Verification:
 
@@ -33,3 +33,14 @@ pnpm lint
 
 The 13 tests include all nine existing application telemetry integrations plus
 the four new focused tests.
+
+## Second extraction
+
+RED: `tests/app/appControllerHelpers.test.ts` failed because the new helper
+module did not exist.
+
+GREEN: legacy persona-prompt migration, abort classification, card/persona lore
+entry disabling, and imported-message counting moved to
+`appControllerHelpers.ts`. Its four focused tests and all 81 main App tests
+passed (85 total); typecheck and lint remained green. `App.tsx` is now 3,178
+lines.

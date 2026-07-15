@@ -130,7 +130,7 @@ that flow is effortless would dilute the product.
   blind pairwise scoring before recommending any second-call mode or model.
 - Track and reduce the 18 allowed Rust warnings and the two scoped
   `quick-xml` exceptions as upstream dependency paths move.
-- Continue decomposing the 3,222-line `App.tsx` controller and 4,752-line UI test file into
+- Continue decomposing the 3,178-line `App.tsx` controller and 4,752-line UI test file into
   feature controllers and smaller acceptance suites without weakening behavior.
 - Continue accessibility acceptance coverage beyond the verified memory-dialog
   focus trap into tab linkage, drawers, and complete keyboard-only runtime flows.

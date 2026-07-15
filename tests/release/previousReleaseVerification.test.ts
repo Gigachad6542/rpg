@@ -17,6 +17,11 @@ const verifierPath = join(
   "scripts",
   "verify-previous-release-metadata.mjs",
 );
+const signatureVerifierPath = join(
+  workspaceRoot,
+  "scripts",
+  "verify-previous-windows-signature.ps1",
+);
 const temporaryRoots: string[] = [];
 
 type Fixture = {
@@ -210,4 +215,33 @@ describe("previous Windows release metadata verification", () => {
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/release tag commit|source commit/i);
   });
+
+  it.runIf(process.platform === "win32")(
+    "reaches Authenticode validation when the evidence directory is absolute",
+    () => {
+      const fixture = createFixture();
+      const result = spawnSync(
+        "powershell",
+        [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          signatureVerifierPath,
+          "-MsiPath",
+          fixture.msiPath,
+          "-ExpectedPublisherSubject",
+          "CN=Expected Production Publisher",
+          "-EvidenceDir",
+          join(fixture.root, "signature-evidence"),
+        ],
+        { cwd: workspaceRoot, encoding: "utf8", windowsHide: true },
+      );
+      const output = `${result.stdout}\n${result.stderr}`;
+
+      expect(result.status).not.toBe(0);
+      expect(output).toMatch(/Invalid previous-release Authenticode signature/i);
+      expect(output).not.toMatch(/given path's format|GetFullPath/i);
+    },
+  );
 });

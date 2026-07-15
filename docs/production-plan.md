@@ -21,10 +21,10 @@ constraint is resolved.
 ## Evidence Checked
 
 - Real repo root: `C:\Users\Dwthe\rpg project`.
-- Local release gate: `pnpm verify:release` passed in 258.2 seconds on 2026-07-14
-  with runtime-import accessibility code commit `38517dc` checked out.
-- Vitest coverage gate: 87 files and 667 tests passed.
-- Coverage: 91.84% statements/lines, 88.78% branches, and 93.39% functions.
+- Local release gate: `pnpm verify:release` passed in 262.4 seconds on 2026-07-14
+  with reversible Settings actions code commit `fe248f5` checked out.
+- Vitest coverage gate: 88 files and 669 tests passed.
+- Coverage: 91.85% statements/lines, 88.80% branches, and 93.49% functions.
 - Enforced coverage floors: 90% statements/lines/functions and 85% branches.
 - Deterministic evals: Phase 1 passed; Phase 1.1 passed with 100 lore decisions,
   three long campaigns, and `liveCallsMade: 0`.
@@ -36,8 +36,8 @@ constraint is resolved.
   visible local-provider failure followed by in-place mock-provider recovery,
   multiline keyboard composition, fail-closed invalid runtime imports, and a
   reviewed whole-runtime replacement rolled back from a named restore point.
-- Frontend build: Vite production build passed; the main app chunk was 491.17
-  kB (138.58 kB gzip), plus separate React, icon, and Tauri chunks.
+- Frontend build: Vite production build passed; the main app chunk was 492.20
+  kB (138.89 kB gzip), plus separate React, icon, and Tauri chunks.
 - Dependency audit: `pnpm audit --prod` reported no known vulnerabilities.
 - Rust audit: `cargo audit` exited successfully with 18 allowed transitive
   warnings; two `quick-xml` advisories remain scoped exceptions in
@@ -55,7 +55,7 @@ constraint is resolved.
   sole canonical NSIS artifact, verified current-user registration and launch,
   preserved isolated SQLite data across a same-version reinstall and relaunch,
   then removed the registration and install directory on uninstall. The tested
-  NSIS SHA256 was `8d62ae37c3fd7a09a17192fcf0892beaced7315e9df9e9d8c78ed19deeacc765`.
+  NSIS SHA256 was `0a30b1126ea1a49276568466db0567f015ff94f04dfd0a4fbf861b7d72678a68`.
   This was a
   local development profile, not a clean VM or previous-version upgrade.
 - Packaged WebView product flow: passed in 13.1 seconds against the current MSI,
@@ -84,7 +84,7 @@ constraint is resolved.
 | Security and privacy boundaries | 14/15 | Keychain references, scoped Tauri commands, fixed loopback discovery, import limits, redaction, and clean production audits are present; accepted Rust debt remains. |
 | Automated verification | 18/20 | The local release gate is broad and eleven critical browser journeys now pass; desktop UI automation remains narrower than unit coverage and live-provider evaluation has not run. |
 | Packaging and release operations | 14/20 | Signed fail-closed workflows and a real local NSIS lifecycle exist; current hosted signed/notarized evidence, clean-VM proof, and a published previous-version migration are absent. |
-| Product and UX maturity | 10/15 | Onboarding, sample content, imports, library tools, continuity, named recovery controls, reversible runtime replacement, and critical keyboard paths are credible; the main controller remains oversized and settings accessibility is not yet exhaustive. |
+| Product and UX maturity | 10/15 | Onboarding, sample content, imports, library tools, continuity, named recovery controls, reversible replacement/restore flows, and critical keyboard paths are credible; the main controller remains oversized and native assistive-technology acceptance is absent. |
 | Operational and project governance | 7/10 | Release, rollback, runtime, security, support, contribution, changelog, conduct, issue, and PR contracts exist; licensing and verified public support/security intake remain incomplete. |
 
 ## Competitive Snapshot (verified 2026-07-14)
@@ -176,10 +176,10 @@ that flow is effortless would dilute the product.
   3,789-line Rust repository authority is now a 367-line command/path/backup
   boundary over independently gated validation, schema, normalized-storage
   CRUD, and a separate 1,113-line regression corpus.
-- Continue accessibility acceptance beyond the verified memory-dialog and
-  runtime-replacement focus traps, current-page navigation, linked
-  keyboard-operable card tabs, multiline composer, fail-closed replacement,
-  and named replacement rollback into the remaining settings flows and native
+- Continue accessibility acceptance beyond the verified memory, runtime
+  replacement, restore-point, and persona-deletion focus traps, current-page
+  navigation, linked keyboard-operable card tabs, multiline composer,
+  fail-closed replacement, and reversible restore into native
   assistive-technology checks.
 - Make the owner licensing decision and configure verified public help,
   support, and security-reporting destinations before broad distribution.

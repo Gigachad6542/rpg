@@ -18,9 +18,9 @@ recorded here. Dates use `YYYY-MM-DD`; versions must match `package.json`,
 - Independent previous-release Authenticode publisher/timestamp, checksum,
   provenance, tag-commit, and semantic-version verification before packaged
   migration, plus an explicitly non-promotable signed bootstrap lane.
-- Keyboard-safe runtime replacement confirmation with a modal alert, safe
-  default focus, Escape cancellation, focus restoration, and an explicit local
-  restore-point notice.
+- Keyboard-safe runtime replacement, restore-point, and persona-deletion
+  confirmations with modal alerts, safe default focus, Escape cancellation,
+  focus restoration, and reversible local snapshots.
 
 ### Security
 

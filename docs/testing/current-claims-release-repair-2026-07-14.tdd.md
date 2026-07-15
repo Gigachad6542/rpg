@@ -73,17 +73,17 @@ Command:
 pnpm verify:release
 ```
 
-Latest result: PASS in 258.2 seconds with runtime-import accessibility code commit `38517dc`
+Latest result: PASS in 262.4 seconds with reversible Settings actions code commit `fe248f5`
 checked out.
 
 ```text
 TypeScript: passed
 ESLint: passed
-Vitest: 87 files / 667 tests passed
-Coverage: 91.84% statements, 88.78% branches, 93.39% functions, 91.84% lines
+Vitest: 88 files / 669 tests passed
+Coverage: 91.85% statements, 88.80% branches, 93.49% functions, 91.85% lines
 Phase 1 deterministic eval: passed
 Phase 1.1 deterministic eval: passed; 100 lore decisions; 3 campaigns; 0 live calls
-Vite build: passed; main app chunk 491.17 kB / 138.58 kB gzip
+Vite build: passed; main app chunk 492.20 kB / 138.89 kB gzip
 Playwright: 11 passed
 pnpm production audit: no known vulnerabilities
 Rust audit: exit 0 with 18 allowed warnings
@@ -93,7 +93,7 @@ Windows MSI and NSIS: built
 Packaged executable smoke: passed
 Administrative-extraction SQLite smoke: passed
 Normal current-user NSIS install/reinstall/uninstall lifecycle: passed
-Tested NSIS SHA256: 8d62ae37c3fd7a09a17192fcf0892beaced7315e9df9e9d8c78ed19deeacc765
+Tested NSIS SHA256: 0a30b1126ea1a49276568466db0567f015ff94f04dfd0a4fbf861b7d72678a68
 ```
 
 ## Packaged WebView proof

@@ -1,4 +1,4 @@
-# Runtime Import Accessibility TDD Evidence — 2026-07-14
+# Settings Destructive-Action Accessibility TDD Evidence — 2026-07-14
 
 ## Scope
 
@@ -58,18 +58,41 @@ pnpm exec playwright test tests/e2e/critical-journeys.spec.ts --grep "invalid ru
 2 passed
 ```
 
+## Follow-up: restore and persona deletion
+
+Commit `dec488b` (`test: require safe settings destructive actions`) added a
+second RED contract. Both tests failed because the first click immediately
+called the restore or persona-deletion callback.
+
+Commit `fe248f5` (`feat: make settings destructive actions reversible`)
+centralizes the keyboard-safe destructive dialog and applies it to runtime
+imports, restore points, and persona deletion. A restore now captures the
+current runtime immediately before applying the selected snapshot, so the
+restore operation itself can be undone.
+
+```text
+pnpm exec vitest run tests/app/SettingsDestructiveActions.test.tsx tests/app/RuntimeImportReviewDialog.test.tsx tests/app/SettingsSection.test.tsx tests/ui/App.chat-lore.test.tsx
+4 files / 27 tests passed
+pnpm exec playwright test tests/e2e/critical-journeys.spec.ts --grep "reviewed runtime replacement"
+1 passed
+```
+
+The browser journey verifies safe initial focus, explicit confirmation, the
+restored runtime, and the newly captured pre-restore state appearing as another
+named restore point.
+
 ## Complete verification
 
-`pnpm verify:release` then passed from the beginning in 258.2 seconds with
-commit `38517dc` checked out:
+The latest `pnpm verify:release` passed from the beginning in 262.4 seconds with
+commit `fe248f5` checked out:
 
 - TypeScript and ESLint passed.
-- 87 Vitest files / 667 tests passed.
-- Coverage passed at 91.84% statements/lines, 88.78% branches, and 93.39%
+- 88 Vitest files / 669 tests passed.
+- Coverage passed at 91.85% statements/lines, 88.80% branches, and 93.49%
   functions.
 - Both deterministic eval lanes passed with zero live-provider calls.
-- Vite built 1,694 modules; the main app chunk was 491.17 kB / 138.58 kB gzip.
-- All 11 Playwright journeys passed in 10.8 seconds.
+- Vite built 1,695 modules; the main app chunk was 492.20 kB / 138.89 kB gzip.
+- All 11 Playwright journeys passed in 10.9 seconds.
 - The production dependency audit reported no known vulnerabilities.
 - Rust audit passed with 18 allowed warnings and the two scoped `quick-xml`
   exceptions.
@@ -83,11 +106,11 @@ Latest local artifacts:
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| MSI | 5,885,952 | `afe5dcc1c6eea3613bc8819c57d3dc50b5f066e445634e0b495c1dc253ad1290` |
-| NSIS | 4,189,667 | `8d62ae37c3fd7a09a17192fcf0892beaced7315e9df9e9d8c78ed19deeacc765` |
-| Release executable | 15,366,144 | `e066f6052941479cc7d4e3c3651dd853be29a45d62ba38b81fb503955aad9c7d` |
+| MSI | 5,885,952 | `669c74097275ddad2b53d46215587377b2e81cc5c27fa0ad54fa0dc5047f02ed` |
+| NSIS | 4,194,074 | `0a30b1126ea1a49276568466db0567f015ff94f04dfd0a4fbf861b7d72678a68` |
+| Release executable | 15,366,144 | `eb32067fd415b250a2c0c3a9c46f15b9071a71b1ac61622aa2b82b33348bb822` |
 
-The lifecycle record completed at `2026-07-15T03:11:13.0950372Z`; all five
+The lifecycle record completed at `2026-07-15T03:21:44.7330881Z`; all five
 install, persistence, registration-removal, and directory-removal assertions
 were true.
 
@@ -96,5 +119,5 @@ were true.
 The ARIA and keyboard contract is verified in component tests and Chromium,
 but no native screen-reader compatibility claim is made. The rebuilt Windows
 artifacts remain unsigned local development packages, and this accessibility
-slice does not change the canonical 82/100 controlled-beta readiness rating or
+work does not change the canonical 82/100 controlled-beta readiness rating or
 the hosted release blockers in the production plan.

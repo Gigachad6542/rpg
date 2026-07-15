@@ -31,8 +31,8 @@ were repaired. That full release gate passed with 69 files / 620 tests, and
 the current MSI product flow successfully invoked the command through the real
 packaged WebView.
 
-The latest 2026-07-14 full gate passed in 258.2 seconds with 87 files / 667
-tests, 91.84% statements/lines, 88.78% branches, and 93.39% functions. The
+The latest 2026-07-14 full gate passed in 262.4 seconds with 88 files / 669
+tests, 91.85% statements/lines, 88.80% branches, and 93.49% functions. The
 original Phase 3 conversion counts below remain historical.
 
 ## RED checkpoint

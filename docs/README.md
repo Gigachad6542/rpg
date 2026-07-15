@@ -22,10 +22,10 @@ This folder keeps operational notes and verification evidence for `rpg`.
 
 ## Testing Evidence
 
-- [Runtime import accessibility evidence](testing/runtime-import-accessibility-2026-07-14.tdd.md)
-  records the destructive replacement alert dialog, safe initial focus,
-  focus trap, Escape cancellation, opener restoration, and complete release
-  rerun.
+- [Settings destructive-action accessibility evidence](testing/runtime-import-accessibility-2026-07-14.tdd.md)
+  records the runtime import, restore-point, and persona-deletion alert
+  dialogs, safe initial focus, focus traps, Escape cancellation, reversible
+  restore behavior, opener restoration, and complete release reruns.
 - [Trusted release-chain verification evidence](testing/release-chain-verification-2026-07-14.tdd.md)
   records independent previous-MSI signature/checksum/provenance/tag/version
   validation, the explicit first-release bootstrap sequence, and the current

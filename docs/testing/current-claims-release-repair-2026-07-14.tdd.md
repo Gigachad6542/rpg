@@ -6,10 +6,12 @@ release identity, browser smoke, packaged product flow, and coverage policy.
 
 ## Result
 
-The current working tree passes `pnpm verify:release`. Public-launch proof is
-still incomplete because this local run was unsigned, used no Apple runner,
-did not execute the exact-commit hosted workflow, and administratively extracted
-the Windows MSI rather than testing the normal installer lifecycle.
+The current working tree's last full `pnpm verify:release` run passed. A later
+focused extension added and directly passed a normal current-user NSIS
+install/reinstall/uninstall lifecycle. Public-launch proof is still incomplete
+because the local run was unsigned, used no Apple runner, did not execute the
+exact-commit hosted workflow, did not use a clean VM, and did not upgrade from a
+previous signed semantic version.
 
 The packaged discovery defect is closed. The renderer command now appears in
 the Tauri build manifest, default window capability, generated permissions and
@@ -105,18 +107,21 @@ command no longer includes that token.
   historical evidence rather than silently rewritten.
 - `desktop:installed-smoke` and the Windows product flow are described as MSI
   administrative extraction, not a normal installed-app lifecycle.
+- `desktop:installer-lifecycle` is separately described as a real current-user
+  NSIS lifecycle on the local development profile, not clean-machine or
+  previous-version proof.
 - `Local-First RPG` is the public product/release name. Legacy binary, crate,
   environment-variable, database, and migration identifiers remain stable to
   avoid breaking existing installations and evidence.
 - No live-provider quality result, signed hosted release, Apple package result,
-  or true clean-machine installer result is claimed.
+  clean-machine installer result, or previous-version upgrade is claimed.
 
 ## Remaining objective gaps
 
 1. Run the exact-commit hosted signing/notarization/publish workflow and retain
    evidence from both platforms.
-2. Prove normal Windows install, upgrade, repair, and uninstall on a clean VM or
-   non-development machine.
+2. Repeat the passing normal Windows lifecycle on a clean VM or
+   non-development machine and add a true previous-version upgrade.
 3. Run migration/restore from a previous signed semantic-version package.
 4. Execute the paid live-provider evaluation with blind scoring and explicit
    cost limits.

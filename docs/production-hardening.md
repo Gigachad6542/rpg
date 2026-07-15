@@ -85,13 +85,18 @@ pnpm verify:release
 ```
 
 This gate includes the Playwright browser smoke test, the Tauri desktop package build, the packaged
-executable smoke, and the administrative-extraction MSI-payload smoke. The browser smoke opens the seeded RPG card,
+executable smoke, the administrative-extraction MSI-payload smoke, and a normal current-user NSIS
+install/reinstall/uninstall lifecycle. The browser smoke opens the seeded RPG card,
 sends a mock turn, confirms prompt-debug privacy in the persisted snapshot, reloads, reopens the
 card, and confirms the saved transcript is still visible. The executable smoke starts the release
 executable and fails if it exits during startup. The MSI-payload smoke uses `msiexec /a` to stage the generated MSI into a
 temporary install root, launches with isolated app-data paths, restarts once, and confirms the runtime
-SQLite database is created under that clean profile. It does not exercise normal Windows install,
-upgrade, repair, or uninstall behavior.
+SQLite database is created under that clean profile. The separate installer lifecycle refuses to
+touch a pre-existing installation, requires exactly one current NSIS artifact, checks the uninstall
+registration and install location, launches twice across a same-version reinstall, verifies SQLite
+persistence, silently uninstalls, and confirms registry and install-directory removal. The verified
+local run is real installer proof on a development Windows profile; clean-VM and previous-version
+upgrade proof remain separate release gates.
 
 For coverage reporting, run:
 

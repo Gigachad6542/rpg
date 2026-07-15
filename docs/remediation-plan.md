@@ -19,8 +19,9 @@ second, everything else after.
 - The packaged local-provider discovery ACL gap found on 2026-07-14 is repaired
   and exercised through the real packaged Tauri bridge.
 - Public release remains externally unproven: no current exact-commit signed
-  Windows run, notarized/stapled macOS run, normal Windows installer lifecycle,
-  or previous signed semantic-version migration has been retained.
+  Windows run, notarized/stapled macOS run, clean-VM installer lifecycle, or
+  previous signed semantic-version migration has been retained. A normal
+  current-user NSIS install/reinstall/uninstall lifecycle now passes locally.
 - The original ~58/100 verdict and intermediate counts below are historical
   checkpoints, not current readiness claims.
 

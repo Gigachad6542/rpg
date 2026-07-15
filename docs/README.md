@@ -22,6 +22,10 @@ This folder keeps operational notes and verification evidence for `rpg`.
 
 ## Testing Evidence
 
+- [Windows installer lifecycle TDD evidence](testing/windows-installer-lifecycle-2026-07-14.tdd.md)
+  records stale-artifact prevention and the real current-user NSIS
+  install/reinstall/uninstall proof, including cleanup checks and its remaining
+  clean-VM/previous-version boundary.
 - [Current claims and release-repair evidence](testing/current-claims-release-repair-2026-07-14.tdd.md)
   is the latest working-tree verification record: exact release-gate results,
   packaged discovery ACL repair, corrected MSI-extraction scope, and remaining

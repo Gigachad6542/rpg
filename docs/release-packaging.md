@@ -34,16 +34,18 @@ The tag or manually dispatched workflow performs these gates in order:
 1. Query `ci.yml` and require a successful hosted run whose `head_sha` is the
    exact release commit.
 2. Build and verify timestamped Authenticode Windows artifacts.
-3. Download the previous stable signed MSI, administratively extract both MSI
+3. Normally install, relaunch across a same-version NSIS reinstall, and uninstall
+   the current Windows package, retaining registry/filesystem lifecycle evidence.
+4. Download the previous stable signed MSI, administratively extract both MSI
    payloads into isolated roots, and run the complete packaged flow:
    first run, provider setup, create, play, close/reopen, migration continuity,
    backup restore, and runtime export.
-4. Build the macOS DMG with Developer ID signing and Apple notarization, validate
+5. Build the macOS DMG with Developer ID signing and Apple notarization, validate
    the stapled ticket and Gatekeeper acceptance, mount and relaunch the DMG, and
    execute a native Keychain set/get/delete round trip.
-5. Generate per-platform CycloneDX SBOMs, SHA-256 manifests, commit-bound
+6. Generate per-platform CycloneDX SBOMs, SHA-256 manifests, commit-bound
    provenance, and GitHub artifact attestations.
-6. Upload platform artifacts and evidence for 90 days. Only then may the tag job
+7. Upload platform artifacts and evidence for 90 days. Only then may the tag job
    publish the release.
 
 Required Windows configuration:
@@ -65,7 +67,7 @@ fixtures.
 
 ## Retained evidence
 
-Windows evidence includes MSI administrative-extraction logs, screenshots, the three runtime
+Windows evidence includes the normal NSIS lifecycle JSON, MSI administrative-extraction logs, screenshots, the three runtime
 exports, the product-generated startup backup hash, migration/restore assertions,
 AuthentiCode results, and `phase2-windows-product-flow.json`.
 
@@ -105,9 +107,11 @@ restore, the restored database is healthy, and the final exported runtime has
 the expected state. The current package must also successfully invoke
 `discover_local_text_providers` through the real Tauri bridge.
 
-This flow proves packaged payload behavior, not Windows Installer lifecycle
-behavior. A public release still needs a clean-machine install, upgrade, repair,
-and uninstall run using normal MSI/NSIS installation rather than `msiexec /a`.
+This flow proves cross-version packaged payload behavior; it remains separate
+from `pnpm desktop:installer-lifecycle`, which proves normal current-package
+NSIS registration, launch, same-version reinstall, persistent relaunch, and
+uninstall. Public release still requires that lifecycle on a clean runner plus
+an actual previous-version package for upgrade/migration evidence.
 
 ## Publication and rollback
 

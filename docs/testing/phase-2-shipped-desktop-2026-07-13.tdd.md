@@ -21,6 +21,11 @@ passed in 183.5 seconds with 69 files / 620 tests, 91.57% statements/lines,
 88.36% branches, and 93.79% functions. Playwright, both deterministic evals,
 production build, JS/Rust audits, 34 Rust tests, clippy, MSI/NSIS packaging,
 executable smoke, and administrative-extraction persistence smoke all passed.
+On 2026-07-14, a separate normal current-user NSIS lifecycle also passed install,
+same-version reinstall, persistent relaunch, uninstall registration removal,
+and install-directory cleanup. That later result does not turn this historical
+two-package administrative-extraction run into clean-VM or previous-version
+upgrade proof.
 
 That review found a real packaged regression: the renderer invoked
 `discover_local_text_providers`, but the command was missing from the Tauri

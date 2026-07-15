@@ -33,10 +33,11 @@ Useful commands:
 | `pnpm e2e:install` | Install the Playwright Chromium browser used by the smoke test. |
 | `pnpm build` | Build the frontend bundle. |
 | `pnpm verify` | Run the local CI gate: typecheck, lint, tests, Phase 1 runtime eval, build, dependency audit, Rust tests, and clippy. |
-| `pnpm verify:release` | Run the release gate: local checks, coverage, browser smoke, audits, Rust checks, desktop packaging, executable smoke, and administrative-extraction MSI-payload smoke. |
+| `pnpm verify:release` | Run the Windows release gate: local checks, coverage, browser smoke, audits, Rust checks, desktop packaging, executable and MSI-payload smokes, plus a fail-closed normal NSIS install/reinstall/uninstall lifecycle. |
 | `pnpm verify:desktop` | Run `pnpm verify`, then build the desktop bundle. |
 | `pnpm desktop:smoke` | Start the release executable and fail if it exits during startup. |
 | `pnpm desktop:installed-smoke` | Administratively extract the Windows MSI payload, launch twice with isolated app data, and confirm SQLite startup durability. This is not a real install/uninstall test. |
+| `pnpm desktop:installer-lifecycle` | Refuse any pre-existing install, normally install the one current NSIS bundle, launch with isolated SQLite data, reinstall, relaunch, uninstall, and verify registry/filesystem cleanup. |
 | `pnpm clean` | Remove generated output: `dist`, `coverage`, `playwright-report`, `test-results`, and `src-tauri/target`. |
 
 ## Desktop App

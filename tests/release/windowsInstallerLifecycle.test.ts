@@ -47,6 +47,8 @@ describe("Windows installer lifecycle release gate", () => {
     expect(script).toContain("Local-First RPG_*_x64-setup.exe");
     expect(script).toContain("Expected exactly one current NSIS installer");
     expect(script).toContain("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Local-First RPG");
+    expect(script).toContain('PSObject.Properties["DisplayName"]');
+    expect(script).toContain('PSObject.Properties["Publisher"]');
     expect(script).toContain('"DisplayName"');
     expect(script).toContain('"DisplayVersion"');
     expect(script).toContain('"InstallLocation"');

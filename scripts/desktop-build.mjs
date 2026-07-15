@@ -13,6 +13,14 @@ if (configuredTarget && !forwardedArgs.includes("--target")) {
   forwardedArgs.push("--target", configuredTarget);
 }
 const args = [...cli.prefix, "exec", "tauri", "build", ...forwardedArgs];
+const releaseBundleRoot = join(
+  process.cwd(),
+  "src-tauri",
+  "target",
+  ...(configuredTarget ? [configuredTarget] : []),
+  "release",
+  "bundle",
+);
 let temporaryConfig;
 
 if (process.platform === "win32") {
@@ -47,6 +55,10 @@ if (process.platform === "win32") {
 }
 
 try {
+  // A release build must not inherit installers from an older product name or
+  // version. Downstream signing, checksums, and lifecycle checks can then
+  // require exactly one artifact of each expected type.
+  rmSync(releaseBundleRoot, { recursive: true, force: true });
   const result = spawnSync(cli.command, args, { cwd: process.cwd(), stdio: "inherit", env: process.env, windowsHide: true });
   if (result.error) throw result.error;
   process.exitCode = result.status ?? 1;

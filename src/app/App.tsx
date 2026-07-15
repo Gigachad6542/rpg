@@ -248,7 +248,11 @@ import {
   type ResolvedRuntimeSnapshotState,
 } from "./runtimeSnapshotHydration";
 import { AppSidebar, AppTopbar } from "./AppChrome";
-import { deleteActiveChatState } from "./chatLifecycle";
+import {
+  archiveActiveChatState,
+  deleteActiveChatState,
+  restoreArchivedChatState,
+} from "./chatLifecycle";
 
 interface MemoryConsolidationReview {
   cardId: string;
@@ -1115,17 +1119,20 @@ export function App() {
 
   function archiveActiveChat() {
     if (!activeCard || !activeChat) return;
-    const remaining = getCardChats(activeCard.id, chatSessions).filter((chat) => chat.id !== activeChat.id);
-    const fallback = remaining[0] ?? initializeChatTurnState(
-      createChatSession(activeCard.id, `${activeCard.name} chat`),
+    const result = archiveActiveChatState({
       activeCard,
-    );
-    setChatSessions((current) => {
-      const withArchive = current.map((chat) => chat.id === activeChat.id ? setChatArchived(chat, true) : chat);
-      return remaining.length > 0 ? withArchive : upsertChatSession(withArchive, fallback);
+      activeChat,
+      cards,
+      chatSessions,
+      activeChatIds,
+      createFallbackChat: () => initializeChatTurnState(
+        createChatSession(activeCard.id, `${activeCard.name} chat`),
+        activeCard,
+      ),
     });
-    setActiveChatIds((current) => ({ ...current, [activeCard.id]: fallback.id }));
-    setCards((current) => current.map((card) => card.id === activeCard.id ? deriveCardForChat(card, fallback) : card));
+    setChatSessions(result.chatSessions);
+    setActiveChatIds(result.activeChatIds);
+    setCards(result.cards);
     setDraft("");
     setRuleWarning(null);
   }
@@ -1134,10 +1141,16 @@ export function App() {
     if (!activeCard) return;
     const archived = chatSessions.find((chat) => chat.id === chatId && chat.cardId === activeCard.id && chat.archived);
     if (!archived) return;
-    const restored = setChatArchived(archived, false);
-    setChatSessions((current) => upsertChatSession(current, restored));
-    setActiveChatIds((current) => ({ ...current, [activeCard.id]: restored.id }));
-    setCards((current) => current.map((card) => card.id === activeCard.id ? deriveCardForChat(card, restored) : card));
+    const result = restoreArchivedChatState({
+      activeCard,
+      archivedChat: archived,
+      cards,
+      chatSessions,
+      activeChatIds,
+    });
+    setChatSessions(result.chatSessions);
+    setActiveChatIds(result.activeChatIds);
+    setCards(result.cards);
     setDraft("");
     setRuleWarning(null);
   }

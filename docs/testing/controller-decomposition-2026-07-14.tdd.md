@@ -163,3 +163,13 @@ media while retaining every archived sibling. Two focused lifecycle tests and
 all 19 chat/lore integration tests passed; typecheck and lint remained green.
 `App.tsx` is 2,822 lines, with the cross-surface mutation now isolated behind a
 typed result instead of distributed React setters.
+
+RED: two additional lifecycle cases failed because archive and restore state
+transitions were not exported by the new module.
+
+GREEN: archive and restore now share the same typed card/chat/selection result,
+retain older archives, create a fallback only when the last active chat is
+archived, and derive the card from the selected continuity branch. All four
+lifecycle tests and all 19 chat/lore integration tests passed; typecheck and
+lint remained green. The controller is 2,835 lines after explicit typed wiring;
+the cohesive lifecycle authority is 138 lines.

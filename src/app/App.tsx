@@ -1,5 +1,6 @@
 import {
   type CSSProperties,
+  useCallback,
   useDeferredValue,
   useEffect,
   useMemo,
@@ -155,9 +156,6 @@ import {
   filterPersistedOpeningMessages,
   getActiveChatForCard,
   getCardChats,
-  getStartupActiveCardId,
-  parseActiveChatIds,
-  parseChatSessions,
   renameChatSession,
   setChatArchived,
   upsertChatSession,
@@ -191,9 +189,6 @@ import {
   getConfiguredTextModelInfo,
   getConfiguredTextModelInfoForModel,
   getProviderPricingSnapshots,
-  parseImageProviderSettings,
-  parseProviderSettings,
-  parseRuntimeSettings,
 } from "./providerConfig";
 import {
   buildCharacterPortraitPrompt,
@@ -202,7 +197,6 @@ import {
   findCharacterPortraitForEntity,
   findCharacterPortraitsForCard,
   findGeneratedMapForChat,
-  parseGeneratedMaps,
   shouldPrepareCharacterPortrait,
   shouldRunCharacterPortraitGeneration,
   upsertGeneratedMap,
@@ -237,7 +231,6 @@ import {
   deletePersona,
   getActivePersona,
   parseActivePersonaId,
-  parsePersonas,
   setDefaultPersona,
   updatePersona,
 } from "./personas";
@@ -259,7 +252,6 @@ import {
   disableLoreEntriesInCard,
   disableLoreEntriesInPersona,
   isAbortError,
-  readLegacyImpersonationPrompt,
 } from "./appControllerHelpers";
 import { buildRuntimeCardFromDraft } from "./runtimeCardFactory";
 import {
@@ -268,6 +260,10 @@ import {
   saveProviderKeySecurely,
 } from "./providerController";
 import { generateConfiguredImageArtifact } from "./assetService";
+import {
+  resolveRuntimeSnapshotState,
+  type ResolvedRuntimeSnapshotState,
+} from "./runtimeSnapshotHydration";
 
 interface MemoryConsolidationReview {
   cardId: string;
@@ -277,88 +273,47 @@ interface MemoryConsolidationReview {
 
 export function App() {
   const [initialSnapshot] = useState(() => loadLocalRuntimeSnapshot<RuntimeCard, Message, PromptRun, ChatSession>());
-  const initialRuntimeSettings = parseRuntimeSettings(initialSnapshot?.runtimeSettings);
-  const initialPersonas = parsePersonas(
-    initialSnapshot?.personas,
-    readLegacyImpersonationPrompt(initialSnapshot?.runtimeSettings),
-  );
-  const normalizedInitialCards = normalizeRuntimeCards(initialSnapshot?.cards ?? initialCards);
-  const initialActiveCardId = getStartupActiveCardId(initialSnapshot, normalizedInitialCards);
-  const initialChatSessions = parseChatSessions(
-    initialSnapshot?.chatSessions,
-    normalizedInitialCards,
-    initialSnapshot?.messages ?? starterMessages,
-    initialActiveCardId,
-  );
-  const initialActiveChatIds = parseActiveChatIds(
-    initialSnapshot?.activeChatIds,
-    normalizedInitialCards,
-    initialChatSessions,
-    initialActiveCardId,
-  );
-  const initialCardsWithChatState = normalizedInitialCards.map((card) => {
-    const chat = getActiveChatForCard(card.id, initialChatSessions, initialActiveChatIds);
-    return chat ? deriveCardForChat(card, chat) : card;
-  });
+  const [initialRuntimeState] = useState(() => resolveRuntimeSnapshotState(initialSnapshot, {
+    fallbackCards: initialCards,
+    fallbackMessages: starterMessages,
+  }));
   const repositoryStoreRef = useRef<RuntimeRepository | null>(null);
   const snapshotSaveQueueRef = useRef<SnapshotSaveQueue<RepositoryRuntimeSnapshot> | null>(null);
   const pendingReviewRef = useRef<Record<string, string[]>>({});
   const keyStorageRef = useRef<KeyStorage>(requireSecureKeyStorage());
-  const [theme, setTheme] = useState<Theme>(() => initialSnapshot?.theme ?? "dark");
+  const [theme, setTheme] = useState<Theme>(() => initialRuntimeState.theme);
   const [section, setSection] = useState<MainSection>("runtime");
-  const [cards, setCards] = useState<RuntimeCard[]>(() => initialCardsWithChatState);
-  const [activeCardId, setActiveCardId] = useState(() => initialActiveCardId);
-  const [chatSessions, setChatSessions] = useState<ChatSession[]>(() => initialChatSessions);
-  const [activeChatIds, setActiveChatIds] = useState<Record<string, string>>(() => initialActiveChatIds);
+  const [cards, setCards] = useState<RuntimeCard[]>(() => initialRuntimeState.cards);
+  const [activeCardId, setActiveCardId] = useState(() => initialRuntimeState.activeCardId);
+  const [chatSessions, setChatSessions] = useState<ChatSession[]>(() => initialRuntimeState.chatSessions);
+  const [activeChatIds, setActiveChatIds] = useState<Record<string, string>>(() => initialRuntimeState.activeChatIds);
   const [cardTab, setCardTab] = useState<CardTab>("chat");
   const [draft, setDraft] = useState("");
   const [runtimeRunning, setRuntimeRunning] = useState(true);
-  const [promptRuns, setPromptRuns] = useState<PromptRun[]>(() =>
-    applyPromptDebugRetention(initialSnapshot?.promptRuns ?? [], initialRuntimeSettings),
-  );
+  const [promptRuns, setPromptRuns] = useState<PromptRun[]>(() => initialRuntimeState.promptRuns);
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [ruleWarning, setRuleWarning] = useState<string | null>(null);
   const [mapPrompt, setMapPrompt] = useState<string | null>(null);
   const [imagePromptDraft, setImagePromptDraft] = useState("");
   const [imageNegativePromptDraft, setImageNegativePromptDraft] = useState("");
-  const [mapArtifact, setMapArtifact] = useState<GeneratedMapArtifact | null>(() =>
-    parseGeneratedMaps(initialSnapshot?.generatedMaps).find(
-      (artifact) => artifact.cardId === initialSnapshot?.activeCardId && artifact.imageKind === "map",
-    ) ??
-    null,
-  );
+  const [mapArtifact, setMapArtifact] = useState<GeneratedMapArtifact | null>(() => initialRuntimeState.mapArtifact);
   const [photoSpecDraft, setPhotoSpecDraft] = useState("");
   const [photoPrompt, setPhotoPrompt] = useState("");
-  const [photoArtifact, setPhotoArtifact] = useState<GeneratedMapArtifact | null>(() =>
-    parseGeneratedMaps(initialSnapshot?.generatedMaps).find(
-      (artifact) => artifact.cardId === initialSnapshot?.activeCardId && artifact.imageKind === "photo",
-    ) ??
-    null,
-  );
-  const [generatedMaps, setGeneratedMaps] = useState<GeneratedMapArtifact[]>(() =>
-    parseGeneratedMaps(initialSnapshot?.generatedMaps),
-  );
+  const [photoArtifact, setPhotoArtifact] = useState<GeneratedMapArtifact | null>(() => initialRuntimeState.photoArtifact);
+  const [generatedMaps, setGeneratedMaps] = useState<GeneratedMapArtifact[]>(() => initialRuntimeState.generatedMaps);
   const [isDraftingMapPrompt, setIsDraftingMapPrompt] = useState(false);
   const [isGeneratingMapImage, setIsGeneratingMapImage] = useState(false);
   const [isGeneratingPhoto, setIsGeneratingPhoto] = useState(false);
   const [newCard, setNewCard] = useState(defaultNewCard);
-  const [providerKeyStatus, setProviderKeyStatus] = useState(
-    () => initialSnapshot?.providerKeyStatus ?? "No plaintext keys stored.",
-  );
+  const [providerKeyStatus, setProviderKeyStatus] = useState(() => initialRuntimeState.providerKeyStatus);
   const [providerTestStatus, setProviderTestStatus] = useState("No provider test has run yet.");
-  const [providerSettings, setProviderSettings] = useState<ProviderSettings>(() =>
-    parseProviderSettings(initialSnapshot?.providerSettings),
-  );
-  const [imageProviderSettings, setImageProviderSettings] = useState<ImageProviderSettings>(() =>
-    parseImageProviderSettings(initialSnapshot?.imageProviderSettings),
-  );
+  const [providerSettings, setProviderSettings] = useState<ProviderSettings>(() => initialRuntimeState.providerSettings);
+  const [imageProviderSettings, setImageProviderSettings] = useState<ImageProviderSettings>(() => initialRuntimeState.imageProviderSettings);
   const [comfyUiCheckpointModels, setComfyUiCheckpointModels] = useState<string[]>([]);
   const [imageProviderStatus, setImageProviderStatus] = useState("ComfyUI image model check has not run yet.");
-  const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettings>(() => initialRuntimeSettings);
-  const [personas, setPersonas] = useState<Persona[]>(() => initialPersonas);
-  const [activePersonaId, setActivePersonaId] = useState(() =>
-    parseActivePersonaId(initialSnapshot?.activePersonaId, initialPersonas),
-  );
+  const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettings>(() => initialRuntimeState.runtimeSettings);
+  const [personas, setPersonas] = useState<Persona[]>(() => initialRuntimeState.personas);
+  const [activePersonaId, setActivePersonaId] = useState(() => initialRuntimeState.activePersonaId);
   const [sessionApiKey, setSessionApiKey] = useState("");
   const [imageSessionApiKey, setImageSessionApiKey] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -526,6 +481,35 @@ export function App() {
 
   const currentSnapshotRef = useRef(currentSnapshot);
   const restoreSignatureRef = useRef<string>("");
+
+  const applyResolvedRuntimeState = useCallback((state: ResolvedRuntimeSnapshotState) => {
+    setTheme(state.theme);
+    setCards(state.cards);
+    setActiveCardId(state.activeCardId);
+    setChatSessions(state.chatSessions);
+    setActiveChatIds(state.activeChatIds);
+    setPromptRuns(state.promptRuns);
+    setProviderKeyStatus(state.providerKeyStatus);
+    setProviderSettings(state.providerSettings);
+    setImageProviderSettings(state.imageProviderSettings);
+    setRuntimeSettings(state.runtimeSettings);
+    setPersonas(state.personas);
+    setActivePersonaId(state.activePersonaId);
+    setGeneratedMaps(state.generatedMaps);
+    setMapArtifact(state.mapArtifact);
+    setPhotoArtifact(state.photoArtifact);
+  }, []);
+
+  const hydrateFromSnapshot = useCallback((
+    snapshot: RepositoryRuntimeSnapshot,
+    status = "Loaded repository runtime snapshot.",
+  ) => {
+    applyResolvedRuntimeState(resolveRuntimeSnapshotState(snapshot, {
+      fallbackCards: initialCards,
+      fallbackMessages: starterMessages,
+    }));
+    setSaveStatus(status);
+  }, [applyResolvedRuntimeState]);
 
   useEffect(() => {
     return () => turnAbortControllerRef.current?.abort();
@@ -706,7 +690,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [initialSnapshot, hydrationAttempt]);
+  }, [hydrateFromSnapshot, initialSnapshot, hydrationAttempt]);
 
   function retryHydration() {
     setHydrationAttempt((attempt) => attempt + 1);
@@ -805,46 +789,6 @@ export function App() {
       cancelled = true;
     };
   }, [currentSnapshot, hydration, repositoryHydrated]);
-
-  function hydrateFromSnapshot(snapshot: RepositoryRuntimeSnapshot, status = "Loaded repository runtime snapshot.") {
-    const normalizedCards = normalizeRuntimeCards(snapshot.cards as RuntimeCard[]);
-    const hydratedActiveCardId = getStartupActiveCardId(snapshot as AppRuntimeSnapshot, normalizedCards);
-    const hydratedChatSessions = parseChatSessions(
-      snapshot.chatSessions as ChatSession[] | undefined,
-      normalizedCards,
-      snapshot.messages as Message[],
-      hydratedActiveCardId,
-    );
-    const hydratedActiveChatIds = parseActiveChatIds(
-      snapshot.activeChatIds,
-      normalizedCards,
-      hydratedChatSessions,
-      hydratedActiveCardId,
-    );
-    const hydratedCards = normalizedCards.map((card) => {
-      const chat = getActiveChatForCard(card.id, hydratedChatSessions, hydratedActiveChatIds);
-      return chat ? deriveCardForChat(card, chat) : card;
-    });
-    setTheme(snapshot.theme);
-    setCards(hydratedCards);
-    setActiveCardId(hydratedActiveCardId);
-    setChatSessions(hydratedChatSessions);
-    setActiveChatIds(hydratedActiveChatIds);
-    const hydratedRuntimeSettings = parseRuntimeSettings(snapshot.runtimeSettings);
-    const hydratedPersonas = parsePersonas(snapshot.personas, readLegacyImpersonationPrompt(snapshot.runtimeSettings));
-    setPromptRuns(applyPromptDebugRetention(snapshot.promptRuns as PromptRun[], hydratedRuntimeSettings));
-    setProviderKeyStatus(snapshot.providerKeyStatus);
-    setProviderSettings(parseProviderSettings(snapshot.providerSettings));
-    setImageProviderSettings(parseImageProviderSettings(snapshot.imageProviderSettings));
-    setRuntimeSettings(hydratedRuntimeSettings);
-    setPersonas(hydratedPersonas);
-    setActivePersonaId(parseActivePersonaId(snapshot.activePersonaId, hydratedPersonas));
-    const hydratedMaps = parseGeneratedMaps(snapshot.generatedMaps);
-    setGeneratedMaps(hydratedMaps);
-    setMapArtifact(hydratedActiveCardId ? findGeneratedMapForChat(hydratedMaps, hydratedActiveCardId, undefined, "map") : null);
-    setPhotoArtifact(hydratedActiveCardId ? findGeneratedMapForChat(hydratedMaps, hydratedActiveCardId, undefined, "photo") : null);
-    setSaveStatus(status);
-  }
 
   function captureRestorePoint(snapshot: AppRuntimeSnapshot = currentSnapshotRef.current) {
     setRestorePoints((current) =>
@@ -2630,36 +2574,10 @@ export function App() {
     const snapshot = point.snapshot;
     const restoredMessages = snapshot.chatSessions.reduce((count, session) => count + session.messages.length, 0);
     restoreSignatureRef.current = `${restoredMessages}:${snapshot.cards.length}`;
-    const restoredChatSessions = parseChatSessions(
-      snapshot.chatSessions,
-      snapshot.cards,
-      snapshot.messages,
-      snapshot.activeCardId,
-    );
-    const restoredActiveChatIds = parseActiveChatIds(
-      snapshot.activeChatIds,
-      snapshot.cards,
-      restoredChatSessions,
-      snapshot.activeCardId,
-    );
-    const restoredCards = snapshot.cards.map((card) => {
-      const chat = getActiveChatForCard(card.id, restoredChatSessions, restoredActiveChatIds);
-      return chat ? deriveCardForChat(card, chat) : card;
-    });
-    setTheme(snapshot.theme);
-    setCards(restoredCards);
-    setActiveCardId(snapshot.activeCardId);
-    setChatSessions(restoredChatSessions);
-    setActiveChatIds(restoredActiveChatIds);
-    setPromptRuns(snapshot.promptRuns);
-    setProviderKeyStatus(snapshot.providerKeyStatus);
-    setProviderSettings(snapshot.providerSettings);
-    setImageProviderSettings(snapshot.imageProviderSettings);
-    setRuntimeSettings(snapshot.runtimeSettings);
-    const restoredPersonas = parsePersonas(snapshot.personas);
-    setPersonas(restoredPersonas);
-    setActivePersonaId(parseActivePersonaId(snapshot.activePersonaId, restoredPersonas));
-    setGeneratedMaps(snapshot.generatedMaps);
+    applyResolvedRuntimeState(resolveRuntimeSnapshotState(snapshot, {
+      fallbackCards: initialCards,
+      fallbackMessages: starterMessages,
+    }));
     setRestoreStatus(`Restored "${point.label}" from ${formatRestorePointTime(point.createdAt)}.`);
   }
 

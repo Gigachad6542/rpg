@@ -77,3 +77,14 @@ GREEN: `assetService.ts` now owns provider construction, quality normalization,
 prompt-only behavior, malformed-output handling, and desktop durable-asset URL
 replacement. Four focused service tests and all 81 main App tests passed;
 typecheck and lint are green. `App.tsx` is now 3,022 lines.
+
+## Sixth extraction
+
+RED: `tests/app/runtimeSnapshotHydration.test.ts` failed because startup and
+recovery normalization had no shared module.
+
+GREEN: `runtimeSnapshotHydration.ts` now provides one normalization policy for
+browser startup, repository hydration, and restore points, including chat-derived
+card state, prompt-debug retention, provider/persona parsing, and active media.
+Two focused hydration tests and all 81 App integration tests passed; typecheck
+and lint are green. `App.tsx` is now 2,945 lines.

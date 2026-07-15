@@ -2,13 +2,17 @@
 
 ## Setup
 
-Use Node 22, pnpm 11.7.0, the pinned Rust toolchain, and the real repository
-root. Install with:
+Use Node 22, the pinned Rust toolchain, and the real repository root. Enable
+[Corepack](https://nodejs.org/api/corepack.html) once so the pinned pnpm 11.7.0
+from `package.json` is used automatically — do not install pnpm globally:
 
 ```text
+corepack enable
 pnpm install --frozen-lockfile
 pnpm e2e:install
 ```
+
+`engine-strict` in `.npmrc` rejects an unsupported Node or pnpm before install.
 
 Do not commit generated output, local evidence, runtime databases, or secrets.
 
@@ -19,7 +23,8 @@ Do not commit generated output, local evidence, runtime databases, or secrets.
 - Keep desktop persistence scoped to the single `main` window unless a tested
   revision/concurrency protocol is introduced.
 - Treat provider keys, prompts, chats, cards, memory, and diagnostics as private.
-- Update canonical docs and dated evidence when a public claim changes.
+- Update canonical docs and the [testing evidence ledger](docs/testing/README.md)
+  when a public claim changes.
 
 ## Verification
 

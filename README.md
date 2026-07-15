@@ -14,11 +14,19 @@ The main workspace has dedicated tabs for runtime play, card creation, stored lo
 
 ## Development
 
+This repo pins its package manager with the `packageManager` field. Enable
+[Corepack](https://nodejs.org/api/corepack.html) once (it ships with Node) so the
+exact pinned pnpm is provisioned automatically — no manual global pnpm install:
+
 ```bash
+corepack enable
 pnpm install --frozen-lockfile
 pnpm verify
 pnpm desktop:open
 ```
+
+Requires Node 22 (`>=22 <25`); Corepack resolves pnpm to the pinned `11.7.0`.
+`engine-strict` (`.npmrc`) fails fast on an unsupported Node or pnpm.
 
 Useful commands:
 

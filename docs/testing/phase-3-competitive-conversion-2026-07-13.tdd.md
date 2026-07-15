@@ -27,9 +27,13 @@ later found that `discover_local_text_providers` existed in the renderer and
 Rust handler but was absent from the Tauri app manifest and default capability,
 so the marketed desktop discovery action was denied by ACL. The manifest,
 capability, generated permission schemas, and release-flow regression coverage
-were repaired. The full release gate then passed with 69 files / 620 tests, and
+were repaired. That full release gate passed with 69 files / 620 tests, and
 the current MSI product flow successfully invoked the command through the real
 packaged WebView.
+
+A later 2026-07-14 full gate, after adding normal NSIS lifecycle coverage,
+passed in 171.7 seconds with 70 files / 623 tests and the same coverage
+percentages. The original Phase 3 conversion counts below remain historical.
 
 ## RED checkpoint
 

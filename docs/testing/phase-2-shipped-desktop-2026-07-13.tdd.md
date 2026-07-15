@@ -16,11 +16,12 @@ or publication run.
 
 ## Follow-up verification (2026-07-14)
 
-The original dated results below remain historical. A later full release run
-passed in 183.5 seconds with 69 files / 620 tests, 91.57% statements/lines,
+The original dated results below remain historical. The latest full release run
+passed in 171.7 seconds with 70 files / 623 tests, 91.57% statements/lines,
 88.36% branches, and 93.79% functions. Playwright, both deterministic evals,
 production build, JS/Rust audits, 34 Rust tests, clippy, MSI/NSIS packaging,
-executable smoke, and administrative-extraction persistence smoke all passed.
+executable smoke, administrative-extraction persistence smoke, and the normal
+NSIS lifecycle all passed.
 On 2026-07-14, a separate normal current-user NSIS lifecycle also passed install,
 same-version reinstall, persistent relaunch, uninstall registration removal,
 and install-directory cleanup. That later result does not turn this historical

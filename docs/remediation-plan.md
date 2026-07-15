@@ -12,10 +12,11 @@ second, everything else after.
 
 ## Current reconciliation (2026-07-14)
 
-- The local `pnpm verify:release` gate passes: 69 Vitest files / 620 tests,
+- The local `pnpm verify:release` gate passes: 70 Vitest files / 623 tests,
   91.57% statements/lines, 88.36% branches, 93.79% functions, both deterministic
   evals, Playwright, JS/Rust audits, 34 Rust tests, clippy, desktop packaging,
-  executable smoke, and administrative-extraction SQLite smoke.
+  executable smoke, administrative-extraction SQLite smoke, and the normal
+  current-user NSIS lifecycle.
 - The packaged local-provider discovery ACL gap found on 2026-07-14 is repaired
   and exercised through the real packaged Tauri bridge.
 - Public release remains externally unproven: no current exact-commit signed

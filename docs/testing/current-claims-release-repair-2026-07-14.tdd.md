@@ -63,12 +63,12 @@ Command:
 pnpm verify:release
 ```
 
-Result: PASS in 183.5 seconds.
+Latest result: PASS in 171.7 seconds after the installer-lifecycle extension.
 
 ```text
 TypeScript: passed
 ESLint: passed
-Vitest: 69 files / 620 tests passed
+Vitest: 70 files / 623 tests passed
 Coverage: 91.57% statements, 88.36% branches, 93.79% functions, 91.57% lines
 Phase 1 deterministic eval: passed
 Phase 1.1 deterministic eval: passed; 100 lore decisions; 3 campaigns; 0 live calls
@@ -81,6 +81,7 @@ Rust clippy: passed with warnings denied
 Windows MSI and NSIS: built
 Packaged executable smoke: passed
 Administrative-extraction SQLite smoke: passed
+Normal current-user NSIS install/reinstall/uninstall lifecycle: passed
 ```
 
 ## Packaged WebView proof

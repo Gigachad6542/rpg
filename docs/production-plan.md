@@ -2,20 +2,20 @@
 
 Audit date: 2026-07-14
 
-Current working-tree readiness: **72/100 (launchable with caveats for a
+Current working-tree readiness: **74/100 (launchable with caveats for a
 controlled beta; not proven for broad public release)**. The local release gate
-is green and the packaged local-provider discovery regression is repaired. The
+is green, the packaged local-provider discovery regression is repaired, and a
+normal current-user NSIS install/reinstall/uninstall lifecycle now passes. The
 score remains below public-launch level because no current exact-commit hosted
-release has produced signed Windows and notarized macOS artifacts, the Windows
-smokes administratively extract MSI payloads instead of exercising the real
-install/uninstall lifecycle, and live-provider narrative quality is not yet
-measured.
+release has produced signed Windows and notarized macOS artifacts, the installer
+has not been repeated on a clean VM, no previous signed semantic version exists
+for upgrade proof, and live-provider narrative quality is not yet measured.
 
 ## Evidence Checked
 
 - Real repo root: `C:\Users\Dwthe\rpg project`.
-- Local release gate: `pnpm verify:release` passed in 183.5 seconds on 2026-07-14.
-- Vitest coverage gate: 69 files and 620 tests passed.
+- Local release gate: `pnpm verify:release` passed in 171.7 seconds on 2026-07-14.
+- Vitest coverage gate: 70 files and 623 tests passed.
 - Coverage: 91.57% statements/lines, 88.36% branches, and 93.79% functions.
 - Enforced coverage floors: 90% statements/lines/functions and 85% branches.
 - Deterministic evals: Phase 1 passed; Phase 1.1 passed with 100 lore decisions,
@@ -37,6 +37,11 @@ measured.
   the MSI into a temporary root, launches twice with isolated app-data paths,
   and confirms SQLite creation. It does not prove Windows installer registration,
   shortcuts, repair, upgrade, or uninstall.
+- Normal installer lifecycle: `pnpm desktop:installer-lifecycle` selected the
+  sole canonical NSIS artifact, verified current-user registration and launch,
+  preserved isolated SQLite data across a same-version reinstall and relaunch,
+  then removed the registration and install directory on uninstall. This was a
+  local development profile, not a clean VM or previous-version upgrade.
 - Packaged WebView product flow: passed in 13.6 seconds against the current MSI,
   including a real Tauri invocation of `discover_local_text_providers` and
   create/play/reopen/backup/restore/export continuity. This same-package run is
@@ -49,7 +54,7 @@ measured.
 | Correctness and data safety | 18/20 | SQLite authority, migrations, recovery, deterministic lineage, backup/restore, and strong unit coverage are implemented. |
 | Security and privacy boundaries | 14/15 | Keychain references, scoped Tauri commands, fixed loopback discovery, import limits, redaction, and clean production audits are present; accepted Rust debt remains. |
 | Automated verification | 15/20 | The local release gate is broad, but browser coverage is one scenario and live-provider evaluation has not run. |
-| Packaging and release operations | 12/20 | Signed fail-closed workflows exist; current hosted signed/notarized evidence, a true installer lifecycle, and a published previous-version migration are absent. |
+| Packaging and release operations | 14/20 | Signed fail-closed workflows and a real local NSIS lifecycle exist; current hosted signed/notarized evidence, clean-VM proof, and a published previous-version migration are absent. |
 | Product and UX maturity | 8/15 | Onboarding, sample content, imports, library tools, continuity, and explicit state controls are credible; the main UI/controller remains oversized and accessibility E2E is thin. |
 | Operational and project governance | 5/10 | Release, rollback, and runtime contracts exist; public support verification, security reporting, changelog discipline, and licensing are not yet release-complete. |
 
@@ -89,6 +94,8 @@ that flow is effortless would dilute the product.
 
 5. Release lane.
     - `verify:release` now includes desktop package build and packaged executable smoke.
+    - Windows builds clear stale bundle output and the release gate performs a
+      fail-closed normal NSIS install/reinstall/uninstall lifecycle.
     - CI and release workflow inputs are pinned for pnpm and Rust.
     - A tag-triggered Windows release workflow builds, verifies, uploads MSI/NSIS artifacts, writes SHA256 checksums, and creates GitHub releases for `v*` tags.
     - `pnpm clean` removes generated frontend, coverage, Playwright, and Tauri output.
@@ -106,8 +113,8 @@ that flow is effortless would dilute the product.
 - Execute the existing hosted workflow on the exact release commit with real
   Windows signing and Apple signing/notarization credentials; retain every
   signature, Gatekeeper, Keychain, SBOM, provenance, and attestation artifact.
-- Exercise a true Windows install, upgrade, repair, and uninstall on a clean
-  non-development machine or VM. Administrative MSI extraction is insufficient.
+- Repeat the passing normal Windows lifecycle on a clean non-development
+  machine or VM and add a true upgrade from a previous signed semantic version.
 - Run the hosted packaged flow with an actual previous signed semantic-version
   MSI and verify migration, rotating backup creation, restore, and export.
 - Run the opt-in live-provider evaluation with reviewed paid-call limits and

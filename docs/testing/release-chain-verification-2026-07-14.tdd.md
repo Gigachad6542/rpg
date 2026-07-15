@@ -76,9 +76,9 @@ pnpm exec vitest run tests/release/previousReleaseVerification.test.ts tests/rel
 
 ## Coverage and known gaps
 
-The complete `pnpm verify:release` lane passed in 268.2 seconds with 88 test
-files / 669 tests and 91.85% statements/lines, 88.79% branches, and 93.49%
-functions. All thirteen Playwright journeys, Rust checks, package builds, desktop
+The complete `pnpm verify:release` lane passed in 294.8 seconds with 88 test
+files / 669 tests and 91.85% statements/lines, 88.8% branches, and 93.49%
+functions. All fourteen Playwright journeys, Rust checks, package builds, desktop
 smokes, and the normal NSIS lifecycle passed. The canonical production plan
 retains the complete current evidence.
 No local test can fabricate a trusted production certificate, Apple Developer

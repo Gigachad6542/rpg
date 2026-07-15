@@ -22,10 +22,14 @@ This folder keeps operational notes and verification evidence for `rpg`.
 
 ## Testing Evidence
 
+- [Accessibility reflow and forced-colors evidence](testing/accessibility-reflow-forced-colors-2026-07-14.tdd.md)
+  records the 320 CSS-pixel and forced-colors RED failures, constrained-layout,
+  system-color, and transcript keyboard repairs, the 14-browser release rerun,
+  and exact current Windows artifact hashes.
 - [Automated accessibility and pnpm 11 evidence](testing/automated-accessibility-pnpm11-2026-07-14.tdd.md)
   records the RED/GREEN WCAG acceptance lane, semantic and contrast repairs,
-  pnpm 11 supply-chain migration, full 669-test/13-browser release run, and
-  exact current Windows artifact hashes.
+  pnpm 11 supply-chain migration, and the superseding reflow/forced-colors
+  verification reference.
 - [Settings destructive-action accessibility evidence](testing/runtime-import-accessibility-2026-07-14.tdd.md)
   records the runtime import, restore-point, and persona-deletion alert
   dialogs, safe initial focus, focus traps, Escape cancellation, reversible

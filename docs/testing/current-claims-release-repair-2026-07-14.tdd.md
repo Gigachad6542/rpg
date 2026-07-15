@@ -73,18 +73,19 @@ Command:
 pnpm verify:release
 ```
 
-Latest result: PASS in 268.2 seconds with accessibility and pnpm 11 migration
-commit `d95f9e0` checked out.
+Latest result: PASS in 294.8 seconds with constrained-layout and forced-colors
+commit `4938de1` checked out.
 
 ```text
 TypeScript: passed
 ESLint: passed
 Vitest: 88 files / 669 tests passed
-Coverage: 91.85% statements, 88.79% branches, 93.49% functions, 91.85% lines
+Coverage: 91.85% statements, 88.8% branches, 93.49% functions, 91.85% lines
 Phase 1 deterministic eval: passed
 Phase 1.1 deterministic eval: passed; 100 lore decisions; 3 campaigns; 0 live calls
-Vite build: passed; main app chunk 491.98 kB / 138.87 kB gzip
-Playwright: 13 passed, including two zero-violation automated WCAG A/AA journeys
+Vite build: passed; main app chunk 491.99 kB / 138.88 kB gzip
+Playwright: 14 passed, including three accessibility journeys covering
+zero-violation WCAG A/AA scans, 320 CSS-pixel reflow, and forced colors
 pnpm production audit: no known vulnerabilities
 Rust audit: exit 0 with 18 allowed warnings
 Rust tests: 34 passed; 1 signed-release-only Keychain test ignored
@@ -93,7 +94,7 @@ Windows MSI and NSIS: built
 Packaged executable smoke: passed
 Administrative-extraction SQLite smoke: passed
 Normal current-user NSIS install/reinstall/uninstall lifecycle: passed
-Tested NSIS SHA256: 076cd9648ac52ee35e99871d1684517f2fcad02e6818fc304f4cf4f7eaa4675b
+Tested NSIS SHA256: c7df7b6022f6cf42caa43662ba4adb159d01ed5424acfb249aee6cf6303c49f1
 ```
 
 ## Packaged WebView proof
@@ -105,7 +106,7 @@ pnpm desktop:product-flow -PreviousMsi <previous.msi> -CurrentMsi <current.msi> 
 ```
 
 Result: PASS in 14.9 seconds against the freshly built 5,885,952-byte MSI
-(`1b7489a8c0b1174dddf4cb01b65ae771026ab195bb4ba0b28c5e8382998df951`).
+(`2408f141a10e3c09a6ef1dadc94bbaa7c7df7a2adee5ad84e8b026d9c3c4dfa5`).
 This different-commit, same-version run exercised onboarding,
 provider setup, creation, play, close/reopen, SQLite continuity, backup restore,
 runtime export, and the new packaged discovery invocation. It is direct current

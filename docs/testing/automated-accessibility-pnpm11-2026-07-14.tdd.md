@@ -100,25 +100,34 @@ pnpm audit --prod
 No known vulnerabilities found
 ```
 
+## Reflow and forced-colors follow-up
+
+Commit `a78eb15` added a RED 320 CSS-pixel reflow and forced-colors journey;
+commit `4938de1` repaired constrained onboarding, grid and persona layouts,
+system-color token mapping, and keyboard access to the scrollable transcript.
+The complete RED/GREEN record is in
+`accessibility-reflow-forced-colors-2026-07-14.tdd.md`.
+
 ## Complete release verification
 
-The canonical command passed from the beginning with commit `d95f9e0` checked
-out:
+The canonical command passed from the beginning with product commit `4938de1`
+checked out:
 
 ```text
 pnpm verify:release
-PASS in 268.2 seconds
+PASS in 294.8 seconds
 ```
 
 Integrated results:
 
 - TypeScript and ESLint passed.
 - 88 Vitest files / 669 tests passed.
-- V8 coverage: 91.85% statements/lines, 88.79% branches, 93.49% functions.
+- V8 coverage: 91.85% statements/lines, 88.8% branches, 93.49% functions.
 - Phase 1 and Phase 1.1 deterministic evals passed; Phase 1.1 made zero live
   provider calls.
-- Vite built 1,695 modules; the main app chunk was 491.98 kB / 138.87 kB gzip.
-- All 13 Playwright journeys passed in 20.6 seconds.
+- Vite built 1,695 modules; the main app chunk was 491.99 kB / 138.88 kB gzip.
+- All 14 Playwright journeys passed in 23.1 seconds, including three
+  accessibility journeys.
 - Production dependency audit reported no known vulnerabilities.
 - Rust audit exited successfully with 18 allowed warnings and the two scoped
   `quick-xml` exceptions.
@@ -131,12 +140,12 @@ Current local artifacts:
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| MSI | 5,885,952 | `1b7489a8c0b1174dddf4cb01b65ae771026ab195bb4ba0b28c5e8382998df951` |
-| NSIS | 4,190,951 | `076cd9648ac52ee35e99871d1684517f2fcad02e6818fc304f4cf4f7eaa4675b` |
-| Release executable | 15,366,144 | `e6a9b296392abed56819eea1db11b952984dee7fbb24fe48a6331b05a7e955b5` |
+| MSI | 5,885,952 | `2408f141a10e3c09a6ef1dadc94bbaa7c7df7a2adee5ad84e8b026d9c3c4dfa5` |
+| NSIS | 4,188,721 | `c7df7b6022f6cf42caa43662ba4adb159d01ed5424acfb249aee6cf6303c49f1` |
+| Release executable | 15,366,144 | `17066edf25ba42c36a6cf762d89c86bac8ce06fda39e08ef834513511b0f729c` |
 
 The installer-lifecycle record completed at
-`2026-07-15T03:51:10.8027637Z`; first launch, same-version repair/reinstall,
+`2026-07-15T04:10:05.3125137Z`; first launch, same-version repair/reinstall,
 second-launch persistence, uninstall-registration removal, and install-directory
 removal were all true.
 
@@ -149,13 +158,14 @@ different-commit proof rather than semantic-version migration evidence.
 
 ## Evidence boundary
 
-Automated Axe coverage materially improves the browser acceptance baseline but
-does not prove full WCAG conformance, native WebView/screen-reader behavior,
-Windows high-contrast mode, zoom/reflow, or switch-input usability. The rebuilt
+Automated Axe, 320 CSS-pixel reflow, and forced-colors emulation materially
+improve the browser acceptance baseline but do not prove full WCAG conformance,
+native WebView/screen-reader behavior, native Windows High Contrast, magnifier,
+or switch-input usability. The rebuilt
 Windows artifacts are unsigned local development packages. Hosted exact-commit
 signing/notarization, clean-machine lifecycle, published prior-version
 migration, live-provider quality, attestation eligibility, licensing, and
 public support/security intake remain required before broad public launch.
 
-The canonical readiness score is therefore 84/100: controlled-beta capable,
+The canonical readiness score is therefore 85/100: controlled-beta capable,
 not objectively ready for broad public release.

@@ -12,9 +12,10 @@ second, everything else after.
 
 ## Current reconciliation (2026-07-14)
 
-- The local `pnpm verify:release` gate passes in 268.2 seconds: 88 Vitest files /
-  669 tests, 91.85% statements/lines, 88.79% branches, 93.49% functions, both deterministic
-  evals, Playwright, JS/Rust audits, 34 Rust tests, clippy, desktop packaging,
+- The local `pnpm verify:release` gate passes in 294.8 seconds: 88 Vitest files /
+  669 tests, 91.85% statements/lines, 88.8% branches, 93.49% functions, both deterministic
+  evals, 14 Playwright journeys, JS/Rust audits, 34 Rust tests, clippy, desktop
+  packaging,
   executable smoke, administrative-extraction SQLite smoke, and the normal
   current-user NSIS lifecycle.
 - The packaged local-provider discovery ACL gap found on 2026-07-14 is repaired

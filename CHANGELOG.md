@@ -14,8 +14,9 @@ recorded here. Dates use `YYYY-MM-DD`; versions must match `package.json`,
 - Windows MSI/NSIS and Apple Silicon macOS release lanes with fail-closed
   signing/notarization inputs, checksums, SBOM, provenance, and attestations.
 - Normal Windows NSIS install/reinstall/uninstall verification, eleven
-  functional browser journeys, and two zero-violation automated WCAG A/AA
-  acceptance journeys across both themes and key dialogs.
+  functional browser journeys, two zero-violation automated WCAG A/AA
+  journeys across both themes and key dialogs, and a third journey for 320
+  CSS-pixel reflow and forced colors.
 - Independent previous-release Authenticode publisher/timestamp, checksum,
   provenance, tag-commit, and semantic-version verification before packaged
   migration, plus an explicitly non-promotable signed bootstrap lane.
@@ -24,6 +25,9 @@ recorded here. Dates use `YYYY-MM-DD`; versions must match `package.json`,
   focus restoration, and reversible local snapshots.
 - Contrast-safe light/dark theme tokens and standards-compatible definition
   lists across navigation, onboarding, cards, lorebooks, runtime, and Settings.
+- Viewport-bounded onboarding, zero-minimum responsive grids, stacked mobile
+  persona actions, system-color theme tokens, and a keyboard-focusable
+  scrollable transcript for constrained and high-contrast layouts.
 
 ### Security
 

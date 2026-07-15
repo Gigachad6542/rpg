@@ -6,8 +6,8 @@ smoke.
 
 ## Result
 
-The Chromium acceptance lane now has ten independent journeys. All ten passed
-in 6.7 seconds with ten local workers.
+The Chromium acceptance lane now has ten independent journeys. The latest full
+release-gate run passed all ten in 6.5 seconds with ten local workers.
 
 ## Characterization contracts
 
@@ -48,7 +48,7 @@ persistence plus compiled-prompt privacy.
 pnpm e2e
 ```
 
-Result: 10 passed in 6.7 seconds.
+Latest full-gate result: 10 passed in 6.5 seconds.
 
 ```text
 pnpm typecheck
@@ -87,3 +87,4 @@ lane passed without secrets or paid calls.
 The composer and invalid-import characterizations then closed two more
 acceptance gaps: multiline keyboard semantics and fail-closed runtime
 replacement parsing. The full ten-test browser lane passed in 6.7 seconds.
+The later complete release gate repeated all ten in 6.5 seconds.

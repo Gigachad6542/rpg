@@ -86,10 +86,11 @@ pnpm verify:release
 
 This gate includes the Playwright browser acceptance suite, the Tauri desktop package build, the packaged
 executable smoke, the administrative-extraction MSI-payload smoke, and a normal current-user NSIS
-install/reinstall/uninstall lifecycle. The four browser journeys cover the seeded
+install/reinstall/uninstall lifecycle. The ten browser journeys cover the seeded
 mock-turn privacy/reload path, offline first-run demo, guided card creation and
-reload, reversible runtime import review, and memory-dialog focus
-trap/restoration. The executable smoke starts the release
+reload, reversible runtime import review, dialog and navigation keyboard
+contracts, reversible card/chat deletion, provider recovery, multiline
+composition, and fail-closed invalid imports. The executable smoke starts the release
 executable and fails if it exits during startup. The MSI-payload smoke uses `msiexec /a` to stage the generated MSI into a
 temporary install root, launches with isolated app-data paths, restarts once, and confirms the runtime
 SQLite database is created under that clean profile. The separate installer lifecycle refuses to
@@ -105,8 +106,8 @@ For coverage reporting, run:
 pnpm test:coverage
 ```
 
-The 2026-07-14 scoped V8 report is 91.57% statements/lines, 88.36% branches,
-and 93.79% functions across 70 files / 623 tests. Enforced floors are 90%
+The latest 2026-07-14 scoped V8 report is 91.81% statements/lines, 88.75%
+branches, and 93.45% functions across 85 files / 657 tests. Enforced floors are 90%
 statements/lines/functions and 85% branches.
 Remaining uncovered lines are mostly defensive UI guards and transitive edge branches rather than
 core runtime paths.

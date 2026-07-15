@@ -6,9 +6,8 @@ release identity, browser smoke, packaged product flow, and coverage policy.
 
 ## Result
 
-The current working tree's last full `pnpm verify:release` run passed. A later
-focused extension added and directly passed a normal current-user NSIS
-install/reinstall/uninstall lifecycle. Public-launch proof is still incomplete
+The current working tree's full `pnpm verify:release` run passed, including the
+normal current-user NSIS install/reinstall/uninstall lifecycle. Public-launch proof is still incomplete
 because the local run was unsigned, used no Apple runner, did not execute the
 exact-commit hosted workflow, did not use a clean VM, and did not upgrade from a
 previous signed semantic version.
@@ -63,17 +62,17 @@ Command:
 pnpm verify:release
 ```
 
-Latest result: PASS in 171.7 seconds after the installer-lifecycle extension.
+Latest result: PASS in 224.8 seconds at code commit `e0218f4`.
 
 ```text
 TypeScript: passed
 ESLint: passed
-Vitest: 70 files / 623 tests passed
-Coverage: 91.57% statements, 88.36% branches, 93.79% functions, 91.57% lines
+Vitest: 85 files / 657 tests passed
+Coverage: 91.81% statements, 88.75% branches, 93.45% functions, 91.81% lines
 Phase 1 deterministic eval: passed
 Phase 1.1 deterministic eval: passed; 100 lore decisions; 3 campaigns; 0 live calls
-Vite build: passed; main app chunk 486.13 kB / 137.16 kB gzip
-Playwright: 1 passed
+Vite build: passed; main app chunk 490.25 kB / 138.32 kB gzip
+Playwright: 10 passed
 pnpm production audit: no known vulnerabilities
 Rust audit: exit 0 with 18 allowed warnings
 Rust tests: 34 passed; 1 signed-release-only Keychain test ignored
@@ -82,6 +81,7 @@ Windows MSI and NSIS: built
 Packaged executable smoke: passed
 Administrative-extraction SQLite smoke: passed
 Normal current-user NSIS install/reinstall/uninstall lifecycle: passed
+Tested NSIS SHA256: 2603adb91bbb75e8605cc767c4323e02539616fd267ed43e4b7223c87c0a9a2d
 ```
 
 ## Packaged WebView proof
@@ -92,7 +92,9 @@ Command shape:
 pnpm desktop:product-flow -PreviousMsi <current.msi> -CurrentMsi <current.msi> -EvidenceDir <ignored-dir>
 ```
 
-Result: PASS in 13.6 seconds. This same-package run exercised onboarding,
+Result: PASS in 13.8 seconds against the freshly built 5,885,952-byte MSI
+(`653c0a5949a5286f95f53132d1876380585405a9c4a5858b8ecf1e5b51d22b73`).
+This same-package run exercised onboarding,
 provider setup, creation, play, close/reopen, SQLite continuity, backup restore,
 runtime export, and the new packaged discovery invocation. It is direct current
 package proof, not previous-version migration proof.
@@ -126,5 +128,6 @@ command no longer includes that token.
 3. Run migration/restore from a previous signed semantic-version package.
 4. Execute the paid live-provider evaluation with blind scoring and explicit
    cost limits.
-5. Decompose the oversized application controller and UI test suite while
-   expanding browser/accessibility acceptance coverage.
+5. Continue decomposing the oversized application controller and large feature
+   modules while expanding settings accessibility acceptance coverage. The
+   former 4,752-line UI suite is already split into five domain suites.

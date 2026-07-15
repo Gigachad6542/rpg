@@ -2,7 +2,7 @@
 
 Audit date: 2026-07-14
 
-Current working-tree readiness: **79/100 (launchable with caveats for a
+Current working-tree readiness: **81/100 (launchable with caveats for a
 controlled beta; not proven for broad public release)**. The local release gate
 is green, the packaged local-provider discovery regression is repaired, and a
 normal current-user NSIS install/reinstall/uninstall lifecycle now passes. The
@@ -14,9 +14,9 @@ for upgrade proof, and live-provider narrative quality is not yet measured.
 ## Evidence Checked
 
 - Real repo root: `C:\Users\Dwthe\rpg project`.
-- Local release gate: `pnpm verify:release` passed in 171.7 seconds on 2026-07-14.
-- Vitest coverage gate: 70 files and 623 tests passed.
-- Coverage: 91.57% statements/lines, 88.36% branches, and 93.79% functions.
+- Local release gate: `pnpm verify:release` passed in 224.8 seconds on 2026-07-14.
+- Vitest coverage gate: 85 files and 657 tests passed.
+- Coverage: 91.81% statements/lines, 88.75% branches, and 93.45% functions.
 - Enforced coverage floors: 90% statements/lines/functions and 85% branches.
 - Deterministic evals: Phase 1 passed; Phase 1.1 passed with 100 lore decisions,
   three long campaigns, and `liveCallsMade: 0`.
@@ -27,8 +27,8 @@ for upgrade proof, and live-provider narrative quality is not yet measured.
   arrow/Home/End-key card-editor tabs, reversible card/chat deletion, and
   visible local-provider failure followed by in-place mock-provider recovery,
   multiline keyboard composition, and fail-closed invalid runtime imports.
-- Frontend build: Vite production build passed; the main app chunk was 486.13
-  kB (137.16 kB gzip), plus separate React, icon, and Tauri chunks.
+- Frontend build: Vite production build passed; the main app chunk was 490.25
+  kB (138.32 kB gzip), plus separate React, icon, and Tauri chunks.
 - Dependency audit: `pnpm audit --prod` reported no known vulnerabilities.
 - Rust audit: `cargo audit` exited successfully with 18 allowed transitive
   warnings; two `quick-xml` advisories remain scoped exceptions in
@@ -45,11 +45,15 @@ for upgrade proof, and live-provider narrative quality is not yet measured.
 - Normal installer lifecycle: `pnpm desktop:installer-lifecycle` selected the
   sole canonical NSIS artifact, verified current-user registration and launch,
   preserved isolated SQLite data across a same-version reinstall and relaunch,
-  then removed the registration and install directory on uninstall. This was a
+  then removed the registration and install directory on uninstall. The tested
+  NSIS SHA256 was `2603adb91bbb75e8605cc767c4323e02539616fd267ed43e4b7223c87c0a9a2d`.
+  This was a
   local development profile, not a clean VM or previous-version upgrade.
-- Packaged WebView product flow: passed in 13.6 seconds against the current MSI,
+- Packaged WebView product flow: passed in 13.8 seconds against the current MSI,
   including a real Tauri invocation of `discover_local_text_providers` and
-  create/play/reopen/backup/restore/export continuity. This same-package run is
+  create/play/reopen/backup/restore/export continuity. The tested MSI SHA256 was
+  `653c0a5949a5286f95f53132d1876380585405a9c4a5858b8ecf1e5b51d22b73`.
+  This same-package run is
   runtime proof, not previous-version migration proof.
 - Desktop write policy: exactly one `main` window is declared and capability
   scoped; contract tests reject additional renderer/Rust window creation.
@@ -63,9 +67,9 @@ for upgrade proof, and live-provider narrative quality is not yet measured.
 |---|---:|---|
 | Correctness and data safety | 19/20 | SQLite authority, migrations, recovery, deterministic lineage, backup/restore, a tested single-window writer policy, and strong unit coverage are implemented. |
 | Security and privacy boundaries | 14/15 | Keychain references, scoped Tauri commands, fixed loopback discovery, import limits, redaction, and clean production audits are present; accepted Rust debt remains. |
-| Automated verification | 17/20 | The local release gate is broad and eight critical browser journeys now pass; desktop UI automation remains narrower than unit coverage and live-provider evaluation has not run. |
+| Automated verification | 18/20 | The local release gate is broad and ten critical browser journeys now pass; desktop UI automation remains narrower than unit coverage and live-provider evaluation has not run. |
 | Packaging and release operations | 14/20 | Signed fail-closed workflows and a real local NSIS lifecycle exist; current hosted signed/notarized evidence, clean-VM proof, and a published previous-version migration are absent. |
-| Product and UX maturity | 8/15 | Onboarding, sample content, imports, library tools, continuity, and explicit state controls are credible; the main UI/controller remains oversized and accessibility E2E is thin. |
+| Product and UX maturity | 9/15 | Onboarding, sample content, imports, library tools, continuity, explicit recovery controls, and critical keyboard paths are credible; the main controller remains oversized and settings accessibility is not yet exhaustive. |
 | Operational and project governance | 7/10 | Release, rollback, runtime, security, support, contribution, changelog, conduct, issue, and PR contracts exist; licensing and verified public support/security intake remain incomplete. |
 
 ## Competitive Snapshot (verified 2026-07-14)
@@ -142,8 +146,8 @@ that flow is effortless would dilute the product.
   boundary over independently gated validation, schema, normalized-storage
   CRUD, and a separate 1,113-line regression corpus.
 - Continue accessibility acceptance beyond the verified memory-dialog focus
-  trap, current-page navigation, and linked keyboard-operable card tabs into the
-  composer, runtime-replacement recovery, and remaining settings flows.
+  trap, current-page navigation, linked keyboard-operable card tabs, multiline
+  composer, and fail-closed runtime replacement into the remaining settings flows.
 - Make the owner licensing decision and configure verified public help,
   support, and security-reporting destinations before broad distribution.
 

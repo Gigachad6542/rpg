@@ -108,3 +108,39 @@ test("runtime export review is reversible and the memory dialog restores keyboar
   await page.getByRole("button", { name: /^Runtime$/ }).click();
   await expect(page.getByRole("heading", { name: /Ashfall Crossing/i })).toBeVisible();
 });
+
+test("main navigation and card editor tabs expose a complete keyboard contract", async ({ page }) => {
+  const onboarding = await openFreshRuntime(page);
+  await onboarding.getByRole("button", { name: /Start mock demo/i }).click();
+
+  const runtimeNavigation = page.getByRole("button", { name: /^Runtime$/ });
+  const cardsNavigation = page.getByRole("button", { name: /^Cards$/ });
+  await expect(runtimeNavigation).toHaveAttribute("aria-current", "page");
+  await cardsNavigation.focus();
+  await page.keyboard.press("Enter");
+  await expect(cardsNavigation).toHaveAttribute("aria-current", "page");
+  await expect(runtimeNavigation).not.toHaveAttribute("aria-current", "page");
+
+  const tabs = page.getByRole("tablist", { name: /Card editor tabs/i });
+  const instructionsTab = tabs.getByRole("tab", { name: /^Instructions$/ });
+  const rulesTab = tabs.getByRole("tab", { name: /^Rules$/ });
+  await expect(instructionsTab).toHaveAttribute("aria-selected", "true");
+  await expect(instructionsTab).toHaveAttribute("tabindex", "0");
+  await expect(rulesTab).toHaveAttribute("tabindex", "-1");
+
+  await instructionsTab.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(rulesTab).toBeFocused();
+  await expect(rulesTab).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tabpanel", { name: /^Rules$/ })).toBeVisible();
+
+  await page.keyboard.press("End");
+  const rpgTab = tabs.getByRole("tab", { name: /^RPG$/ });
+  await expect(rpgTab).toBeFocused();
+  await expect(rpgTab).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tabpanel", { name: /^RPG$/ })).toBeVisible();
+
+  await page.keyboard.press("Home");
+  await expect(instructionsTab).toBeFocused();
+  await expect(instructionsTab).toHaveAttribute("aria-selected", "true");
+});

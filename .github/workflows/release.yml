@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Fail closed on invalid bootstrap or unsupported attestation storage
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           RELEASE_MODE: ${{ inputs.release_mode }}
           BOOTSTRAP_CONFIRMATION: ${{ inputs.bootstrap_confirmation }}
@@ -77,7 +77,7 @@ jobs:
       contents: read
     steps:
       - name: Verify exact commit CI conclusion
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const { owner, repo } = context.repo;
@@ -104,23 +104,23 @@ jobs:
 
     steps:
       - name: Checkout exact release commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ github.sha }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 9.15.9
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@1.94.1
+        uses: dtolnay/rust-toolchain@8fae6aadcd3e1a6f3fcb446ce7f9438c9d1349f1 # 1.94.1
         with:
           components: clippy
 
@@ -287,7 +287,7 @@ jobs:
         run: pnpm release:provenance -- --platform windows --bundle-root src-tauri/target/release/bundle --sbom release-evidence/windows/sbom-windows.cdx.json --output-dir src-tauri/target/release/bundle
 
       - name: Attest Windows artifacts and SBOM
-        uses: actions/attest@v4
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
         with:
           subject-path: |
             src-tauri/target/release/bundle/**/*.msi
@@ -295,7 +295,7 @@ jobs:
           sbom-path: release-evidence/windows/sbom-windows.cdx.json
 
       - name: Upload Windows desktop artifacts and evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: local-first-rpg-windows
           path: |
@@ -313,23 +313,23 @@ jobs:
 
     steps:
       - name: Checkout exact release commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ github.sha }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 9.15.9
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@1.94.1
+        uses: dtolnay/rust-toolchain@8fae6aadcd3e1a6f3fcb446ce7f9438c9d1349f1 # 1.94.1
         with:
           components: clippy
           targets: aarch64-apple-darwin
@@ -382,13 +382,13 @@ jobs:
         run: pnpm release:provenance -- --platform macos --bundle-root src-tauri/target/release/bundle/dmg --sbom release-evidence/macos/sbom-macos.cdx.json --output-dir src-tauri/target/release/bundle/dmg
 
       - name: Attest macOS DMG and SBOM
-        uses: actions/attest@v4
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
         with:
           subject-path: src-tauri/target/release/bundle/dmg/*.dmg
           sbom-path: release-evidence/macos/sbom-macos.cdx.json
 
       - name: Upload macOS desktop artifacts and evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: local-first-rpg-macos
           path: |
@@ -411,7 +411,7 @@ jobs:
       contents: write
     steps:
       - name: Download verified platform artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: release-assets
 
@@ -443,12 +443,12 @@ jobs:
       contents: write
     steps:
       - name: Checkout exact baseline commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ github.sha }}
 
       - name: Download verified platform artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: release-assets
 

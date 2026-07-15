@@ -228,3 +228,47 @@ MSI/NSIS packaging, both desktop smokes, and the normal installer lifecycle.
 The packaged WebView product flow then passed in 14.6 seconds against the
 5,885,952-byte MSI with SHA256
 `a5cb3ab8989668e57560ff75147480809c6a89018e01c2561385c9a04781b1dc`.
+
+## Runtime data-management hook extraction
+
+RED: commit `da0a193` added three direct boundary contracts and failed only at
+module resolution. The contracts keep invalid imports non-mutating, require a
+valid import to remain review-only until explicit apply, require the current
+state to be captured before hydration, and assert versioned export plus
+secret-free repository diagnostics at the downloaded payload boundary.
+
+GREEN: commit `c46642b` isolates runtime import, export, and diagnostics in the
+126-line `useRuntimeDataManagement.ts`. Its three direct contracts and all
+seven data-flow integrations passed; the complete UI/controller surface then
+passed 106 tests with clean TypeScript and zero-warning ESLint. `App.tsx` fell
+from 2,454 to 2,410 lines without changing the Settings review workflow.
+
+## Media-generation hook extraction
+
+RED: commit `ee2cdc5` added three direct media contracts and failed only at
+module resolution. They require hosted prompt-planner failure to preserve a
+usable local aerial prompt, active-chat map deletion to preserve other media
+and the documented card-level fallback, and confirm-first portraits to save an
+editable prompt without invoking image generation.
+
+The first focused run exposed that the repository already intentionally falls
+back to the newest card map when the active chat has no exact artifact. The
+direct contract was corrected to assert that documented fallback explicitly,
+while retaining the storage-scope assertion; no production behavior or
+existing acceptance test was weakened.
+
+GREEN: commit `6f02162` isolates map, custom-image, and portrait lifecycle
+orchestration in the 458-line `useMediaGeneration.ts`. Its three direct tests,
+all 13 media integrations, all 21 provider integrations, and the complete
+112-test UI/controller surface passed with clean TypeScript and zero-warning
+ESLint. `App.tsx` fell from 2,410 to 2,089 lines.
+
+The complete release gate passed from the beginning on
+`6f021621bca4a225267ef62a9da8d466f1fe09f7` in 271.7 seconds: 92 files / 681
+tests, 91.99% statements/lines, 88.88% branches, 93.56% functions, both
+deterministic evals with zero live calls, 14 Playwright journeys, clean
+production dependency audit, accepted Rust audit, 34 Rust tests, strict clippy,
+MSI/NSIS packaging, both desktop smokes, and the normal installer lifecycle.
+The packaged WebView product flow then passed in 14.9 seconds against the
+5,885,952-byte MSI with SHA256
+`8d9dd3183495022ca7e0377fd0cd065dcc2b4caadb7b226f54dd17d15b9d1328`.

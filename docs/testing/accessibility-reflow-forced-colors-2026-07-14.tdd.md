@@ -65,19 +65,19 @@ PASS
 ## Complete release verification
 
 The latest canonical gate passed from the beginning on product commit
-`68b40c1f373124d6ddccca222242e31be199c751`:
+`6f021621bca4a225267ef62a9da8d466f1fe09f7`:
 
 ```text
 pnpm verify:release
-PASS in 274.0 seconds
+PASS in 271.7 seconds
 ```
 
 Integrated results:
 
-- 90 Vitest files / 675 tests passed.
-- Coverage was 91.93% statements/lines, 88.84% branches, and 93.55% functions.
+- 92 Vitest files / 681 tests passed.
+- Coverage was 91.99% statements/lines, 88.88% branches, and 93.56% functions.
 - Both deterministic evals passed with `liveCallsMade: 0`.
-- Vite built 1,697 modules; the main app chunk was 493.53 kB / 139.17 kB gzip.
+- Vite built 1,699 modules; the main app chunk was 496.26 kB / 140.44 kB gzip.
 - All 14 Playwright journeys passed in 22.4 seconds: eleven functional and
   three accessibility journeys.
 - Production dependency audit reported no known vulnerabilities.
@@ -92,13 +92,13 @@ Current local artifacts:
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| MSI | 5,885,952 | `a5cb3ab8989668e57560ff75147480809c6a89018e01c2561385c9a04781b1dc` |
-| NSIS | 4,194,558 | `b937e9bca12b7c7211a7a078cf6c11ab8ed01329c427f57c2bd5b779c9e79930` |
+| MSI | 5,885,952 | `8d9dd3183495022ca7e0377fd0cd065dcc2b4caadb7b226f54dd17d15b9d1328` |
+| NSIS | 4,190,365 | `af883ff2ec8442cf78ab1313a50ae1f36d6e5a659c407f3409a453bc5d2b0c46` |
 | Release executable | 15,366,144 | `439e3b82ef9d3ab06193ac7b3272d44c0acd835f4eaff9df2547fc0c9c18f2c8` |
 
 The installer-lifecycle record completed at
-`2026-07-15T04:44:02.6313724Z`; all five lifecycle assertions were true. The
-separate packaged WebView product flow passed in 14.6 seconds against the new
+`2026-07-15T05:03:54.7432903Z`; all five lifecycle assertions were true. The
+separate packaged WebView product flow passed in 14.9 seconds against the new
 MSI and retained different-commit `0.1.0` package.
 
 ## Evidence boundary

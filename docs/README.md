@@ -42,7 +42,8 @@ This folder keeps operational notes and verification evidence for `rpg`.
   records the behavior-preserving `App.tsx` extractions, Rust repository module
   split, 81-test UI integration suite decomposition, and provider/session-key/
   ComfyUI orchestration hook with its portrait-timing regression proof, plus the
-  fail-closed hydration/backup/autosave/restore persistence controller.
+  fail-closed persistence, reviewed data-management, and media-generation
+  controllers.
 - [Release governance evidence](testing/release-governance-2026-07-14.tdd.md)
   records the controlled-beta security, support, contribution, changelog,
   conduct, issue, and pull-request surfaces plus their public-release limits.

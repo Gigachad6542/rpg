@@ -73,17 +73,17 @@ Command:
 pnpm verify:release
 ```
 
-Latest result: PASS in 274.0 seconds with runtime-persistence extraction commit
-`68b40c1` checked out.
+Latest result: PASS in 271.7 seconds with media-generation extraction commit
+`6f02162` checked out.
 
 ```text
 TypeScript: passed
 ESLint: passed
-Vitest: 90 files / 675 tests passed
-Coverage: 91.93% statements, 88.84% branches, 93.55% functions, 91.93% lines
+Vitest: 92 files / 681 tests passed
+Coverage: 91.99% statements, 88.88% branches, 93.56% functions, 91.99% lines
 Phase 1 deterministic eval: passed
 Phase 1.1 deterministic eval: passed; 100 lore decisions; 3 campaigns; 0 live calls
-Vite build: passed; main app chunk 493.53 kB / 139.17 kB gzip
+Vite build: passed; main app chunk 496.26 kB / 140.44 kB gzip
 Playwright: 14 passed, including three accessibility journeys covering
 zero-violation WCAG A/AA scans, 320 CSS-pixel reflow, and forced colors
 pnpm production audit: no known vulnerabilities
@@ -94,7 +94,7 @@ Windows MSI and NSIS: built
 Packaged executable smoke: passed
 Administrative-extraction SQLite smoke: passed
 Normal current-user NSIS install/reinstall/uninstall lifecycle: passed
-Tested NSIS SHA256: b937e9bca12b7c7211a7a078cf6c11ab8ed01329c427f57c2bd5b779c9e79930
+Tested NSIS SHA256: af883ff2ec8442cf78ab1313a50ae1f36d6e5a659c407f3409a453bc5d2b0c46
 ```
 
 ## Packaged WebView proof
@@ -105,8 +105,8 @@ Command shape:
 pnpm desktop:product-flow -PreviousMsi <previous.msi> -CurrentMsi <current.msi> -EvidenceDir <ignored-dir>
 ```
 
-Result: PASS in 14.6 seconds against the freshly built 5,885,952-byte MSI
-(`a5cb3ab8989668e57560ff75147480809c6a89018e01c2561385c9a04781b1dc`).
+Result: PASS in 14.9 seconds against the freshly built 5,885,952-byte MSI
+(`8d9dd3183495022ca7e0377fd0cd065dcc2b4caadb7b226f54dd17d15b9d1328`).
 This different-commit, same-version run exercised onboarding,
 provider setup, creation, play, close/reopen, SQLite continuity, backup restore,
 runtime export, and the new packaged discovery invocation. It is direct current

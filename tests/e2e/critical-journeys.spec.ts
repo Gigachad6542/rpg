@@ -169,3 +169,25 @@ test("card deletion requires confirmation and offers an explicit recovery path",
   await card.getByRole("button", { name: /Confirm delete Disposable Mystery/i }).click();
   await expect(card).toBeHidden();
 });
+
+test("chat deletion can be cancelled before the active branch is removed", async ({ page }) => {
+  const onboarding = await openFreshRuntime(page);
+  await onboarding.getByRole("button", { name: /Start mock demo/i }).click();
+  await page.getByRole("button", { name: /^New chat$/ }).click();
+
+  const activeChat = page.getByLabel(/Active chat/i);
+  const chatTitle = await activeChat.locator("option:checked").textContent();
+  expect(chatTitle).toBeTruthy();
+
+  await page.getByRole("button", { name: /^Delete chat$/ }).click();
+  await expect(page.getByRole("button", { name: /Confirm delete chat/i })).toBeVisible();
+  const cancel = page.getByRole("button", { name: /Cancel delete chat/i });
+  await expect(cancel).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: /^Delete chat$/ })).toBeVisible();
+  await expect(activeChat).toHaveDisplayValue(chatTitle!);
+
+  await page.getByRole("button", { name: /^Delete chat$/ }).click();
+  await page.getByRole("button", { name: /Confirm delete chat/i }).click();
+  await expect(activeChat).not.toHaveDisplayValue(chatTitle!);
+});

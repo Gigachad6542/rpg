@@ -2,7 +2,7 @@
 
 Audit date: 2026-07-14
 
-Current working-tree readiness: **82/100 (launchable with caveats for a
+Current working-tree readiness: **84/100 (launchable with caveats for a
 controlled beta; not proven for broad public release)**. The local release gate
 is green, the packaged local-provider discovery regression is repaired, and a
 normal current-user NSIS install/reinstall/uninstall lifecycle now passes. The
@@ -21,14 +21,15 @@ constraint is resolved.
 ## Evidence Checked
 
 - Real repo root: `C:\Users\Dwthe\rpg project`.
-- Local release gate: `pnpm verify:release` passed in 262.4 seconds on 2026-07-14
-  with reversible Settings actions code commit `fe248f5` checked out.
+- Local release gate: `pnpm verify:release` passed in 268.2 seconds on 2026-07-14
+  with accessibility and pnpm 11 migration commit `d95f9e0` checked out.
 - Vitest coverage gate: 88 files and 669 tests passed.
-- Coverage: 91.85% statements/lines, 88.80% branches, and 93.49% functions.
+- Coverage: 91.85% statements/lines, 88.79% branches, and 93.49% functions.
 - Enforced coverage floors: 90% statements/lines/functions and 85% branches.
 - Deterministic evals: Phase 1 passed; Phase 1.1 passed with 100 lore decisions,
   three long campaigns, and `liveCallsMade: 0`.
-- Browser acceptance: 11 Playwright Chromium tests passed, covering the seeded
+- Browser acceptance: 13 Playwright Chromium tests passed. Eleven functional
+  journeys cover the seeded
   runtime smoke, one-click offline demo, template card creation and reload,
   reversible export/import review, and memory-dialog focus trap/restoration.
   Additional journeys verify current-page navigation plus linked, roving,
@@ -36,8 +37,11 @@ constraint is resolved.
   visible local-provider failure followed by in-place mock-provider recovery,
   multiline keyboard composition, fail-closed invalid runtime imports, and a
   reviewed whole-runtime replacement rolled back from a named restore point.
-- Frontend build: Vite production build passed; the main app chunk was 492.20
-  kB (138.89 kB gzip), plus separate React, icon, and Tauri chunks.
+  Two zero-violation Axe journeys cover WCAG A/AA-tagged rules across dark and
+  light onboarding, all five primary sections, the memory inspector, and the
+  runtime-import, restore, and persona-deletion dialogs.
+- Frontend build: Vite production build passed; the main app chunk was 491.98
+  kB (138.87 kB gzip), plus separate React, icon, and Tauri chunks.
 - Dependency audit: `pnpm audit --prod` reported no known vulnerabilities.
 - Rust audit: `cargo audit` exited successfully with 18 allowed transitive
   warnings; two `quick-xml` advisories remain scoped exceptions in
@@ -55,21 +59,21 @@ constraint is resolved.
   sole canonical NSIS artifact, verified current-user registration and launch,
   preserved isolated SQLite data across a same-version reinstall and relaunch,
   then removed the registration and install directory on uninstall. The tested
-  NSIS SHA256 was `0a30b1126ea1a49276568466db0567f015ff94f04dfd0a4fbf861b7d72678a68`.
+  NSIS SHA256 was `076cd9648ac52ee35e99871d1684517f2fcad02e6818fc304f4cf4f7eaa4675b`.
   This was a
   local development profile, not a clean VM or previous-version upgrade.
-- Packaged WebView product flow: passed in 13.1 seconds against the current MSI,
+- Packaged WebView product flow: passed in 14.9 seconds against the current MSI,
   including a real Tauri invocation of `discover_local_text_providers` and
   create/play/reopen/backup/restore/export continuity. The tested MSI SHA256 was
-  `af60083f0f0bd9765a4ef8a5188bd376f9765be4160055b6ed6d0a93abe5fd77`.
-  This same-package run is
-  runtime proof, not previous-version migration proof.
+  `1b7489a8c0b1174dddf4cb01b65ae771026ab195bb4ba0b28c5e8382998df951`.
+  This different-commit, same-version run is runtime proof, not published
+  semantic-version migration proof.
 - Desktop write policy: exactly one `main` window is declared and capability
   scoped; contract tests reject additional renderer/Rust window creation.
 - Streaming policy: stored OS-keychain providers are explicitly non-streaming,
   the pipeline falls back to request/response, and Settings tells users that
   those replies appear once complete.
-- Release-chain verifier: 19 focused tests passed across three release suites.
+- Release-chain verifier: 20 focused tests passed across three release suites.
   Synthetic previous artifacts prove checksum/provenance/repository/tag-commit/
   version failures are rejected, and an unsigned MSI with an absolute evidence
   path reaches Authenticode validation and fails for the signature itself.
@@ -82,9 +86,9 @@ constraint is resolved.
 |---|---:|---|
 | Correctness and data safety | 19/20 | SQLite authority, migrations, recovery, deterministic lineage, backup/restore, a tested single-window writer policy, and strong unit coverage are implemented. |
 | Security and privacy boundaries | 14/15 | Keychain references, scoped Tauri commands, fixed loopback discovery, import limits, redaction, and clean production audits are present; accepted Rust debt remains. |
-| Automated verification | 18/20 | The local release gate is broad and eleven critical browser journeys now pass; desktop UI automation remains narrower than unit coverage and live-provider evaluation has not run. |
+| Automated verification | 19/20 | The local release gate is broad, eleven functional browser journeys pass, and a zero-violation automated WCAG A/AA lane covers both themes and key dialogs; native desktop assistive-technology testing and live-provider evaluation have not run. |
 | Packaging and release operations | 14/20 | Signed fail-closed workflows and a real local NSIS lifecycle exist; current hosted signed/notarized evidence, clean-VM proof, and a published previous-version migration are absent. |
-| Product and UX maturity | 10/15 | Onboarding, sample content, imports, library tools, continuity, named recovery controls, reversible replacement/restore flows, and critical keyboard paths are credible; the main controller remains oversized and native assistive-technology acceptance is absent. |
+| Product and UX maturity | 11/15 | Onboarding, sample content, imports, library tools, continuity, named recovery controls, reversible replacement/restore flows, critical keyboard paths, and broad automated accessibility acceptance are credible; the main controller remains oversized and native assistive-technology acceptance is absent. |
 | Operational and project governance | 7/10 | Release, rollback, runtime, security, support, contribution, changelog, conduct, issue, and PR contracts exist; licensing and verified public support/security intake remain incomplete. |
 
 ## Competitive Snapshot (verified 2026-07-14)
@@ -169,18 +173,18 @@ that flow is effortless would dilute the product.
   blind pairwise scoring before recommending any second-call mode or model.
 - Track and reduce the 18 allowed Rust warnings and the two scoped
   `quick-xml` exceptions as upstream dependency paths move.
-- Continue decomposing the 2,835-line `App.tsx` controller and large feature
+- Continue decomposing the 2,836-line `App.tsx` controller and large feature
   modules without weakening behavior. The former 4,752-line UI test file is
   now five independently runnable domain suites over a 234-line shared harness
   (81 behaviorally identical tests; largest domain suite 1,415 lines). The former
   3,789-line Rust repository authority is now a 367-line command/path/backup
   boundary over independently gated validation, schema, normalized-storage
-  CRUD, and a separate 1,113-line regression corpus.
-- Continue accessibility acceptance beyond the verified memory, runtime
-  replacement, restore-point, and persona-deletion focus traps, current-page
-  navigation, linked keyboard-operable card tabs, multiline composer,
-  fail-closed replacement, and reversible restore into native
-  assistive-technology checks.
+  CRUD, and a separate 1,114-line regression corpus.
+- Continue accessibility acceptance beyond the zero-violation automated
+  WCAG A/AA lane, verified dialog focus traps, current-page navigation, linked
+  keyboard-operable card tabs, multiline composer, fail-closed replacement,
+  and reversible restore into native screen-reader, high-contrast-mode, zoom,
+  and switch-input checks.
 - Make the owner licensing decision and configure verified public help,
   support, and security-reporting destinations before broad distribution.
 

@@ -83,16 +83,17 @@ named restore point.
 
 ## Complete verification
 
-The latest `pnpm verify:release` passed from the beginning in 262.4 seconds with
-commit `fe248f5` checked out:
+The latest `pnpm verify:release` passed from the beginning in 268.2 seconds with
+commit `d95f9e0` checked out:
 
 - TypeScript and ESLint passed.
 - 88 Vitest files / 669 tests passed.
-- Coverage passed at 91.85% statements/lines, 88.80% branches, and 93.49%
+- Coverage passed at 91.85% statements/lines, 88.79% branches, and 93.49%
   functions.
 - Both deterministic eval lanes passed with zero live-provider calls.
-- Vite built 1,695 modules; the main app chunk was 492.20 kB / 138.89 kB gzip.
-- All 11 Playwright journeys passed in 10.9 seconds.
+- Vite built 1,695 modules; the main app chunk was 491.98 kB / 138.87 kB gzip.
+- All 13 Playwright journeys passed in 20.6 seconds, including the two
+  zero-violation automated WCAG A/AA journeys.
 - The production dependency audit reported no known vulnerabilities.
 - Rust audit passed with 18 allowed warnings and the two scoped `quick-xml`
   exceptions.
@@ -106,11 +107,11 @@ Latest local artifacts:
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| MSI | 5,885,952 | `669c74097275ddad2b53d46215587377b2e81cc5c27fa0ad54fa0dc5047f02ed` |
-| NSIS | 4,194,074 | `0a30b1126ea1a49276568466db0567f015ff94f04dfd0a4fbf861b7d72678a68` |
-| Release executable | 15,366,144 | `eb32067fd415b250a2c0c3a9c46f15b9071a71b1ac61622aa2b82b33348bb822` |
+| MSI | 5,885,952 | `1b7489a8c0b1174dddf4cb01b65ae771026ab195bb4ba0b28c5e8382998df951` |
+| NSIS | 4,190,951 | `076cd9648ac52ee35e99871d1684517f2fcad02e6818fc304f4cf4f7eaa4675b` |
+| Release executable | 15,366,144 | `e6a9b296392abed56819eea1db11b952984dee7fbb24fe48a6331b05a7e955b5` |
 
-The lifecycle record completed at `2026-07-15T03:21:44.7330881Z`; all five
+The lifecycle record completed at `2026-07-15T03:51:10.8027637Z`; all five
 install, persistence, registration-removal, and directory-removal assertions
 were true.
 
@@ -118,6 +119,6 @@ were true.
 
 The ARIA and keyboard contract is verified in component tests and Chromium,
 but no native screen-reader compatibility claim is made. The rebuilt Windows
-artifacts remain unsigned local development packages, and this accessibility
-work does not change the canonical 82/100 controlled-beta readiness rating or
-the hosted release blockers in the production plan.
+artifacts remain unsigned local development packages. The broader automated
+WCAG lane raises the canonical controlled-beta readiness rating to 84/100 but
+does not clear the hosted release blockers in the production plan.

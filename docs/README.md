@@ -22,6 +22,10 @@ This folder keeps operational notes and verification evidence for `rpg`.
 
 ## Testing Evidence
 
+- [Automated accessibility and pnpm 11 evidence](testing/automated-accessibility-pnpm11-2026-07-14.tdd.md)
+  records the RED/GREEN WCAG acceptance lane, semantic and contrast repairs,
+  pnpm 11 supply-chain migration, full 669-test/13-browser release run, and
+  exact current Windows artifact hashes.
 - [Settings destructive-action accessibility evidence](testing/runtime-import-accessibility-2026-07-14.tdd.md)
   records the runtime import, restore-point, and persona-deletion alert
   dialogs, safe initial focus, focus traps, Escape cancellation, reversible
@@ -40,7 +44,7 @@ This folder keeps operational notes and verification evidence for `rpg`.
   records the enforced desktop single-writer window and honest stored-secret
   streaming fallback.
 - [Browser critical-journey evidence](testing/browser-critical-journeys-2026-07-14.tdd.md)
-  records the eleven independent Playwright acceptance paths for offline
+  records the eleven functional Playwright acceptance paths for offline
   onboarding, template creation, reload persistence, reversible import review,
   keyboard-safe dialogs, linked keyboard-operable navigation/tabs, and
   cancellable card/chat deletion, and provider-failure recovery.

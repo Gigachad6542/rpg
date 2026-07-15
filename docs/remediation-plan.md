@@ -8,12 +8,12 @@ second, everything else after.
 > Historical plan: this document records the July 10 review and its remediation
 > trail. The canonical current assessment is `docs/production-plan.md`; the
 > latest command evidence is
-> `docs/testing/current-claims-release-repair-2026-07-14.tdd.md`.
+> `docs/testing/automated-accessibility-pnpm11-2026-07-14.tdd.md`.
 
 ## Current reconciliation (2026-07-14)
 
-- The local `pnpm verify:release` gate passes in 262.4 seconds: 88 Vitest files /
-  669 tests, 91.85% statements/lines, 88.80% branches, 93.49% functions, both deterministic
+- The local `pnpm verify:release` gate passes in 268.2 seconds: 88 Vitest files /
+  669 tests, 91.85% statements/lines, 88.79% branches, 93.49% functions, both deterministic
   evals, Playwright, JS/Rust audits, 34 Rust tests, clippy, desktop packaging,
   executable smoke, administrative-extraction SQLite smoke, and the normal
   current-user NSIS lifecycle.

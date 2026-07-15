@@ -29,7 +29,7 @@ Useful commands:
 | `pnpm typecheck` | Type-check TypeScript without emitting files. |
 | `pnpm test` | Run the Vitest suite. |
 | `pnpm test:coverage` | Run Vitest with V8 coverage. |
-| `pnpm e2e` | Run the Playwright browser acceptance suite. |
+| `pnpm e2e` | Run the Playwright functional and automated WCAG A/AA acceptance suite. |
 | `pnpm e2e:install` | Install the Playwright Chromium browser used by the acceptance suite. |
 | `pnpm build` | Build the frontend bundle. |
 | `pnpm verify` | Run the local CI gate: typecheck, lint, tests, Phase 1 runtime eval, build, dependency audit, Rust tests, and clippy. |

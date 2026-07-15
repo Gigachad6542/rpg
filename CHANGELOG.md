@@ -13,14 +13,17 @@ recorded here. Dates use `YYYY-MM-DD`; versions must match `package.json`,
   backup/restore, import/export, and redacted diagnostics.
 - Windows MSI/NSIS and Apple Silicon macOS release lanes with fail-closed
   signing/notarization inputs, checksums, SBOM, provenance, and attestations.
-- Normal Windows NSIS install/reinstall/uninstall verification and eleven
-  browser critical-journey tests.
+- Normal Windows NSIS install/reinstall/uninstall verification, eleven
+  functional browser journeys, and two zero-violation automated WCAG A/AA
+  acceptance journeys across both themes and key dialogs.
 - Independent previous-release Authenticode publisher/timestamp, checksum,
   provenance, tag-commit, and semantic-version verification before packaged
   migration, plus an explicitly non-promotable signed bootstrap lane.
 - Keyboard-safe runtime replacement, restore-point, and persona-deletion
   confirmations with modal alerts, safe default focus, Escape cancellation,
   focus restoration, and reversible local snapshots.
+- Contrast-safe light/dark theme tokens and standards-compatible definition
+  lists across navigation, onboarding, cards, lorebooks, runtime, and Settings.
 
 ### Security
 
@@ -29,6 +32,8 @@ recorded here. Dates use `YYYY-MM-DD`; versions must match `package.json`,
   backups.
 - Immutable commit pins for all 26 GitHub Actions dependencies in the CI and
   release workflows.
+- pnpm 11.7.0 release tooling with frozen-lockfile supply-chain verification
+  and an exact `esbuild@0.25.12` lifecycle-script allowlist.
 
 ### Release status
 

@@ -73,18 +73,18 @@ Command:
 pnpm verify:release
 ```
 
-Latest result: PASS in 262.4 seconds with reversible Settings actions code commit `fe248f5`
-checked out.
+Latest result: PASS in 268.2 seconds with accessibility and pnpm 11 migration
+commit `d95f9e0` checked out.
 
 ```text
 TypeScript: passed
 ESLint: passed
 Vitest: 88 files / 669 tests passed
-Coverage: 91.85% statements, 88.80% branches, 93.49% functions, 91.85% lines
+Coverage: 91.85% statements, 88.79% branches, 93.49% functions, 91.85% lines
 Phase 1 deterministic eval: passed
 Phase 1.1 deterministic eval: passed; 100 lore decisions; 3 campaigns; 0 live calls
-Vite build: passed; main app chunk 492.20 kB / 138.89 kB gzip
-Playwright: 11 passed
+Vite build: passed; main app chunk 491.98 kB / 138.87 kB gzip
+Playwright: 13 passed, including two zero-violation automated WCAG A/AA journeys
 pnpm production audit: no known vulnerabilities
 Rust audit: exit 0 with 18 allowed warnings
 Rust tests: 34 passed; 1 signed-release-only Keychain test ignored
@@ -93,7 +93,7 @@ Windows MSI and NSIS: built
 Packaged executable smoke: passed
 Administrative-extraction SQLite smoke: passed
 Normal current-user NSIS install/reinstall/uninstall lifecycle: passed
-Tested NSIS SHA256: 0a30b1126ea1a49276568466db0567f015ff94f04dfd0a4fbf861b7d72678a68
+Tested NSIS SHA256: 076cd9648ac52ee35e99871d1684517f2fcad02e6818fc304f4cf4f7eaa4675b
 ```
 
 ## Packaged WebView proof
@@ -101,15 +101,15 @@ Tested NSIS SHA256: 0a30b1126ea1a49276568466db0567f015ff94f04dfd0a4fbf861b7d7267
 Command shape:
 
 ```text
-pnpm desktop:product-flow -PreviousMsi <current.msi> -CurrentMsi <current.msi> -EvidenceDir <ignored-dir>
+pnpm desktop:product-flow -PreviousMsi <previous.msi> -CurrentMsi <current.msi> -EvidenceDir <ignored-dir>
 ```
 
-Result: PASS in 13.1 seconds against the freshly built 5,885,952-byte MSI
-(`af60083f0f0bd9765a4ef8a5188bd376f9765be4160055b6ed6d0a93abe5fd77`).
-This same-package run exercised onboarding,
+Result: PASS in 14.9 seconds against the freshly built 5,885,952-byte MSI
+(`1b7489a8c0b1174dddf4cb01b65ae771026ab195bb4ba0b28c5e8382998df951`).
+This different-commit, same-version run exercised onboarding,
 provider setup, creation, play, close/reopen, SQLite continuity, backup restore,
 runtime export, and the new packaged discovery invocation. It is direct current
-package proof, not previous-version migration proof.
+package proof, not published semantic-version migration proof.
 
 The older documentation example included an extra `--`; pnpm forwarded it to
 PowerShell and the script rejected it as an ambiguous parameter. The canonical

@@ -1,5 +1,8 @@
 # Remediation completion evidence - 2026-07-12
 
+Historical wording correction (2026-07-14): `desktop:installed-smoke` used MSI
+administrative extraction, not a normal Windows installation lifecycle.
+
 ## Completed behavior
 
 - In-flight visible and hidden generation can be stopped without committing messages or state.
@@ -27,7 +30,7 @@ Each behavior started with a focused failing test commit before its implementati
 - 28 Rust tests passed; clippy passed with warnings denied.
 - Tauri produced MSI and NSIS bundles.
 - Packaged executable smoke passed.
-- Installed clean-profile smoke launched twice and created the scoped SQLite database.
+- Administrative-extraction MSI-payload smoke launched twice and created the scoped SQLite database.
 
 After moving pnpm policy to the workspace config, `pnpm install --frozen-lockfile` and `pnpm verify` passed without the legacy pnpm-config warning. The final unit lane contains 54 files and 451 tests.
 

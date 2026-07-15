@@ -39,6 +39,8 @@ describe("release workflow", () => {
     expect(workflow).toContain("release:provenance");
     expect(workflow).toContain("actions/upload-artifact");
     expect(workflow).toContain("gh release create");
+    expect(workflow).toContain("complete packaged product flow");
+    expect(workflow).not.toContain("complete installed product flow");
     expect(windowsSmoke).toContain("MSI-payload smoke passed");
     expect(windowsSmoke).not.toContain("Installed desktop smoke passed");
     expect(workflow).toContain("$releaseFiles = @($artifacts | ForEach-Object { $_.FullName }) + @($metadata | ForEach-Object { $_.FullName })");

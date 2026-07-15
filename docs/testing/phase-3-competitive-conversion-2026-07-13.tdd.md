@@ -20,6 +20,17 @@ flows with local fixtures; it did not sign into or automate third-party sites.
 Chub is the only direct website URL importer. Other services remain file-import
 paths so imported content cannot turn the app into a general-purpose fetcher.
 
+## Follow-up correction (2026-07-14)
+
+The original implementation evidence below is historical. A packaged-app audit
+later found that `discover_local_text_providers` existed in the renderer and
+Rust handler but was absent from the Tauri app manifest and default capability,
+so the marketed desktop discovery action was denied by ACL. The manifest,
+capability, generated permission schemas, and release-flow regression coverage
+were repaired. The full release gate then passed with 69 files / 620 tests, and
+the current MSI product flow successfully invoked the command through the real
+packaged WebView.
+
 ## RED checkpoint
 
 Commit: `47d22b5` (`test: define phase 3 conversion contract`)
@@ -63,8 +74,10 @@ Additional checks:
 
 - `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` passed.
 - `git diff --check` passed before the GREEN commit.
-- User-facing source and documentation contained no remaining `Local Cards` or
-  `Local-First AI RPG Runtime` names.
+- Intended current user-facing product surfaces used `Local-First RPG`.
+  Internal binary/database identifiers and dated historical records retain
+  legacy names where compatibility or evidence integrity requires them; public
+  release artifact names and titles were reconciled on 2026-07-14.
 - The secret-pattern review found only intentional fake `sk-*` test fixtures.
 
 ## Implemented product behavior

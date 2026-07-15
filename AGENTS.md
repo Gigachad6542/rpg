@@ -1,4 +1,4 @@
-# Local-First AI RPG Runtime
+# Local-First RPG
 
 This is the real project root. Do not work from the parent wrapper folder.
 

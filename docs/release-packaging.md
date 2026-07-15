@@ -1,7 +1,7 @@
 # Release Packaging
 
 Phase 2 is a fail-closed shipped-product lane. The workflow builds signed
-Windows and macOS packages from the exact release commit, retains installed-app
+Windows and macOS packages from the exact release commit, retains packaged-app
 evidence, and publishes only after both platforms and hosted CI pass.
 
 The lane is implemented in `.github/workflows/release.yml`; it is not proof by
@@ -34,7 +34,8 @@ The tag or manually dispatched workflow performs these gates in order:
 1. Query `ci.yml` and require a successful hosted run whose `head_sha` is the
    exact release commit.
 2. Build and verify timestamped Authenticode Windows artifacts.
-3. Download the previous stable signed MSI and run the complete packaged flow:
+3. Download the previous stable signed MSI, administratively extract both MSI
+   payloads into isolated roots, and run the complete packaged flow:
    first run, provider setup, create, play, close/reopen, migration continuity,
    backup restore, and runtime export.
 4. Build the macOS DMG with Developer ID signing and Apple notarization, validate
@@ -64,7 +65,7 @@ fixtures.
 
 ## Retained evidence
 
-Windows evidence includes installer logs, screenshots, the three runtime
+Windows evidence includes MSI administrative-extraction logs, screenshots, the three runtime
 exports, the product-generated startup backup hash, migration/restore assertions,
 AuthentiCode results, and `phase2-windows-product-flow.json`.
 
@@ -92,7 +93,7 @@ written beneath ignored `release-evidence/`.
 The hosted lane supplies two real MSI files to:
 
 ```powershell
-pnpm desktop:product-flow -- -PreviousMsi <old.msi> -CurrentMsi <new.msi> -EvidenceDir <dir>
+pnpm desktop:product-flow -PreviousMsi <old.msi> -CurrentMsi <new.msi> -EvidenceDir <dir>
 ```
 
 Each MSI is administratively extracted to its own temporary install root. The
@@ -101,7 +102,12 @@ profile and attaches Playwright over a loopback CDP port. It uses the local mock
 provider, so no paid call or provider secret is needed. It then proves that a
 durable marker survives migration, a transient post-backup marker is removed by
 restore, the restored database is healthy, and the final exported runtime has
-the expected state.
+the expected state. The current package must also successfully invoke
+`discover_local_text_providers` through the real Tauri bridge.
+
+This flow proves packaged payload behavior, not Windows Installer lifecycle
+behavior. A public release still needs a clean-machine install, upgrade, repair,
+and uninstall run using normal MSI/NSIS installation rather than `msiexec /a`.
 
 ## Publication and rollback
 

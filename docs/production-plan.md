@@ -1,29 +1,71 @@
 # Production Plan
 
-Audit date: 2026-07-03
+Audit date: 2026-07-14
 
-Current production audit: 84/100. Core runtime blockers are closed. Phase 2 now
-implements the release automation for signing, full installed-app workflow
-coverage, previous-build migration and backup restoration, macOS DMG/Keychain
-proof, exact-commit CI gating, checksums, provenance, SBOMs, and attestations.
-Broad public release must still wait for that workflow to execute successfully
-with real hosted runners, signing credentials, and a previous signed build.
+Current working-tree readiness: **72/100 (launchable with caveats for a
+controlled beta; not proven for broad public release)**. The local release gate
+is green and the packaged local-provider discovery regression is repaired. The
+score remains below public-launch level because no current exact-commit hosted
+release has produced signed Windows and notarized macOS artifacts, the Windows
+smokes administratively extract MSI payloads instead of exercising the real
+install/uninstall lifecycle, and live-provider narrative quality is not yet
+measured.
 
 ## Evidence Checked
 
 - Real repo root: `C:\Users\Dwthe\rpg project`.
-- Local release gate: `pnpm verify:release` is the release-candidate gate after blocker fixes.
-- Vitest coverage gate: 31 files, 227 tests passed.
-- Coverage: 99.2% statements, 93.01% branches, 100% functions, 99.2% lines.
-- Browser smoke: 1 Playwright Chromium test passed.
-- Frontend build: Vite production build passed.
+- Local release gate: `pnpm verify:release` passed in 183.5 seconds on 2026-07-14.
+- Vitest coverage gate: 69 files and 620 tests passed.
+- Coverage: 91.57% statements/lines, 88.36% branches, and 93.79% functions.
+- Enforced coverage floors: 90% statements/lines/functions and 85% branches.
+- Deterministic evals: Phase 1 passed; Phase 1.1 passed with 100 lore decisions,
+  three long campaigns, and `liveCallsMade: 0`.
+- Browser smoke: 1 Playwright Chromium test passed after its stale onboarding
+  contract was aligned to the canonical product name.
+- Frontend build: Vite production build passed; the main app chunk was 486.13
+  kB (137.16 kB gzip), plus separate React, icon, and Tauri chunks.
 - Dependency audit: `pnpm audit --prod` reported no known vulnerabilities.
-- Rust audit: `cargo audit` completed with 17 allowed advisory warnings.
-- Rust tests: 16 passed.
+- Rust audit: `cargo audit` exited successfully with 18 allowed transitive
+  warnings; two `quick-xml` advisories remain scoped exceptions in
+  `src-tauri/.cargo/audit.toml`.
+- Rust tests: 34 passed; the signed-release-only macOS Keychain test was ignored
+  locally as designed.
 - Rust clippy: passed with `-D warnings`.
 - Desktop packaging: MSI and NSIS bundles built under `src-tauri/target/release/bundle/`.
 - Packaged executable smoke: `pnpm desktop:smoke` opened the release executable and confirmed it stayed alive.
-- Installed clean-profile smoke: `pnpm desktop:installed-smoke` stages the MSI into a temp install root, launches twice with isolated app-data paths, and confirms runtime database creation.
+- MSI-payload smoke: `pnpm desktop:installed-smoke` administratively extracts
+  the MSI into a temporary root, launches twice with isolated app-data paths,
+  and confirms SQLite creation. It does not prove Windows installer registration,
+  shortcuts, repair, upgrade, or uninstall.
+- Packaged WebView product flow: passed in 13.6 seconds against the current MSI,
+  including a real Tauri invocation of `discover_local_text_providers` and
+  create/play/reopen/backup/restore/export continuity. This same-package run is
+  runtime proof, not previous-version migration proof.
+
+### Readiness scoring rubric
+
+| Area | Score | Evidence-based reason |
+|---|---:|---|
+| Correctness and data safety | 18/20 | SQLite authority, migrations, recovery, deterministic lineage, backup/restore, and strong unit coverage are implemented. |
+| Security and privacy boundaries | 14/15 | Keychain references, scoped Tauri commands, fixed loopback discovery, import limits, redaction, and clean production audits are present; accepted Rust debt remains. |
+| Automated verification | 15/20 | The local release gate is broad, but browser coverage is one scenario and live-provider evaluation has not run. |
+| Packaging and release operations | 12/20 | Signed fail-closed workflows exist; current hosted signed/notarized evidence, a true installer lifecycle, and a published previous-version migration are absent. |
+| Product and UX maturity | 8/15 | Onboarding, sample content, imports, library tools, continuity, and explicit state controls are credible; the main UI/controller remains oversized and accessibility E2E is thin. |
+| Operational and project governance | 5/10 | Release, rollback, and runtime contracts exist; public support verification, security reporting, changelog discipline, and licensing are not yet release-complete. |
+
+## Competitive Snapshot (verified 2026-07-14)
+
+| Product | Current advantage over Local-First RPG | Local-First RPG advantage / opportunity |
+|---|---|---|
+| [SillyTavern](https://docs.sillytavern.app/) | Much broader provider controls, group chat, personas, RAG, scripting, and extension ecosystem. | Stronger opinionated RPG state lineage, visible/undoable mutations, and a narrower desktop trust boundary. |
+| [RisuAI](https://risuai.net/) | Windows/macOS/Linux/Android/Web reach, community sharing, richer media/prompt features, and a simpler light-user funnel. | Local SQLite continuity and deterministic RPG-state semantics can differentiate if setup becomes equally easy. |
+| [Backyard AI](https://backyard.ai/changelog) | Current web/iOS focus, Character Hub, parties, voice, and managed model experience. Its local desktop app is deprecated as of June 25, 2025. | A maintained private desktop-first product can occupy the local continuity niche Backyard left, but model setup is currently much less integrated. |
+| [NovelAI](https://docs.novelai.net/en/text/lorebook/) | Mature story editor, model service, lore generation, advanced lore activation, and polished creative workflow. | BYOK/local-provider flexibility and explicit RPG state/branch provenance offer more user control and less service lock-in. |
+
+The defensible wedge is not feature parity. It is **private, inspectable RPG
+continuity**: authoritative local state, visible model proposals, deterministic
+branch lineage, and reversible changes. Competing on ecosystem breadth before
+that flow is effortless would dilute the product.
 
 ## Closed Public-Release Blockers
 
@@ -61,15 +103,24 @@ with real hosted runners, signing credentials, and a previous signed build.
 
 ## Remaining Public-Launch Work
 
-- Decide signing and updater policy before public distribution. Unsigned builds are acceptable for internal beta, but public Windows releases need a documented certificate strategy or explicit unsigned-distribution warning.
-- Run the installer on a clean non-development Windows profile beyond the local temp-profile installed smoke.
-- Validate upgrade/backup/restore against a real app data directory and a previous packaged build.
-- Track and remove the 17 formally accepted Rust advisory warnings when Tauri/WebKitGTK dependencies publish compatible fixed paths.
-- Extend installed-desktop smoke coverage to a full user path: send a turn, close/reopen, verify SQLite continuity, stored-key behavior, diagnostics, and export.
+- Execute the existing hosted workflow on the exact release commit with real
+  Windows signing and Apple signing/notarization credentials; retain every
+  signature, Gatekeeper, Keychain, SBOM, provenance, and attestation artifact.
+- Exercise a true Windows install, upgrade, repair, and uninstall on a clean
+  non-development machine or VM. Administrative MSI extraction is insufficient.
+- Run the hosted packaged flow with an actual previous signed semantic-version
+  MSI and verify migration, rotating backup creation, restore, and export.
+- Run the opt-in live-provider evaluation with reviewed paid-call limits and
+  blind pairwise scoring before recommending any second-call mode or model.
+- Track and reduce the 18 allowed Rust warnings and the two scoped
+  `quick-xml` exceptions as upstream dependency paths move.
+- Decompose the 3,369-line `App.tsx` controller and 4,752-line UI test file into
+  feature controllers and smaller acceptance suites without weakening behavior.
 - Decide the multi-window write policy: single-window lock, revision checks, or explicit last-writer-wins behavior.
 - Align streaming UX with provider capability by disabling unavailable streaming paths for desktop stored-secret providers or adding a Tauri streaming command.
 - Improve accessibility acceptance coverage for tab linkage, dialog focus management, drawer behavior, and keyboard-only runtime flows.
-- Create a guided first-run flow from blank state to playable RPG card in under five minutes.
+- Add release-complete governance: license decision, security-reporting policy,
+  changelog/release-note discipline, and verified public help/support destinations.
 
 ## Production Milestones
 
@@ -96,7 +147,7 @@ Acceptance:
 - Rust advisory warnings are either removed or explicitly accepted with rationale.
 - First-run, empty, loading, error, provider-missing, ComfyUI-unavailable, import-failure, and backup/restore paths have visible acceptance coverage.
 
-## Test-Production Gate Run (2026-07-06)
+## Historical Test-Production Gate Run (2026-07-06)
 
 The full release lane was executed stage by stage on the development machine and passed end to end:
 
@@ -111,11 +162,15 @@ The full release lane was executed stage by stage on the development machine and
 | `pnpm rust:test` / `pnpm rust:clippy` | PASS, 17 tests, zero warnings |
 | `pnpm desktop:build` | PASS, MSI + NSIS bundles under `src-tauri/target/release/bundle/` |
 | `pnpm desktop:smoke` | PASS, release executable stayed alive |
-| `pnpm desktop:installed-smoke` | PASS, staged MSI install launched twice and created SQLite under a clean profile |
+| `pnpm desktop:installed-smoke` | PASS, administratively extracted MSI payload launched twice and created SQLite under an isolated profile |
 
 Blocking fix landed during the run: `pnpm-workspace.yaml` used pnpm 10 syntax that the
 pinned pnpm 9.15.9 rejects, breaking `pnpm install` locally and in CI. The overrides moved
 to the `package.json` `pnpm` section and the workspace file was removed.
+
+Historical note: that configuration was superseded after this run. The current
+pnpm 9.15.9-compatible supply-chain policy lives in `pnpm-workspace.yaml`, and
+`package.json` intentionally has no `pnpm` block.
 
 The test-production bundles are unsigned; distribute to testers with that stated plainly.
 

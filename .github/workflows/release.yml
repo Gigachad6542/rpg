@@ -150,7 +150,7 @@ jobs:
           "previous_msi=$($msi.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "previous_tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      - name: Run previous-version migration and complete installed product flow
+      - name: Run previous-version migration and complete packaged product flow
         shell: pwsh
         run: |
           $currentMsi = Get-ChildItem -Path "src-tauri/target/release/bundle" -Recurse -File -Filter "*.msi" | Select-Object -First 1

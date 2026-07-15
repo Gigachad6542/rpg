@@ -7,10 +7,28 @@ exact-commit CI promotion, provenance, SBOM, and rollback policy.
 ## Result
 
 The Phase 2 release machinery is implemented and locally verified. The Windows
-product flow passed against two different real MSI packages. The public release
-is **not yet proven**: this Windows session had no production signing
+product flow passed against administratively extracted payloads from two
+different real MSI packages. It did not exercise normal Windows install,
+upgrade, repair, or uninstall behavior. The public release is **not yet proven**:
+this Windows session had no production signing
 certificate, no Apple runner or credentials, and no authorized hosted workflow
 or publication run.
+
+## Follow-up verification (2026-07-14)
+
+The original dated results below remain historical. A later full release run
+passed in 183.5 seconds with 69 files / 620 tests, 91.57% statements/lines,
+88.36% branches, and 93.79% functions. Playwright, both deterministic evals,
+production build, JS/Rust audits, 34 Rust tests, clippy, MSI/NSIS packaging,
+executable smoke, and administrative-extraction persistence smoke all passed.
+
+That review found a real packaged regression: the renderer invoked
+`discover_local_text_providers`, but the command was missing from the Tauri
+build manifest and default window capability. The command is now registered,
+granted, covered by a cross-surface regression test, and invoked by the hosted
+packaged product-flow driver. A same-package current-MSI flow passed in 13.6
+seconds on 2026-07-14; this proves current packaged command execution and
+continuity, not previous-version migration.
 
 ## RED checkpoint
 
@@ -51,7 +69,7 @@ Rust tests: 32 passed, 1 ignored macOS release-only Keychain test
 Rust clippy: passed with -D warnings
 Windows MSI and NSIS: built
 Packaged executable smoke: passed
-Installed clean-profile smoke: passed
+Administrative-extraction isolated-profile smoke: passed
 ```
 
 Additional executable checks:
@@ -99,7 +117,7 @@ Verified through the packaged WebView2 UI:
    transient marker, and exported a valid `rpg.runtime.export` bundle.
 
 Retained local evidence includes three screenshots, three runtime exports, two
-MSI install logs, application logs, the restored database, the product-generated
+MSI administrative-extraction logs, application logs, the restored database, the product-generated
 backup, file hashes, and `phase2-windows-product-flow.json`. Generated evidence
 is intentionally ignored by Git.
 
@@ -159,4 +177,3 @@ The hosted workflow now:
    mounted-DMG continuity, and native Keychain evidence.
 4. A successful publish workflow showing `ci.yml`, Windows, and macOS all passed
    for the same exact release commit.
-

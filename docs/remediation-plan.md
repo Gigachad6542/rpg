@@ -5,6 +5,25 @@ testing only). Every finding below was re-verified against this working tree bef
 planning; all of them are real. Ordering follows risk: data loss first, state integrity
 second, everything else after.
 
+> Historical plan: this document records the July 10 review and its remediation
+> trail. The canonical current assessment is `docs/production-plan.md`; the
+> latest command evidence is
+> `docs/testing/current-claims-release-repair-2026-07-14.tdd.md`.
+
+## Current reconciliation (2026-07-14)
+
+- The local `pnpm verify:release` gate passes: 69 Vitest files / 620 tests,
+  91.57% statements/lines, 88.36% branches, 93.79% functions, both deterministic
+  evals, Playwright, JS/Rust audits, 34 Rust tests, clippy, desktop packaging,
+  executable smoke, and administrative-extraction SQLite smoke.
+- The packaged local-provider discovery ACL gap found on 2026-07-14 is repaired
+  and exercised through the real packaged Tauri bridge.
+- Public release remains externally unproven: no current exact-commit signed
+  Windows run, notarized/stapled macOS run, normal Windows installer lifecycle,
+  or previous signed semantic-version migration has been retained.
+- The original ~58/100 verdict and intermediate counts below are historical
+  checkpoints, not current readiness claims.
+
 Legend: each item lists **Fix**, **Files**, **Done when** (acceptance criteria).
 
 ## Status (2026-07-12)
@@ -46,7 +65,7 @@ Evidence: `docs/testing/turn-state-provenance.tdd.md`.
 CI (not packaged-app proof), and `6d74ea2` + `75fd4b5` add a root React error boundary
 with redacted local crash diagnostics. Nothing is pushed automatically.
 
-**Current local gate:** 52 Vitest files / 436 tests pass with 92.96% statement/line,
+**Historical 2026-07-12 local gate:** 52 Vitest files / 436 tests passed with 92.96% statement/line,
 89.37% branch, and 94.18% function coverage. TypeScript, ESLint, version sync, the
 production frontend build, 27 Rust tests, Rust formatting, and clippy all pass. The
 build still reports the known 541 kB main-chunk/code-splitting warning.
@@ -125,8 +144,8 @@ after restart; unit test proves any accepted import serializes under the Rust ca
   opens a fixture v1 database and migrates it.
 - Route Chub imports through a Rust HTTP command (endpoint-allowlisted, size-capped,
   like the existing provider proxy) instead of widening the CSP.
-- Pin the packageManager pnpm version used locally to match CI (or vice versa), and
-  push `main` so CI validates current HEAD (currently 10 commits ahead of origin).
+- Pin the packageManager pnpm version used locally to match CI (or vice versa),
+  then push the intended release commit so hosted CI validates that exact SHA.
 
 **Files:** `.github/workflows/release.yml`, `.github/workflows/ci.yml`, `scripts/`,
 `src-tauri/src/runtime_repository.rs`, `src-tauri/src/lib.rs` (new command),
@@ -309,10 +328,12 @@ Windows; eval harness produces a baseline scorecard.
 
 ## Phase 4 — Real Mac lane (last, deliberately)
 
-**Current boundary:** routine `macos-latest` source/native verification and a tagged-release
-mounted-DMG copy/launch/relaunch/SQLite-integrity smoke are now defined. The hosted jobs
-have not run from this unpushed branch. Keychain automation, signing, notarization, and
-Intel/universal-binary proof remain open; the install docs state those limits.
+**Current boundary (reconciled 2026-07-14):** routine `macos-latest`
+source/native verification and a tagged-release mounted-DMG
+copy/launch/relaunch/SQLite-integrity smoke are defined. Native Keychain
+round-trip automation and signing/notarization gates are also implemented, but
+there is no retained current hosted run with Apple credentials. Intel or
+universal-binary proof remains open; the install docs state those limits.
 
 Ordered steps, each gated on the previous:
 

@@ -13,7 +13,10 @@ A release may be published only when all of these are true:
 - The macOS DMG is Developer ID signed, notarized, stapled, and accepted by
   Gatekeeper.
 - The Windows previous-version migration, backup restoration, and complete
-  installed product flow passed using real packaged builds.
+  packaged product flow passed using administratively extracted payloads from
+  real signed MSI packages.
+- A clean non-development Windows machine completed the normal install, upgrade,
+  repair, and uninstall lifecycle; `msiexec /a` evidence alone is insufficient.
 - The macOS mounted-DMG persistence smoke and native Keychain round trip passed.
 - Platform SHA-256 manifests, commit-bound provenance, a CycloneDX SBOM, and
   GitHub artifact attestations were retained with the release evidence.

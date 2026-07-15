@@ -29,7 +29,7 @@ secret names, endpoint matching, prompt and output caps, and a process-local rat
 Development-only `databasePath` overrides are confined to a temp runtime workspace and reject
 absolute paths or parent traversal. Production builds do not accept the override.
 
-The installed desktop smoke uses `LOCAL_FIRST_AI_RPG_RUNTIME_APP_DATA_DIR` to force a temporary app
+The MSI-payload smoke uses `LOCAL_FIRST_AI_RPG_RUNTIME_APP_DATA_DIR` to force a temporary app
 data directory because Windows/Tauri app-data resolution does not honor `APPDATA` alone. The Rust
 boundary accepts this override only for absolute paths under the system temp directory.
 
@@ -85,12 +85,13 @@ pnpm verify:release
 ```
 
 This gate includes the Playwright browser smoke test, the Tauri desktop package build, the packaged
-executable smoke, and the installed clean-profile smoke. The browser smoke opens the seeded RPG card,
+executable smoke, and the administrative-extraction MSI-payload smoke. The browser smoke opens the seeded RPG card,
 sends a mock turn, confirms prompt-debug privacy in the persisted snapshot, reloads, reopens the
 card, and confirms the saved transcript is still visible. The executable smoke starts the release
-executable and fails if it exits during startup. The installed smoke stages the generated MSI into a
+executable and fails if it exits during startup. The MSI-payload smoke uses `msiexec /a` to stage the generated MSI into a
 temporary install root, launches with isolated app-data paths, restarts once, and confirms the runtime
-SQLite database is created under that clean profile.
+SQLite database is created under that clean profile. It does not exercise normal Windows install,
+upgrade, repair, or uninstall behavior.
 
 For coverage reporting, run:
 
@@ -98,13 +99,16 @@ For coverage reporting, run:
 pnpm test:coverage
 ```
 
-The current scoped V8 report is 99.2% statements overall, 93.01% branches, and 100% functions.
+The 2026-07-14 scoped V8 report is 91.57% statements/lines, 88.36% branches,
+and 93.79% functions across 69 files / 620 tests. Enforced floors are 90%
+statements/lines/functions and 85% branches.
 Remaining uncovered lines are mostly defensive UI guards and transitive edge branches rather than
 core runtime paths.
 
 CI installs and runs `cargo-audit` against `src-tauri` so Rust dependency advisories are checked
-before merge. Local release verification uses the same tool. Current audit output contains allowed
-warnings from transitive Tauri/WebKitGTK dependency paths (`tauri`, `tauri-runtime-wry`, `wry`,
+before merge. Local release verification uses the same tool. The 2026-07-14 audit
+exited successfully with 18 allowed warnings from transitive Tauri/WebKitGTK
+dependency paths (`tauri`, `tauri-runtime-wry`, `wry`,
 `tao`, `muda`, `webkit2gtk`, `gtk`, `glib`, and related GTK3 crates), plus a narrow
 `src-tauri/.cargo/audit.toml` exception for `quick-xml` advisories that are pinned by
 `plist -> tauri-utils`. The accepted warning class is controlled-beta release debt; remove or narrow

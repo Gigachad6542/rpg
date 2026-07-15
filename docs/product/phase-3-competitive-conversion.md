@@ -1,6 +1,7 @@
 # Phase 3: Competitive Conversion
 
-Status: implemented and locally verified (2026-07-13)
+Status: implemented; packaged local-provider discovery repaired and verified
+through the real Tauri bridge (2026-07-14)
 
 ## Outcome
 
@@ -76,3 +77,9 @@ and database identifiers remain stable where renaming them would break upgrades.
 - Existing persistence/import fixtures prove old snapshots still normalize.
 - `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm audit --prod`, Rust tests,
   and Rust clippy must pass before the GREEN implementation commit.
+
+The current working-tree release evidence is recorded in
+`../testing/current-claims-release-repair-2026-07-14.tdd.md`. Local discovery
+detects fixed loopback servers and model IDs only; it does not download models,
+manage inference processes, or make the overall product a zero-configuration
+local-model runtime.

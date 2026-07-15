@@ -1,5 +1,9 @@
 # Audit Remediation TDD Evidence
 
+Historical wording correction (2026-07-14): the command retained the compatibility
+name `desktop:installed-smoke`, but it used `msiexec /a` administrative extraction
+and did not prove normal installer registration, upgrade, repair, or uninstall.
+
 ## Source
 
 User request: implement the audit remediation plan for share-safe exports, image-provider
@@ -25,8 +29,8 @@ production docs.
 | Runtime exports strip compiled prompts regardless of prompt-debug settings | `tests/app/runtimeDataBundle.test.ts` | Focused test failed because `compiledPrompt` leaked when `promptDebugLogs` was true | Focused suite passed after adding export-only prompt-run sanitization |
 | Image provider persistence drops secrets and keeps only safe allowlisted fields | `tests/app/runtimeRepositoryStore.test.ts`, `tests/app/coverageGaps.test.ts` | Focused tests failed because raw `imageProviderSettings` reached repository/Tauri payloads | Focused suite passed after routing persistence through `sanitizePersistedImageProviderSettings` |
 | Rust snapshot boundaries sanitize image provider settings | `src-tauri/src/runtime_repository.rs` tests | Targeted Rust test failed because `apiKey` persisted in `imageProviderSettings` | Targeted Rust test passed after adding Rust sanitizer and load/save cleanup |
-| Release gate includes installed clean-profile smoke | `tests/release/releaseWorkflow.test.ts` | Release workflow test failed because `desktop:installed-smoke` was absent | Test passed after adding the script and including it in `verify:release` |
-| Installed bundle creates durable repository under isolated app data | `pnpm desktop:installed-smoke` | Initial script failed until the smoke app-data override initialized the temp SQLite repository | Installed smoke passed after temp-confined Rust initialization and script path correction |
+| Release gate includes MSI-payload smoke | `tests/release/releaseWorkflow.test.ts` | Release workflow test failed because `desktop:installed-smoke` was absent | Test passed after adding the script and including it in `verify:release` |
+| Extracted bundle creates durable repository under isolated app data | `pnpm desktop:installed-smoke` | Initial script failed until the smoke app-data override initialized the temp SQLite repository | MSI-payload smoke passed after temp-confined Rust initialization and script path correction |
 
 ## Validation
 
@@ -43,8 +47,8 @@ production docs.
 | `pnpm rust:clippy` | PASS with `-D warnings` |
 | `pnpm desktop:build` | PASS, MSI and NSIS bundles built |
 | `pnpm desktop:smoke` | PASS |
-| `pnpm desktop:installed-smoke` | PASS, MSI staged into temp install root and SQLite DB created under isolated temp profile |
-| `pnpm verify:release` | PASS, full release gate including installed smoke; coverage reported 99.2% statements/lines and 93.01% branches |
+| `pnpm desktop:installed-smoke` | PASS, MSI administratively extracted into temp root and SQLite DB created under isolated temp profile |
+| `pnpm verify:release` | PASS, full release gate including MSI-payload smoke; coverage reported 99.2% statements/lines and 93.01% branches |
 
 ## Notes
 

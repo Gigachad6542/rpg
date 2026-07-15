@@ -104,6 +104,18 @@ describe("release workflow", () => {
     expect(workspaceConfig).toContain("onlyBuiltDependencies:");
   });
 
+  it("pins every workflow action to an immutable commit with a readable version comment", () => {
+    const workflowSources = [readWorkflow("ci.yml"), readWorkflow("release.yml")];
+    const actionLines = workflowSources.flatMap((workflow) =>
+      workflow.split(/\r?\n/).filter((line) => /^\s+uses:\s+/.test(line)),
+    );
+
+    expect(actionLines.length).toBeGreaterThan(0);
+    for (const line of actionLines) {
+      expect(line).toMatch(/^\s+uses:\s+[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+@[a-f0-9]{40}\s+#\s+\S+/);
+    }
+  });
+
   it("runs routine macOS source and Rust verification on pushes and pull requests", () => {
     const workflow = readWorkflow("ci.yml");
     const macosVerify = readJob(workflow, "verify-macos");

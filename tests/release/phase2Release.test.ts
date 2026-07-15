@@ -83,7 +83,7 @@ describe("Phase 2 hosted release controls", () => {
     expect(workflow).toContain("TAURI_BUILD_TARGET: aarch64-apple-darwin");
     expect(workflow).toContain("desktop:keychain-smoke:mac");
     expect(workflow).toContain("stapler validate");
-    expect(workflow).toContain("actions/attest@v4");
+    expect(workflow).toContain("uses: actions/attest@");
     expect(workflow).toContain("artifact-metadata: write");
     expect(workflow).toContain("sbom-path:");
     expect(workflow).toContain("publish-release:");

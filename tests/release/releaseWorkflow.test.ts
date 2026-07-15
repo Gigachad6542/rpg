@@ -39,6 +39,15 @@ describe("release workflow", () => {
     expect(workflow).not.toContain("$artifacts.FullName + $checksum");
   });
 
+  it("uses the canonical product name for public release artifacts", () => {
+    const workflow = readWorkflow("release.yml");
+
+    expect(workflow).toContain("name: local-first-rpg-windows");
+    expect(workflow).toContain("name: local-first-rpg-macos");
+    expect(workflow).toContain('$title = "Local-First RPG $env:GITHUB_REF_NAME"');
+    expect(workflow).not.toContain("Local-First AI RPG Runtime");
+  });
+
   it("keeps release checksums platform-specific and guards manifest versions", () => {
     const releaseWorkflow = readWorkflow("release.yml");
     const ciWorkflow = readWorkflow("ci.yml");

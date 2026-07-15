@@ -20,6 +20,7 @@ describe("Tauri secure-storage capabilities", () => {
       "generate_text_with_stored_secret",
       "persist_generated_image",
       "sync_generated_image_files",
+      "discover_local_text_providers",
     ]) {
       expect(buildScript).toContain(`"${command}"`);
     }
@@ -33,9 +34,25 @@ describe("Tauri secure-storage capabilities", () => {
         "allow-generate-text-with-stored-secret",
         "allow-persist-generated-image",
         "allow-sync-generated-image-files",
+        "allow-discover-local-text-providers",
       ]),
     );
     expect(capabilities.permissions).not.toContain("allow-get-provider-secret");
+  });
+
+  it("keeps local provider discovery aligned across renderer, manifest, and capability", () => {
+    const rendererDiscovery = readFileSync(
+      join(workspaceRoot, "src", "app", "localProviderDiscovery.ts"),
+      "utf8",
+    );
+    const buildScript = readFileSync(join(workspaceRoot, "src-tauri", "build.rs"), "utf8");
+    const capabilities = JSON.parse(
+      readFileSync(join(workspaceRoot, "src-tauri", "capabilities", "default.json"), "utf8"),
+    ) as { permissions: string[] };
+
+    expect(rendererDiscovery).toContain('"discover_local_text_providers"');
+    expect(buildScript).toContain('"discover_local_text_providers"');
+    expect(capabilities.permissions).toContain("allow-discover-local-text-providers");
   });
 
   it("does not expose renderer SQL plugin authority", () => {

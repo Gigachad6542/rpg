@@ -6,8 +6,8 @@ smoke.
 
 ## Result
 
-The Chromium acceptance lane now has five independent journeys. All five passed
-in 6.3 seconds with five local workers.
+The Chromium acceptance lane now has six independent journeys. All six passed
+in 6.6 seconds with six local workers.
 
 ## Characterization contracts
 
@@ -26,6 +26,9 @@ claim new product functionality. The added tests proved:
 5. Main-section navigation exposes the current page, and the card editor uses a
    linked tab/tab-panel contract with roving focus plus Arrow, Home, and End key
    navigation.
+6. Card deletion requires a second confirmation, initially focuses an explicit
+   cancel action, preserves the card when cancelled, and removes it only after
+   the user confirms again.
 
 The original seeded blank-card smoke remains and continues to verify mock-turn
 persistence plus compiled-prompt privacy.
@@ -36,7 +39,7 @@ persistence plus compiled-prompt privacy.
 pnpm e2e
 ```
 
-Result: 5 passed in 6.3 seconds.
+Result: 6 passed in 6.6 seconds.
 
 ```text
 pnpm typecheck
@@ -47,7 +50,8 @@ Result: both passed.
 
 ## Remaining browser and desktop depth
 
-- Add destructive-action confirmation/recovery acceptance paths.
+- Extend destructive-action confirmation/recovery coverage to chat deletion
+  and runtime replacement.
 - Extend the keyboard-only path through the composer, settings controls, and
   provider-failure recovery.
 - Retain packaged desktop WebView product-flow coverage separately; browser E2E
@@ -59,3 +63,8 @@ The added journey first failed because active navigation buttons had no
 `aria-current`, and card-editor tabs had no linked panels, roving `tabIndex`, or
 arrow-key behavior. The implementation then added those semantics and the
 focused test, full five-test browser lane, typecheck, and lint all passed.
+
+The destructive-recovery journey then failed because card deletion offered a
+second-click label but no explicit way to cancel. The card row now presents and
+focuses a dedicated cancel action before confirmation; the focused test and
+full six-test browser lane passed.

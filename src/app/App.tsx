@@ -2909,6 +2909,7 @@ export function App() {
             selectCard={selectCard}
             editCard={editCard}
             deleteCard={deleteCard}
+            cancelDeleteCard={() => setPendingDeleteCardId(null)}
             updateCardLibraryState={updateCardLibraryState}
             pendingDeleteCardId={pendingDeleteCardId}
             newCard={newCard}

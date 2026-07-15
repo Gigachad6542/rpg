@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Archive, ArchiveRestore, BookOpen, Download, Plus, Rocket, Search, Settings2, Star, Trash2 } from "lucide-react";
 import { type CompiledPrompt } from "../runtime/promptCompiler";
 import type { LoreTriggerProvenance } from "../runtime/loreTriggerEngine";
@@ -30,6 +30,7 @@ export function CardsSection(props: {
   selectCard: (card: RuntimeCard) => void;
   editCard: (card: RuntimeCard) => void;
   deleteCard: (cardId: string) => void;
+  cancelDeleteCard: () => void;
   updateCardLibraryState: (cardId: string, patch: Pick<RuntimeCard, "favorite" | "archived">) => void;
   pendingDeleteCardId: string | null;
   newCard: typeof defaultNewCard;
@@ -56,6 +57,12 @@ export function CardsSection(props: {
   const [tag, setTag] = useState("");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [includeArchived, setIncludeArchived] = useState(false);
+  const cancelDeleteRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (props.pendingDeleteCardId) {
+      cancelDeleteRef.current?.focus();
+    }
+  }, [props.pendingDeleteCardId]);
   const totalRules = props.cards.reduce((total, card) => total + card.playerRules.length, 0);
   const totalLoreEntries = props.cards.reduce(
     (total, card) => total + card.lorebooks.reduce((entryTotal, lorebook) => entryTotal + lorebook.entries.length, 0),
@@ -182,6 +189,16 @@ export function CardsSection(props: {
                   {card.archived ? <ArchiveRestore size={16} /> : <Archive size={16} />}
                   {card.archived ? "Restore" : "Archive"}
                 </button>
+                {props.pendingDeleteCardId === card.id ? (
+                  <button
+                    ref={cancelDeleteRef}
+                    className="secondary-button compact-button"
+                    type="button"
+                    onClick={props.cancelDeleteCard}
+                  >
+                    Cancel delete
+                  </button>
+                ) : null}
                 <button
                   className="secondary-button danger-button compact-button"
                   type="button"

@@ -147,7 +147,7 @@ describe("useMediaGeneration", () => {
     act(() => result.current.media.deleteCurrentMap());
 
     expect(result.current.media.generatedMaps.map((item) => item.id)).toEqual(["map-other", "photo-active"]);
-    expect(result.current.media.mapArtifact).toBeNull();
+    expect(result.current.media.mapArtifact?.id).toBe("map-other");
   });
 
   it("saves confirm-first portrait prompts without invoking image generation", async () => {

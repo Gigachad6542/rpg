@@ -7,13 +7,11 @@ import {
   useRef,
   useState,
 } from "react";
-import { compileImagePrompt } from "../runtime/imagePromptCompiler";
 import {
   applyHiddenContinuityToCard,
   buildVisibleUserMessageWithHiddenContinuity,
   createEmptyHiddenContinuityResult,
   runHiddenContinuityPassSafely,
-  type StoryEntity,
 } from "../runtime/hiddenContinuity";
 import { createRuntimeTurnEffects } from "../runtime/runtimeTurnLineage";
 import { resolveModelCallBudget } from "../runtime/modelCallBudget";
@@ -66,12 +64,10 @@ import type {
   AppRuntimeSnapshot,
   CardTab,
   ChatSession,
-  GeneratedMapArtifact,
   ImageProviderSettings,
   Lorebook,
   LorebookEntry,
   MainSection,
-  MediaPreviewArtifact,
   MemoryEntry,
   Message,
   ModelCallRecord,
@@ -121,11 +117,6 @@ import {
   undoChatTurnEffects,
 } from "./chatTurnState";
 import {
-  buildImagePromptRequest,
-  planImagePromptWithTextModel,
-  sanitizeMapNegativePrompt,
-} from "./imagePromptPlanning";
-import {
   createEmptyLorebook,
   createInitialStoryEntities,
   normalizeRuntimeCards,
@@ -140,15 +131,8 @@ import {
 } from "./providerConfig";
 import {
   buildCharacterPortraitPrompt,
-  buildCustomImagePrompt,
-  isComfyUiImageProviderReady,
-  findCharacterPortraitForEntity,
   findCharacterPortraitsForCard,
   findGeneratedMapForChat,
-  shouldPrepareCharacterPortrait,
-  shouldRunCharacterPortraitGeneration,
-  upsertGeneratedMap,
-  upsertGeneratedMaps,
 } from "./generatedImages";
 import {
   buildResponseContract,
@@ -159,8 +143,6 @@ import {
 } from "./turnPromptBuilders";
 import type { ImportedCard } from "./cardImport";
 import {
-  characterPortraitNegativePrompt,
-  customImageNegativePrompt,
   defaultNewCard,
   defaultProviderSettings,
   emptyCompiledPrompt,
@@ -198,7 +180,6 @@ import {
   isAbortError,
 } from "./appControllerHelpers";
 import { buildRuntimeCardFromDraft } from "./runtimeCardFactory";
-import { generateConfiguredImageArtifact } from "./assetService";
 import {
   resolveRuntimeSnapshotState,
   type ResolvedRuntimeSnapshotState,
@@ -212,6 +193,7 @@ import {
 import { useProviderManagement } from "./useProviderManagement";
 import { useRuntimePersistence } from "./useRuntimePersistence";
 import { useRuntimeDataManagement } from "./useRuntimeDataManagement";
+import { useMediaGeneration } from "./useMediaGeneration";
 
 interface MemoryConsolidationReview {
   cardId: string;
@@ -239,17 +221,6 @@ export function App() {
   const [promptRuns, setPromptRuns] = useState<PromptRun[]>(() => initialRuntimeState.promptRuns);
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [ruleWarning, setRuleWarning] = useState<string | null>(null);
-  const [mapPrompt, setMapPrompt] = useState<string | null>(null);
-  const [imagePromptDraft, setImagePromptDraft] = useState("");
-  const [imageNegativePromptDraft, setImageNegativePromptDraft] = useState("");
-  const [mapArtifact, setMapArtifact] = useState<GeneratedMapArtifact | null>(() => initialRuntimeState.mapArtifact);
-  const [photoSpecDraft, setPhotoSpecDraft] = useState("");
-  const [photoPrompt, setPhotoPrompt] = useState("");
-  const [photoArtifact, setPhotoArtifact] = useState<GeneratedMapArtifact | null>(() => initialRuntimeState.photoArtifact);
-  const [generatedMaps, setGeneratedMaps] = useState<GeneratedMapArtifact[]>(() => initialRuntimeState.generatedMaps);
-  const [isDraftingMapPrompt, setIsDraftingMapPrompt] = useState(false);
-  const [isGeneratingMapImage, setIsGeneratingMapImage] = useState(false);
-  const [isGeneratingPhoto, setIsGeneratingPhoto] = useState(false);
   const [newCard, setNewCard] = useState(defaultNewCard);
   const [providerSettings, setProviderSettings] = useState<ProviderSettings>(() => initialRuntimeState.providerSettings);
   const [imageProviderSettings, setImageProviderSettings] = useState<ImageProviderSettings>(() => initialRuntimeState.imageProviderSettings);
@@ -266,7 +237,6 @@ export function App() {
   const [pendingDeleteCardId, setPendingDeleteCardId] = useState<string | null>(null);
   const [newCardError, setNewCardError] = useState<string | null>(null);
   const [lorebookEntryError, setLorebookEntryError] = useState<string | null>(null);
-  const [mediaPreview, setMediaPreview] = useState<MediaPreviewArtifact | null>(null);
   const turnAbortControllerRef = useRef<AbortController | null>(null);
 
   const activeCard = cards.find((card) => card.id === activeCardId) ?? null;
@@ -332,6 +302,56 @@ export function App() {
   );
   const activeLorebookEntries = activeLoreSelection.entries;
   const activeLoreTriggers: LoreTriggerProvenance[] = activeLoreSelection.triggers;
+  const {
+    mapPrompt,
+    setMapPrompt,
+    imagePromptDraft,
+    setImagePromptDraft,
+    imageNegativePromptDraft,
+    setImageNegativePromptDraft,
+    mapArtifact,
+    setMapArtifact,
+    photoSpecDraft,
+    setPhotoSpecDraft,
+    photoPrompt,
+    setPhotoPrompt,
+    photoArtifact,
+    setPhotoArtifact,
+    generatedMaps,
+    setGeneratedMaps,
+    isDraftingMapPrompt,
+    isGeneratingMapImage,
+    isGeneratingPhoto,
+    mediaPreview,
+    setMediaPreview,
+    prepareImagePrompt,
+    generateImageFromPrompt,
+    resetMapPrompt,
+    deleteCurrentMap,
+    generateCustomImageFromRequest,
+    resetCustomImageRequest,
+    deleteCurrentPhoto,
+    regenerateCharacterPortrait,
+    generateMissingCharacterPortraits,
+  } = useMediaGeneration({
+    initialGeneratedMaps: initialRuntimeState.generatedMaps,
+    initialMapArtifact: initialRuntimeState.mapArtifact,
+    initialPhotoArtifact: initialRuntimeState.photoArtifact,
+    activeCard,
+    activeChat,
+    messages,
+    activeLoreCount: activeLorebookEntries.length,
+    providerSettings,
+    sessionApiKey,
+    runtimeSettings,
+    imageProviderSettings,
+    setImageProviderSettings,
+    imageSessionApiKey,
+    imageProviderStatus,
+    comfyUiCheckpointModels,
+    setRuleWarning,
+    desktopRuntime: isTauriRuntime(),
+  });
 
   // The prompt preview recompiles the full token-budgeted prompt, which is
   // expensive for large cards and lorebooks. Deferring the draft and lore inputs
@@ -443,7 +463,7 @@ export function App() {
     setGeneratedMaps(state.generatedMaps);
     setMapArtifact(state.mapArtifact);
     setPhotoArtifact(state.photoArtifact);
-  }, [setProviderKeyStatus]);
+  }, [setGeneratedMaps, setMapArtifact, setPhotoArtifact, setProviderKeyStatus]);
 
   const {
     saveStatus,
@@ -511,25 +531,10 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    setMapArtifact(activeCard ? findGeneratedMapForChat(generatedMaps, activeCard.id, activeChat?.id, "map") : null);
-    setPhotoArtifact(activeCard ? findGeneratedMapForChat(generatedMaps, activeCard.id, activeChat?.id, "photo") : null);
-  }, [activeCard, activeChat?.id, generatedMaps]);
-
-  useEffect(() => {
     if (!runtimeSettings.promptDebugLogs) {
       setPromptRuns((current) => applyPromptDebugRetention(current, runtimeSettings));
     }
   }, [runtimeSettings]);
-
-  useEffect(() => {
-    if (!mapArtifact) {
-      return;
-    }
-
-    setMapPrompt(mapArtifact.prompt);
-    setImagePromptDraft(mapArtifact.prompt);
-    setImageNegativePromptDraft(mapArtifact.negativePrompt);
-  }, [mapArtifact]);
 
   function selectCard(card: RuntimeCard) {
     const openedCard = card.archived ? { ...card, archived: false } : card;
@@ -1793,332 +1798,6 @@ export function App() {
   function cancelMemoryConsolidationReview() {
     setMemoryConsolidationReview(null);
     setMemoryConsolidationStatus("Memory consolidation cancelled; original memory was not changed.");
-  }
-
-  async function prepareImagePrompt() {
-    if (!activeCard) {
-      return;
-    }
-    if (!activeCard.mapEnabled) {
-      return;
-    }
-
-    setIsDraftingMapPrompt(true);
-    try {
-      const planned =
-        providerSettings.mode === "mock"
-          ? compileImagePrompt(buildImagePromptRequest(activeCard, messages))
-          : await planImagePromptWithTextModel({
-              card: activeCard,
-              messages,
-              providerSettings,
-              sessionApiKey,
-              activeLoreCount: activeLorebookEntries.length,
-              runtimeSettings,
-            });
-      setMapPrompt(planned.prompt);
-      setImagePromptDraft(planned.prompt);
-      setImageNegativePromptDraft(sanitizeMapNegativePrompt(planned.negativePrompt));
-    } catch (error) {
-      const fallback = compileImagePrompt(buildImagePromptRequest(activeCard, messages));
-      setMapPrompt(fallback.prompt);
-      setImagePromptDraft(fallback.prompt);
-      setImageNegativePromptDraft(sanitizeMapNegativePrompt(fallback.negativePrompt));
-      setRuleWarning(`Aerial image prompt planner fell back to local summary: ${getErrorMessage(error)}`);
-    } finally {
-      setIsDraftingMapPrompt(false);
-    }
-  }
-
-  async function generateImageFromPrompt() {
-    if (!activeCard) {
-      return;
-    }
-    if (!activeCard.mapEnabled || !imagePromptDraft.trim()) {
-      return;
-    }
-
-    setIsGeneratingMapImage(true);
-    const baseArtifact: GeneratedMapArtifact = {
-      id: createRuntimeEntityId("map"),
-      imageKind: "map",
-      cardId: activeCard.id,
-      chatId: activeChat?.id ?? `chat_${activeCard.id}`,
-      prompt: imagePromptDraft.trim(),
-      negativePrompt: sanitizeMapNegativePrompt(imageNegativePromptDraft),
-      provider: imageProviderSettings.mode === "comfyui" ? "comfyui" : "prompt-only",
-      model: imageProviderSettings.model,
-      status: "prompt-only",
-      createdAt: new Date().toISOString(),
-    };
-
-    try {
-      const artifact = await runConfiguredImageGeneration({
-        baseArtifact,
-        prompt: imagePromptDraft.trim(),
-        negativePrompt: sanitizeMapNegativePrompt(imageNegativePromptDraft),
-        metadata: {
-          cardId: activeCard.id,
-          chatId: activeChat?.id,
-          cardName: activeCard.name,
-        },
-      });
-      setMapArtifact(artifact);
-      setGeneratedMaps((current) => upsertGeneratedMap(current, artifact));
-    } catch (error) {
-      const artifact: GeneratedMapArtifact = {
-        ...baseArtifact,
-        status: "error",
-        error: getErrorMessage(error),
-      };
-      setMapArtifact(artifact);
-      setGeneratedMaps((current) => upsertGeneratedMap(current, artifact));
-    } finally {
-      setIsGeneratingMapImage(false);
-    }
-  }
-
-  function resetMapPrompt() {
-    setMapPrompt(null);
-    setImagePromptDraft("");
-    setImageNegativePromptDraft("");
-  }
-
-  function deleteCurrentMap() {
-    if (!activeCard) {
-      return;
-    }
-
-    const chatId = activeChat?.id;
-    setGeneratedMaps((current) =>
-      current.filter(
-        (artifact) =>
-          artifact.imageKind !== "map" ||
-          artifact.cardId !== activeCard.id ||
-          (chatId ? artifact.chatId !== chatId : false),
-      ),
-    );
-    setMapArtifact(null);
-  }
-
-  async function generateCustomImageFromRequest(specOverride?: string) {
-    const userInput = (specOverride ?? photoSpecDraft).trim();
-    if (!activeCard || !userInput) {
-      return;
-    }
-    if (specOverride !== undefined) {
-      setPhotoSpecDraft(userInput);
-    }
-
-    const prompt = buildCustomImagePrompt(userInput);
-    setPhotoPrompt(prompt);
-    setIsGeneratingPhoto(true);
-    const baseArtifact: GeneratedMapArtifact = {
-      id: createRuntimeEntityId("image"),
-      imageKind: "photo",
-      cardId: activeCard.id,
-      chatId: activeChat?.id ?? `chat_${activeCard.id}`,
-      prompt,
-      negativePrompt: customImageNegativePrompt,
-      provider: imageProviderSettings.mode === "comfyui" ? "comfyui" : "prompt-only",
-      model: imageProviderSettings.model,
-      status: "prompt-only",
-      userInput,
-      createdAt: new Date().toISOString(),
-    };
-
-    try {
-      const artifact = await runConfiguredImageGeneration({
-        baseArtifact,
-        prompt,
-        negativePrompt: customImageNegativePrompt,
-        metadata: {
-          cardId: activeCard.id,
-          chatId: activeChat?.id,
-          cardName: activeCard.name,
-          imageKind: "photo",
-          userInput,
-        },
-      });
-      setPhotoArtifact(artifact);
-      setGeneratedMaps((current) => upsertGeneratedMap(current, artifact));
-    } catch (error) {
-      const artifact: GeneratedMapArtifact = {
-        ...baseArtifact,
-        status: "error",
-        error: getErrorMessage(error),
-      };
-      setPhotoArtifact(artifact);
-      setGeneratedMaps((current) => upsertGeneratedMap(current, artifact));
-    } finally {
-      setIsGeneratingPhoto(false);
-    }
-  }
-
-  function resetCustomImageRequest() {
-    setPhotoSpecDraft("");
-    setPhotoPrompt("");
-  }
-
-  function deleteCurrentPhoto() {
-    if (!activeCard) {
-      return;
-    }
-
-    const chatId = activeChat?.id;
-    setGeneratedMaps((current) =>
-      current.filter(
-        (artifact) =>
-          artifact.imageKind !== "photo" ||
-          artifact.cardId !== activeCard.id ||
-          (chatId ? artifact.chatId !== chatId : false),
-      ),
-    );
-    setPhotoArtifact(null);
-    setPhotoPrompt("");
-  }
-
-  async function regenerateCharacterPortrait(entity: StoryEntity, promptOverride: string) {
-    if (!activeCard) {
-      return;
-    }
-    const chatId = activeChat?.id ?? `chat_${activeCard.id}`;
-    const existing = findCharacterPortraitForEntity(generatedMaps, activeCard.id, entity);
-    const prompt = promptOverride.trim() || existing?.prompt || buildCharacterPortraitPrompt(activeCard, entity);
-    const baseArtifact: GeneratedMapArtifact = {
-      id: existing?.id ?? createRuntimeEntityId("portrait"),
-      imageKind: "character",
-      cardId: activeCard.id,
-      chatId,
-      subjectId: entity.id,
-      subjectName: entity.name,
-      prompt,
-      negativePrompt: characterPortraitNegativePrompt,
-      provider: imageProviderSettings.mode === "comfyui" ? "comfyui" : "prompt-only",
-      model: imageProviderSettings.model,
-      status: "prompt-only",
-      userInput: entity.name,
-      createdAt: new Date().toISOString(),
-    };
-    setGeneratedMaps((current) => upsertGeneratedMap(current, baseArtifact));
-    try {
-      const artifact = await runConfiguredImageGeneration({
-        baseArtifact,
-        prompt,
-        negativePrompt: baseArtifact.negativePrompt,
-        metadata: {
-          cardId: activeCard.id,
-          chatId,
-          cardName: activeCard.name,
-          imageKind: "character",
-          subjectId: entity.id,
-          subjectName: entity.name,
-        },
-      });
-      setGeneratedMaps((current) => upsertGeneratedMap(current, artifact));
-    } catch (error) {
-      setGeneratedMaps((current) =>
-        upsertGeneratedMap(current, {
-          ...baseArtifact,
-          status: "error",
-          error: getErrorMessage(error),
-        }),
-      );
-    }
-  }
-
-  async function generateMissingCharacterPortraits(
-    card: RuntimeCard,
-    chatId: string,
-    visibleMessages: readonly Message[],
-  ) {
-    const portraitMode = imageProviderSettings.portraitGenerationMode;
-    const missingPortraits = card.storyEntities
-      .filter((entity) => shouldPrepareCharacterPortrait(entity, visibleMessages, portraitMode))
-      .filter((entity) => {
-        const existing = findCharacterPortraitForEntity(generatedMaps, card.id, entity);
-        return !existing || (portraitMode === "auto" && existing.status !== "generated");
-      });
-    if (missingPortraits.length === 0) {
-      return;
-    }
-
-    const baseArtifacts = missingPortraits.map((entity): GeneratedMapArtifact => {
-      const existing = findCharacterPortraitForEntity(generatedMaps, card.id, entity);
-      return {
-        id: existing?.id ?? createRuntimeEntityId("portrait"),
-        imageKind: "character",
-        cardId: card.id,
-        chatId,
-        subjectId: entity.id,
-        subjectName: entity.name,
-        prompt: existing?.prompt || buildCharacterPortraitPrompt(card, entity),
-        negativePrompt: existing?.negativePrompt || characterPortraitNegativePrompt,
-        provider: imageProviderSettings.mode === "comfyui" ? "comfyui" : "prompt-only",
-        model: imageProviderSettings.model,
-        status: "prompt-only",
-        error: isComfyUiImageProviderReady(imageProviderSettings, imageProviderStatus, comfyUiCheckpointModels)
-          ? undefined
-          : imageProviderSettings.mode === "comfyui"
-            ? "ComfyUI is not ready yet; portrait prompt saved."
-            : undefined,
-        userInput: entity.name,
-        createdAt: existing?.createdAt ?? new Date().toISOString(),
-      };
-    });
-    setGeneratedMaps((current) => upsertGeneratedMaps(current, baseArtifacts));
-
-    if (
-      !shouldRunCharacterPortraitGeneration(portraitMode) ||
-      !isComfyUiImageProviderReady(imageProviderSettings, imageProviderStatus, comfyUiCheckpointModels)
-    ) {
-      return;
-    }
-
-    for (const baseArtifact of baseArtifacts) {
-      try {
-        const artifact = await runConfiguredImageGeneration({
-          baseArtifact,
-          prompt: baseArtifact.prompt,
-          negativePrompt: baseArtifact.negativePrompt,
-          metadata: {
-            cardId: card.id,
-            chatId,
-            cardName: card.name,
-            imageKind: "character",
-            subjectId: baseArtifact.subjectId,
-            subjectName: baseArtifact.subjectName,
-          },
-        });
-        setGeneratedMaps((current) => upsertGeneratedMap(current, artifact));
-      } catch (error) {
-        setGeneratedMaps((current) =>
-          upsertGeneratedMap(current, {
-            ...baseArtifact,
-            status: "error",
-            error: getErrorMessage(error),
-          }),
-        );
-      }
-    }
-  }
-
-  async function runConfiguredImageGeneration(input: {
-    baseArtifact: GeneratedMapArtifact;
-    prompt: string;
-    negativePrompt: string;
-    metadata: Record<string, unknown>;
-  }): Promise<GeneratedMapArtifact> {
-    const result = await generateConfiguredImageArtifact({
-      settings: imageProviderSettings,
-      sessionApiKey: imageSessionApiKey,
-      ...input,
-      desktopRuntime: isTauriRuntime(),
-    });
-    if (result.settings !== imageProviderSettings) {
-      setImageProviderSettings(result.settings);
-    }
-    return result.artifact;
   }
 
   function shutdownRuntime() {

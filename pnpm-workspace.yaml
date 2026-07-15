@@ -1,8 +1,0 @@
-packages: []
-
-overrides:
-  esbuild: ^0.25.12
-  vite: ^6.4.3
-
-onlyBuiltDependencies:
-  - esbuild

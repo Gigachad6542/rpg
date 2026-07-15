@@ -6,8 +6,8 @@ smoke.
 
 ## Result
 
-The Chromium acceptance lane now has six independent journeys. All six passed
-in 6.6 seconds with six local workers.
+The Chromium acceptance lane now has seven independent journeys. All seven
+passed in 6.2 seconds with seven local workers.
 
 ## Characterization contracts
 
@@ -29,6 +29,8 @@ claim new product functionality. The added tests proved:
 6. Card deletion requires a second confirmation, initially focuses an explicit
    cancel action, preserves the card when cancelled, and removes it only after
    the user confirms again.
+7. Active-chat deletion has the same focused cancel path and retains the active
+   branch until the user completes a second explicit confirmation.
 
 The original seeded blank-card smoke remains and continues to verify mock-turn
 persistence plus compiled-prompt privacy.
@@ -39,7 +41,7 @@ persistence plus compiled-prompt privacy.
 pnpm e2e
 ```
 
-Result: 6 passed in 6.6 seconds.
+Result: 7 passed in 6.2 seconds.
 
 ```text
 pnpm typecheck
@@ -50,8 +52,8 @@ Result: both passed.
 
 ## Remaining browser and desktop depth
 
-- Extend destructive-action confirmation/recovery coverage to chat deletion
-  and runtime replacement.
+- Extend destructive-action confirmation/recovery coverage to runtime
+  replacement.
 - Extend the keyboard-only path through the composer, settings controls, and
   provider-failure recovery.
 - Retain packaged desktop WebView product-flow coverage separately; browser E2E
@@ -68,3 +70,7 @@ The destructive-recovery journey then failed because card deletion offered a
 second-click label but no explicit way to cancel. The card row now presents and
 focuses a dedicated cancel action before confirmation; the focused test and
 full six-test browser lane passed.
+
+The equivalent chat-deletion journey then drove the same explicit, focused
+cancel affordance for active branches. Its focused test, all 81 App integration
+tests, typecheck, lint, and the full seven-test browser lane passed.

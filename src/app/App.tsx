@@ -2846,6 +2846,10 @@ export function App() {
               startNewChat={startNewChatForActiveCard}
               branchChat={branchActiveChat}
               deleteChat={deleteActiveChat}
+              cancelDeleteChat={() => {
+                setPendingDeleteChatId(null);
+                setRuleWarning(null);
+              }}
               renameChat={renameActiveChat}
               archiveChat={archiveActiveChat}
               restoreChat={restoreArchivedChat}

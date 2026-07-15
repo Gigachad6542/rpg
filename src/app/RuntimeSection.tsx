@@ -53,6 +53,7 @@ export function RuntimeSection(props: {
   startNewChat: () => void;
   branchChat: () => void;
   deleteChat: () => void;
+  cancelDeleteChat: () => void;
   renameChat: (title: string) => void;
   archiveChat: () => void;
   restoreChat: (chatId: string) => void;
@@ -127,6 +128,7 @@ export function RuntimeSection(props: {
   );
   const openingText = getCardOpeningText(props.activeCard);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const cancelDeleteChatRef = useRef<HTMLButtonElement | null>(null);
   const [messageWindowSize, setMessageWindowSize] = useState(120);
   const [autoFollow, setAutoFollow] = useState(true);
   const [isRenamingChat, setIsRenamingChat] = useState(false);
@@ -147,6 +149,12 @@ export function RuntimeSection(props: {
     }
     transcript.scrollTop = transcript.scrollHeight;
   }, [props.messages.length, props.streamingReply, props.isGenerating, props.activeChat?.id, autoFollow]);
+
+  useEffect(() => {
+    if (props.isDeleteChatPending) {
+      cancelDeleteChatRef.current?.focus();
+    }
+  }, [props.isDeleteChatPending]);
 
   function jumpToLatest() {
     const transcript = transcriptRef.current;
@@ -225,6 +233,16 @@ export function RuntimeSection(props: {
               <Archive size={16} />
               Archive
             </button>
+            {props.isDeleteChatPending ? (
+              <button
+                ref={cancelDeleteChatRef}
+                className="secondary-button compact-button"
+                type="button"
+                onClick={props.cancelDeleteChat}
+              >
+                Cancel delete chat
+              </button>
+            ) : null}
             <button className="secondary-button danger-button compact-button" type="button" onClick={props.deleteChat}>
               <Trash2 size={16} />
               {props.isDeleteChatPending ? "Confirm delete chat" : "Delete chat"}

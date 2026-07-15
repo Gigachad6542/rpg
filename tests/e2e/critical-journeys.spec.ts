@@ -185,9 +185,9 @@ test("chat deletion can be cancelled before the active branch is removed", async
   await expect(cancel).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("button", { name: /^Delete chat$/ })).toBeVisible();
-  await expect(activeChat).toHaveDisplayValue(chatTitle!);
+  await expect(activeChat.locator("option:checked")).toHaveText(chatTitle!);
 
   await page.getByRole("button", { name: /^Delete chat$/ }).click();
   await page.getByRole("button", { name: /Confirm delete chat/i }).click();
-  await expect(activeChat).not.toHaveDisplayValue(chatTitle!);
+  await expect(activeChat.locator("option:checked")).not.toHaveText(chatTitle!);
 });

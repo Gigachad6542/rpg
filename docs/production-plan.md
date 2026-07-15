@@ -20,11 +20,11 @@ for upgrade proof, and live-provider narrative quality is not yet measured.
 - Enforced coverage floors: 90% statements/lines/functions and 85% branches.
 - Deterministic evals: Phase 1 passed; Phase 1.1 passed with 100 lore decisions,
   three long campaigns, and `liveCallsMade: 0`.
-- Browser acceptance: 6 Playwright Chromium tests passed, covering the seeded
+- Browser acceptance: 7 Playwright Chromium tests passed, covering the seeded
   runtime smoke, one-click offline demo, template card creation and reload,
   reversible export/import review, and memory-dialog focus trap/restoration.
   Additional journeys verify current-page navigation plus linked, roving,
-  arrow/Home/End-key card-editor tabs and reversible card-deletion confirmation.
+  arrow/Home/End-key card-editor tabs plus reversible card- and chat-deletion confirmation.
 - Frontend build: Vite production build passed; the main app chunk was 486.13
   kB (137.16 kB gzip), plus separate React, icon, and Tauri chunks.
 - Dependency audit: `pnpm audit --prod` reported no known vulnerabilities.
@@ -61,7 +61,7 @@ for upgrade proof, and live-provider narrative quality is not yet measured.
 |---|---:|---|
 | Correctness and data safety | 19/20 | SQLite authority, migrations, recovery, deterministic lineage, backup/restore, a tested single-window writer policy, and strong unit coverage are implemented. |
 | Security and privacy boundaries | 14/15 | Keychain references, scoped Tauri commands, fixed loopback discovery, import limits, redaction, and clean production audits are present; accepted Rust debt remains. |
-| Automated verification | 17/20 | The local release gate is broad and six critical browser journeys now pass; desktop UI automation remains narrower than unit coverage and live-provider evaluation has not run. |
+| Automated verification | 17/20 | The local release gate is broad and seven critical browser journeys now pass; desktop UI automation remains narrower than unit coverage and live-provider evaluation has not run. |
 | Packaging and release operations | 14/20 | Signed fail-closed workflows and a real local NSIS lifecycle exist; current hosted signed/notarized evidence, clean-VM proof, and a published previous-version migration are absent. |
 | Product and UX maturity | 8/15 | Onboarding, sample content, imports, library tools, continuity, and explicit state controls are credible; the main UI/controller remains oversized and accessibility E2E is thin. |
 | Operational and project governance | 7/10 | Release, rollback, runtime, security, support, contribution, changelog, conduct, issue, and PR contracts exist; licensing and verified public support/security intake remain incomplete. |
@@ -136,7 +136,7 @@ that flow is effortless would dilute the product.
   feature controllers and smaller acceptance suites without weakening behavior.
 - Continue accessibility acceptance beyond the verified memory-dialog focus
   trap, current-page navigation, and linked keyboard-operable card tabs into the
-  composer, chat-deletion recovery, settings, and provider-failure flows.
+  composer, runtime-replacement recovery, settings, and provider-failure flows.
 - Make the owner licensing decision and configure verified public help,
   support, and security-reporting destinations before broad distribution.
 

@@ -282,6 +282,7 @@ export function RuntimeSection(props: {
           className="message-stream chat-transcript"
           role="log"
           aria-label="Chat transcript"
+          tabIndex={0}
           ref={transcriptRef}
           onScroll={(event) => {
             const transcript = event.currentTarget;

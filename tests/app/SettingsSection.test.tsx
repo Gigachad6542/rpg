@@ -159,7 +159,8 @@ describe("SettingsSection", () => {
     );
 
     expect(screen.getByText(/3 cards.*5 chats.*21 messages/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Apply reviewed import/i }));
+    expect(screen.getByRole("alertdialog", { name: /Replace current runtime data/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Replace runtime data/i }));
     expect(applyRuntimeImport).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: /Cancel import/i }));
     expect(cancelRuntimeImport).toHaveBeenCalledTimes(1);

@@ -96,11 +96,14 @@ test("runtime export review is reversible and the memory dialog restores keyboar
   const exportedRuntime = await readFile(downloadPath!, "utf8");
 
   await page.getByLabel(/Runtime export JSON/i).fill(exportedRuntime);
-  await page.getByRole("button", { name: /Review runtime import/i }).click();
-  const review = page.getByRole("region", { name: /Runtime import review/i });
+  const reviewImport = page.getByRole("button", { name: /Review runtime import/i });
+  await reviewImport.click();
+  const review = page.getByRole("alertdialog", { name: /Replace current runtime data/i });
   await expect(review).toContainText("This will replace the current runtime");
-  await review.getByRole("button", { name: /Cancel import/i }).click();
+  await expect(review.getByRole("button", { name: /Cancel import/i })).toBeFocused();
+  await page.keyboard.press("Escape");
   await expect(review).toBeHidden();
+  await expect(reviewImport).toBeFocused();
   await expect(page.getByRole("status", { name: /Data management status/i })).toContainText(
     "current data was not changed",
   );

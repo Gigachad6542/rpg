@@ -61,7 +61,7 @@ describe("local-first card runtime UI: data", () => {
       /Review before applying/i,
     );
     expect(H.screen.queryByRole("heading", { name: /Imported Runtime Card/i })).not.toBeInTheDocument();
-    H.fireEvent.click(H.screen.getByRole("button", { name: /Apply reviewed import/i }));
+    H.fireEvent.click(H.screen.getByRole("button", { name: /Replace runtime data/i }));
 
     expect(H.screen.getByRole("status", { name: /Data management status/i })).toHaveTextContent(
       /Imported runtime export/i,

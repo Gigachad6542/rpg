@@ -46,6 +46,7 @@ describe("RuntimeImportReviewDialog", () => {
     render(<ReviewHarness apply={apply} cancel={cancel} />);
 
     const opener = screen.getByRole("button", { name: /Review runtime import/i });
+    opener.focus();
     fireEvent.click(opener);
 
     const dialog = screen.getByRole("alertdialog", { name: /Replace current runtime data/i });
@@ -76,6 +77,7 @@ describe("RuntimeImportReviewDialog", () => {
     render(<ReviewHarness apply={apply} cancel={cancel} />);
 
     const opener = screen.getByRole("button", { name: /Review runtime import/i });
+    opener.focus();
     fireEvent.click(opener);
     fireEvent.click(screen.getByRole("button", { name: /Replace runtime data/i }));
 

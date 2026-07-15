@@ -4,6 +4,10 @@ import type { Persona } from "./runtimeTypes";
 import type { HiddenContinuityMode } from "../runtime/hiddenContinuityPolicy";
 import { PersonasPanel } from "./PersonasPanel";
 import { APP_HELP_URL, APP_NAME, APP_SUPPORT_URL, APP_UPDATES_URL, APP_VERSION } from "./productInfo";
+import {
+  RuntimeImportReviewDialog,
+  type RuntimeImportReviewView,
+} from "./RuntimeImportReviewDialog";
 
 export type RuntimeSettingsView = {
   textStreaming: boolean;
@@ -20,13 +24,6 @@ export type RestorePointView = {
   id: string;
   label: string;
   timeLabel: string;
-};
-
-export type RuntimeImportReviewView = {
-  cards: number;
-  chats: number;
-  messages: number;
-  savedAt: string;
 };
 
 const ACCENT_PRESETS: Array<{ label: string; value: string }> = [
@@ -253,27 +250,14 @@ export function SettingsSection(props: {
           Review runtime import
         </button>
         {props.pendingImportReview ? (
-          <div className="import-review" role="region" aria-label="Runtime import review">
-            <p>
-              This will replace the current runtime with {props.pendingImportReview.cards} cards, {props.pendingImportReview.chats} chats, and {props.pendingImportReview.messages} messages.
-            </p>
-            <p className="panel-hint">Export saved at {props.pendingImportReview.savedAt}.</p>
-            <div className="button-row">
-              <button
-                className="primary-button compact-button"
-                type="button"
-                onClick={() => {
-                  props.applyRuntimeImport();
-                  setRuntimeImportDraft("");
-                }}
-              >
-                Apply reviewed import
-              </button>
-              <button className="secondary-button compact-button" type="button" onClick={props.cancelRuntimeImport}>
-                Cancel import
-              </button>
-            </div>
-          </div>
+          <RuntimeImportReviewDialog
+            review={props.pendingImportReview}
+            apply={() => {
+              props.applyRuntimeImport();
+              setRuntimeImportDraft("");
+            }}
+            cancel={props.cancelRuntimeImport}
+          />
         ) : null}
         <p className="status-line" role="status" aria-label="Data management status" aria-live="polite">
           {props.dataManagementStatus}

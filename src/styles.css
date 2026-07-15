@@ -2146,6 +2146,40 @@ pre {
   z-index: 35;
 }
 
+.runtime-import-backdrop {
+  align-items: center;
+  background: rgba(8, 11, 16, 0.78);
+  display: grid;
+  inset: 0;
+  padding: 22px;
+  position: fixed;
+  z-index: 40;
+}
+
+.runtime-import-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.42);
+  display: grid;
+  gap: 14px;
+  max-height: calc(100vh - 44px);
+  overflow-y: auto;
+  padding: 18px;
+  place-self: center;
+  width: min(520px, calc(100vw - 44px));
+}
+
+.runtime-import-dialog-heading {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+}
+
+.runtime-import-dialog-heading h3 {
+  margin: 2px 0 0;
+}
+
 .media-preview-dialog {
   background: var(--surface);
   border: 1px solid var(--border);

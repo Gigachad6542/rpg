@@ -300,6 +300,7 @@ export function SettingsSection(props: {
                 <button
                   type="button"
                   className="secondary-button compact-button"
+                  aria-label={`Restore ${point.label}`}
                   onClick={() => props.restoreRuntimePoint(point.id)}
                 >
                   <RotateCcw size={15} />

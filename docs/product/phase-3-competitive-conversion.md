@@ -78,8 +78,9 @@ and database identifiers remain stable where renaming them would break upgrades.
 - `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm audit --prod`, Rust tests,
   and Rust clippy must pass before the GREEN implementation commit.
 
-The current working-tree release evidence is recorded in
-`../testing/current-claims-release-repair-2026-07-14.tdd.md`. Local discovery
+The current working-tree release evidence is summarized in the
+[testing evidence ledger](../testing/README.md) and
+[production plan](../production-plan.md). Local discovery
 detects fixed loopback servers and model IDs only; it does not download models,
 manage inference processes, or make the overall product a zero-configuration
 local-model runtime.

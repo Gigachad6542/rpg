@@ -2,7 +2,7 @@
 
 ## Setup
 
-Use Node 22, pnpm 9.15.9, the pinned Rust toolchain, and the real repository
+Use Node 22, pnpm 11.7.0, the pinned Rust toolchain, and the real repository
 root. Install with:
 
 ```text

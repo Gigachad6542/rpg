@@ -231,8 +231,9 @@ pinned pnpm 9.15.9 rejects, breaking `pnpm install` locally and in CI. The overr
 to the `package.json` `pnpm` section and the workspace file was removed.
 
 Historical note: that configuration was superseded after this run. The current
-pnpm 9.15.9-compatible supply-chain policy lives in `pnpm-workspace.yaml`, and
-`package.json` intentionally has no `pnpm` block.
+toolchain is pnpm 11.7.0 because pnpm 9's legacy npm audit endpoint was retired.
+The current supply-chain policy lives in `pnpm-workspace.yaml`, and `package.json`
+intentionally has no `pnpm` block.
 
 The test-production bundles are unsigned; distribute to testers with that stated plainly.
 

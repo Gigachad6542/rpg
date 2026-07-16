@@ -23,7 +23,6 @@ interface AppSidebarProps {
   section: MainSection;
   selectSection: (section: MainSection) => void;
   toggleTheme: () => void;
-  activeCard: ActiveCardSummary | null;
   saveStatus: string;
   repositoryStatus: string;
 }
@@ -45,7 +44,6 @@ export function AppSidebar({
   section,
   selectSection,
   toggleTheme,
-  activeCard,
   saveStatus,
   repositoryStatus,
 }: AppSidebarProps) {
@@ -79,16 +77,12 @@ export function AppSidebar({
         {theme === "dark" ? "Light mode" : "Dark mode"}
       </button>
 
-      <section className="storage-status" aria-label="Active card summary">
+      <section className="storage-status" aria-label="Local storage status">
         <div className="section-title">
           <ShieldCheck size={16} />
-          <h2>Active Card</h2>
+          <h2>Storage</h2>
         </div>
         <dl className="compact-dl">
-          <dt>Name</dt>
-          <dd>{activeCard?.name ?? "Select a card"}</dd>
-          <dt>Type</dt>
-          <dd>{activeCard?.kind ?? "saved library"}</dd>
           <dt>Local save</dt>
           <dd>
             <span role="status" aria-live="polite">{saveStatus}</span>

@@ -576,7 +576,6 @@ export function App() {
         section={section}
         selectSection={setSection}
         toggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
-        activeCard={activeCard}
         saveStatus={saveStatus}
         repositoryStatus={repositoryStatus}
       />

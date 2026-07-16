@@ -493,7 +493,13 @@ textarea:focus-visible {
 
 .workspace-grid.cards-grid {
   align-content: start;
-  grid-template-columns: minmax(280px, 0.75fr) minmax(260px, 0.65fr) minmax(460px, 1.6fr);
+  grid-template-columns: minmax(300px, 1fr) minmax(300px, 1fr);
+}
+
+/* The selected-card editor spans the full width below the library/create row
+   instead of being crushed into a third column. */
+.workspace-grid.cards-grid .selected-card-panel {
+  grid-column: 1 / -1;
 }
 
 .runtime-chat-layout {
@@ -2515,6 +2521,7 @@ input[type="search"] {
 
 .brand-mark-large {
   width: 86px;
+  height: 86px;
 }
 
 .brand-mark-large::after {

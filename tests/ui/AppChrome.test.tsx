@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { AppSidebar, AppTopbar } from "../../src/app/AppChrome";
 
 describe("application chrome", () => {
-  it("exposes current navigation, local status, and theme controls", () => {
+  it("exposes current navigation, storage status, and theme controls", () => {
     const selectSection = vi.fn();
     const toggleTheme = vi.fn();
 
@@ -14,7 +14,6 @@ describe("application chrome", () => {
         section="runtime"
         selectSection={selectSection}
         toggleTheme={toggleTheme}
-        activeCard={{ name: "Field Notes", kind: "rpg", summary: "Private adventure" }}
         saveStatus="Saved locally."
         repositoryStatus="SQLite ready."
       />,

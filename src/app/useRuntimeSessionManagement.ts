@@ -12,7 +12,6 @@ import {
   createPersona,
   deletePersona,
   parseActivePersonaId,
-  setDefaultPersona,
   updatePersona,
 } from "./personas";
 import { createTextProvider } from "./providerConfig";
@@ -180,16 +179,12 @@ export function useRuntimeSessionManagement(options: UseRuntimeSessionManagement
 
   function removePersona(personaId: string): void {
     const remaining = deletePersona(personas, personaId);
-    if (remaining === personas) {
+    if (remaining.length === personas.length) {
       return;
     }
     captureRestorePoint();
     setPersonas(remaining);
     setActivePersonaId(parseActivePersonaId(activePersonaId, remaining));
-  }
-
-  function makePersonaDefault(personaId: string): void {
-    setPersonas((current) => setDefaultPersona(current, personaId));
   }
 
   return {
@@ -205,6 +200,5 @@ export function useRuntimeSessionManagement(options: UseRuntimeSessionManagement
     addPersona,
     editPersona,
     removePersona,
-    makePersonaDefault,
   };
 }

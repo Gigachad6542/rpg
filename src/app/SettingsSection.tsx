@@ -1,8 +1,6 @@
 import { useState } from "react";
 import { Download, ExternalLink, History, Info, Layers3, RotateCcw, Settings2, ShieldCheck, Upload } from "lucide-react";
-import type { Persona } from "./runtimeTypes";
 import type { HiddenContinuityMode } from "../runtime/hiddenContinuityPolicy";
-import { PersonasPanel } from "./PersonasPanel";
 import { APP_HELP_URL, APP_NAME, APP_SUPPORT_URL, APP_UPDATES_URL, APP_VERSION } from "./productInfo";
 import {
   RuntimeImportReviewDialog,
@@ -38,13 +36,6 @@ const ACCENT_PRESETS: Array<{ label: string; value: string }> = [
 export function SettingsSection(props: {
   runtimeSettings: RuntimeSettingsView;
   setRuntimeSettings: (settings: RuntimeSettingsView) => void;
-  personas: Persona[];
-  activePersonaId: string;
-  selectPersona: (personaId: string) => void;
-  addPersona: (name: string) => void;
-  editPersona: (personaId: string, changes: Partial<Persona>) => void;
-  removePersona: (personaId: string) => void;
-  makePersonaDefault: (personaId: string) => void;
   promptPreview: string;
   dataManagementStatus: string;
   exportRuntimeData: () => void;
@@ -199,15 +190,6 @@ export function SettingsSection(props: {
           </div>
         </div>
       </section>
-      <PersonasPanel
-        personas={props.personas}
-        activePersonaId={props.activePersonaId}
-        selectPersona={props.selectPersona}
-        addPersona={props.addPersona}
-        editPersona={props.editPersona}
-        removePersona={props.removePersona}
-        makePersonaDefault={props.makePersonaDefault}
-      />
       <details className="panel advanced-settings-disclosure" role="region" aria-label="Settings prompt preview (advanced)">
         <summary className="section-title">
           <Layers3 size={17} />

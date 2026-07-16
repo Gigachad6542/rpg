@@ -1,8 +1,9 @@
 // Persona profile management: create, edit, delete, set default, and attach
 // per-persona lorebooks. Rendered inside the Settings section.
 import { type ChangeEvent, useState } from "react";
-import { BookOpen, Check, PenLine, Plus, Star, Trash2, Upload, UserRound } from "lucide-react";
+import { BookOpen, Check, PenLine, Plus, Trash2, Upload, UserRound } from "lucide-react";
 import type { Lorebook, Persona } from "./runtimeTypes";
+import { NO_PERSONA_ID, NO_PERSONA_NAME } from "./personas";
 import { getErrorMessage } from "./appUtils";
 import { parseChubLorebookPayload } from "./lorebookIo";
 import { buildEmbeddableAvatarDataUrl } from "./avatarImage";
@@ -15,7 +16,6 @@ export function PersonasPanel(props: {
   addPersona: (name: string) => void;
   editPersona: (personaId: string, changes: Partial<Persona>) => void;
   removePersona: (personaId: string) => void;
-  makePersonaDefault: (personaId: string) => void;
 }) {
   const [newPersonaName, setNewPersonaName] = useState("");
   const [editingPersonaId, setEditingPersonaId] = useState<string | null>(null);
@@ -111,6 +111,33 @@ export function PersonasPanel(props: {
           card speaking as you.
         </p>
         <ul className="persona-list">
+          <li className={`persona-row ${props.activePersonaId === NO_PERSONA_ID ? "active" : ""}`}>
+            <button
+              type="button"
+              className="persona-select"
+              onClick={() => props.selectPersona(NO_PERSONA_ID)}
+            >
+              <span className="persona-avatar persona-avatar-fallback" aria-hidden="true">
+                <UserRound size={16} />
+              </span>
+              <span className="persona-row-body">
+                <span className="persona-row-name">{NO_PERSONA_NAME}</span>
+                <span className="persona-row-meta">no persona prompt sent</span>
+              </span>
+            </button>
+            <div className="persona-row-actions">
+              <button
+                type="button"
+                className="secondary-button compact-button"
+                onClick={() => props.selectPersona(NO_PERSONA_ID)}
+                disabled={props.activePersonaId === NO_PERSONA_ID}
+                aria-label="Use no persona"
+              >
+                <Check size={15} />
+                Use
+              </button>
+            </div>
+          </li>
           {props.personas.map((persona) => (
             <li className={`persona-row ${persona.id === props.activePersonaId ? "active" : ""}`} key={persona.id}>
               <button
@@ -129,7 +156,7 @@ export function PersonasPanel(props: {
                 <span className="persona-row-body">
                   <span className="persona-row-name">{persona.name}</span>
                   <span className="persona-row-meta">
-                    {persona.isDefault ? "default" : "saved"}
+                    custom
                     {persona.lorebooks.length > 0 ? ` · ${persona.lorebooks.length} lorebooks` : ""}
                   </span>
                 </span>
@@ -147,19 +174,8 @@ export function PersonasPanel(props: {
                 </button>
                 <button
                   type="button"
-                  className="secondary-button compact-button"
-                  onClick={() => props.makePersonaDefault(persona.id)}
-                  disabled={persona.isDefault}
-                  aria-label={`Make ${persona.name} the default persona`}
-                >
-                  <Star size={15} />
-                  Default
-                </button>
-                <button
-                  type="button"
                   className="secondary-button danger-button compact-button"
                   onClick={() => setPendingDeletePersona(persona)}
-                  disabled={props.personas.length <= 1}
                   aria-label={`Delete ${persona.name}`}
                 >
                   <Trash2 size={15} />

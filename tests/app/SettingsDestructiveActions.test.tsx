@@ -6,8 +6,8 @@ import { SettingsSection, type RuntimeSettingsView } from "../../src/app/Setting
 import type { Persona } from "../../src/app/runtimeTypes";
 
 const personas: Persona[] = [
-  { id: "persona_default", name: "Default persona", description: "Default", lorebooks: [], isDefault: true },
-  { id: "persona_mara", name: "Mara", description: "Cartographer", lorebooks: [], isDefault: false },
+  { id: "persona_ranger", name: "Ranger", description: "A wary ranger.", lorebooks: [] },
+  { id: "persona_mara", name: "Mara", description: "Cartographer", lorebooks: [] },
 ];
 
 const runtimeSettings: RuntimeSettingsView = {
@@ -24,13 +24,6 @@ function renderSettings(restoreRuntimePoint: (id: string) => void) {
     <SettingsSection
       runtimeSettings={runtimeSettings}
       setRuntimeSettings={vi.fn()}
-      personas={personas}
-      activePersonaId="persona_default"
-      selectPersona={vi.fn()}
-      addPersona={vi.fn()}
-      editPersona={vi.fn()}
-      removePersona={vi.fn()}
-      makePersonaDefault={vi.fn()}
       promptPreview=""
       dataManagementStatus="Idle."
       exportRuntimeData={vi.fn()}
@@ -81,7 +74,6 @@ describe("Settings destructive actions", () => {
         addPersona={vi.fn()}
         editPersona={vi.fn()}
         removePersona={removePersona}
-        makePersonaDefault={vi.fn()}
       />,
     );
 

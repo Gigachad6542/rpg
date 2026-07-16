@@ -36,7 +36,6 @@ describe("application controller helpers", () => {
       id: "persona_test",
       name: "Test",
       description: "",
-      isDefault: false,
       lorebooks: PLAYABLE_SAMPLE_RPG.lorebooks,
     };
     const updatedPersona = disableLoreEntriesInPersona(persona, new Set(["lore_ashfall_storm"]));

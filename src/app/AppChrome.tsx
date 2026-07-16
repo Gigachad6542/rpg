@@ -11,6 +11,7 @@ import {
   Settings2,
   ShieldCheck,
   Sun,
+  UserRound,
 } from "lucide-react";
 
 import { APP_NAME } from "./productInfo";
@@ -34,6 +35,7 @@ const NAV_ITEMS: ReadonlyArray<{
 }> = [
   { section: "runtime", label: "Runtime", Icon: MessageSquare },
   { section: "cards", label: "Cards", Icon: BookOpen },
+  { section: "personas", label: "Personas", Icon: UserRound },
   { section: "lorebooks", label: "Lorebooks", Icon: Layers3 },
   { section: "providers", label: "API Keys", Icon: KeyRound },
   { section: "settings", label: "Settings", Icon: Settings2 },

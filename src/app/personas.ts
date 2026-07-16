@@ -3,14 +3,24 @@
 // A persona is the *user's* side of a scene: the name and description the card
 // should account for without speaking as the player. Personas replace the single
 // `runtimeSettings.impersonationPrompt` string that used to hold this text.
+//
+// "No persona" is not a stored record — it is the sentinel `NO_PERSONA_ID`. While
+// it is active, `getActivePersona` returns null and no persona prompt or persona
+// lorebooks are injected. Every other persona in the roster is user-created.
 import type { Lorebook, Persona, RuntimeCard } from "./runtimeTypes";
 import { createRuntimeEntityId } from "./chatSessions";
 import { isRecord } from "./appUtils";
 import { normalizeCardLorebooks } from "./cardNormalization";
 import { fitsEmbeddedAvatarBudget } from "./avatarImage";
 
-export const DEFAULT_PERSONA_ID = "persona_default";
-export const DEFAULT_PERSONA_NAME = "Default persona";
+/** Sentinel active id meaning "inject no persona at all". Never stored in the roster. */
+export const NO_PERSONA_ID = "persona_none";
+export const NO_PERSONA_NAME = "No persona";
+
+// Legacy identifiers from the pre-"No persona" model, kept only so stored
+// snapshots that still carry a "Default persona" record migrate cleanly.
+const LEGACY_DEFAULT_PERSONA_ID = "persona_default";
+const LEGACY_DEFAULT_PERSONA_NAME = "Default persona";
 
 const MAX_PERSONA_NAME_LENGTH = 80;
 const MAX_PERSONA_DESCRIPTION_LENGTH = 8_000;
@@ -21,73 +31,50 @@ export function createPersona(name: string, description = ""): Persona {
     name: name.trim() || "Untitled persona",
     description,
     lorebooks: [],
-    isDefault: false,
-  };
-}
-
-export function createDefaultPersona(description = ""): Persona {
-  return {
-    id: DEFAULT_PERSONA_ID,
-    name: DEFAULT_PERSONA_NAME,
-    description,
-    lorebooks: [],
-    isDefault: true,
   };
 }
 
 /**
- * Parses persisted personas, migrating the legacy single impersonation prompt
- * into a default persona when no personas have been saved yet. Always returns at
- * least one persona so the runtime never has to handle an empty roster.
+ * Parses persisted personas. Each entry becomes a custom persona; the legacy
+ * "Default persona" is dropped when empty (it represented "no persona") or kept
+ * as an ordinary custom persona when it carried a description. When nothing is
+ * stored, the single legacy `impersonationPrompt` is migrated into one persona.
+ * Returns an empty roster when the user has only ever used "No persona".
  */
 export function parsePersonas(value: unknown, legacyImpersonationPrompt = ""): Persona[] {
   const parsed = Array.isArray(value)
     ? value.filter(isRecord).map(parsePersona).filter((persona): persona is Persona => Boolean(persona))
     : [];
 
-  if (parsed.length === 0) {
-    return [createDefaultPersona(legacyImpersonationPrompt)];
+  const migrated = dedupePersonaIds(
+    parsed.filter((persona) => !isEmptyLegacyDefault(persona)).map(renameLegacyDefault),
+  );
+
+  if (migrated.length === 0 && legacyImpersonationPrompt.trim()) {
+    return [createPersona("My persona", legacyImpersonationPrompt)];
   }
 
-  return ensureSingleDefault(dedupePersonaIds(parsed));
+  return migrated;
 }
 
 export function parseActivePersonaId(value: unknown, personas: Persona[]): string {
   if (typeof value === "string" && personas.some((persona) => persona.id === value)) {
     return value;
   }
-  return getDefaultPersona(personas).id;
+  return NO_PERSONA_ID;
 }
 
+/** The active persona, or null when "No persona" is selected (or the id is stale). */
 export function getActivePersona(personas: Persona[], activePersonaId: string): Persona | null {
-  return personas.find((persona) => persona.id === activePersonaId) ?? personas[0] ?? null;
-}
-
-export function getDefaultPersona(personas: Persona[]): Persona {
-  return personas.find((persona) => persona.isDefault) ?? personas[0] ?? createDefaultPersona();
-}
-
-/** Marks `personaId` as the default, clearing the flag on every other persona. */
-export function setDefaultPersona(personas: Persona[], personaId: string): Persona[] {
-  if (!personas.some((persona) => persona.id === personaId)) {
-    return personas;
+  if (activePersonaId === NO_PERSONA_ID) {
+    return null;
   }
-  return personas.map((persona) => ({ ...persona, isDefault: persona.id === personaId }));
+  return personas.find((persona) => persona.id === activePersonaId) ?? null;
 }
 
-/**
- * Removes a persona. The last remaining persona is never deleted, and the
- * default flag moves to the first survivor when the default itself is removed.
- */
+/** Removes a persona. The roster may become empty, leaving only "No persona". */
 export function deletePersona(personas: Persona[], personaId: string): Persona[] {
-  if (personas.length <= 1) {
-    return personas;
-  }
-  const remaining = personas.filter((persona) => persona.id !== personaId);
-  if (remaining.length === personas.length) {
-    return personas;
-  }
-  return ensureSingleDefault(remaining);
+  return personas.filter((persona) => persona.id !== personaId);
 }
 
 export function updatePersona(personas: Persona[], personaId: string, changes: Partial<Persona>): Persona[] {
@@ -111,13 +98,11 @@ export function formatPersonaPrompt(persona: Persona | null): string {
 
   const description = persona.description.trim();
   const name = persona.name.trim();
-  if (!description && (!name || name === DEFAULT_PERSONA_NAME)) {
+  if (!description && !name) {
     return "";
   }
 
-  return [name && name !== DEFAULT_PERSONA_NAME ? `The player is playing as ${name}.` : "", description]
-    .filter(Boolean)
-    .join("\n");
+  return [name ? `The player is playing as ${name}.` : "", description].filter(Boolean).join("\n");
 }
 
 /** Strips unknown keys before personas reach localStorage or the SQLite snapshot blob. */
@@ -135,7 +120,6 @@ export function sanitizePersistedPersonas(value: unknown): Record<string, unknow
       name: persona.name,
       description: persona.description,
       lorebooks: persona.lorebooks,
-      isDefault: persona.isDefault,
       ...(persona.avatarDataUrl ? { avatarDataUrl: persona.avatarDataUrl } : {}),
     }));
 
@@ -155,7 +139,6 @@ function parsePersona(value: Record<string, unknown>): Persona | null {
         : "Untitled persona",
     description: typeof value.description === "string" ? value.description.slice(0, MAX_PERSONA_DESCRIPTION_LENGTH) : "",
     lorebooks: parsePersonaLorebooks(value.lorebooks),
-    isDefault: value.isDefault === true,
     ...(isPersonaAvatarDataUrl(value.avatarDataUrl) ? { avatarDataUrl: value.avatarDataUrl } : {}),
   };
 }
@@ -183,6 +166,19 @@ function isPersonaAvatarDataUrl(value: unknown): value is string {
   );
 }
 
+/** The legacy default persona with no text was really "no persona" — drop it. */
+function isEmptyLegacyDefault(persona: Persona): boolean {
+  return persona.id === LEGACY_DEFAULT_PERSONA_ID && !persona.description.trim();
+}
+
+/** A legacy default that carried text becomes an ordinary custom persona. */
+function renameLegacyDefault(persona: Persona): Persona {
+  if (persona.name === LEGACY_DEFAULT_PERSONA_NAME) {
+    return { ...persona, name: "My persona" };
+  }
+  return persona;
+}
+
 function dedupePersonaIds(personas: Persona[]): Persona[] {
   const seen = new Set<string>();
   return personas.filter((persona) => {
@@ -192,10 +188,4 @@ function dedupePersonaIds(personas: Persona[]): Persona[] {
     seen.add(persona.id);
     return true;
   });
-}
-
-function ensureSingleDefault(personas: Persona[]): Persona[] {
-  const defaultIndex = personas.findIndex((persona) => persona.isDefault);
-  const targetIndex = defaultIndex >= 0 ? defaultIndex : 0;
-  return personas.map((persona, index) => ({ ...persona, isDefault: index === targetIndex }));
 }

@@ -450,11 +450,17 @@ describe("local-first card runtime UI: chat-lore", () => {
     H.fireEvent.click(H.screen.getByRole("button", { name: /^Settings$/i }));
     H.fireEvent.click(H.screen.getByLabelText(/Ban emojis/i));
 
+    H.fireEvent.click(H.screen.getByRole("button", { name: /^Personas$/i }));
+    const personaPanel = H.screen.getByRole("region", { name: /Persona profiles/i });
+    H.fireEvent.change(H.within(personaPanel).getByLabelText(/New persona name/i), { target: { value: "Mara" } });
+    H.fireEvent.click(H.within(personaPanel).getByRole("button", { name: /Create persona/i }));
+
     const personaEditor = H.screen.getByRole("region", { name: /Persona editor/i });
     H.fireEvent.change(H.within(personaEditor).getByLabelText(/Persona prompt/i), {
       target: { value: "The user is a cautious cartographer who avoids rash promises." },
     });
 
+    H.fireEvent.click(H.screen.getByRole("button", { name: /^Settings$/i }));
     const settingsPreview = H.screen.getByRole("region", { name: /Settings prompt preview/i });
     expect(settingsPreview).toHaveTextContent(/Trusted system instructions/i);
     expect(settingsPreview).toHaveTextContent(/User context/i);
@@ -470,7 +476,7 @@ describe("local-first card runtime UI: chat-lore", () => {
     await H.renderApp();
     H.openBlankRpgCard();
 
-    H.fireEvent.click(H.screen.getByRole("button", { name: /^Settings$/i }));
+    H.fireEvent.click(H.screen.getByRole("button", { name: /^Personas$/i }));
     const personaPanel = H.screen.getByRole("region", { name: /Persona profiles/i });
     H.fireEvent.change(H.within(personaPanel).getByLabelText(/New persona name/i), { target: { value: "Mara" } });
     H.fireEvent.click(H.within(personaPanel).getByRole("button", { name: /Create persona/i }));
@@ -504,7 +510,7 @@ describe("local-first card runtime UI: chat-lore", () => {
 
   it("captures a restore point immediately before persona deletion", async () => {
     await H.renderApp();
-    H.fireEvent.click(H.screen.getByRole("button", { name: /^Settings$/i }));
+    H.fireEvent.click(H.screen.getByRole("button", { name: /^Personas$/i }));
     const personaPanel = H.screen.getByRole("region", { name: /Persona profiles/i });
     H.fireEvent.change(H.within(personaPanel).getByLabelText(/New persona name/i), { target: { value: "Mara" } });
     H.fireEvent.click(H.within(personaPanel).getByRole("button", { name: /Create persona/i }));

@@ -367,7 +367,7 @@ export function sanitizePersistedRuntimeSettings(value: unknown): Record<string,
     sanitized.accentColor = value.accentColor;
   }
   // Legacy carrier: pre-persona snapshots stored the impersonation prompt here.
-  // parsePersonas() migrates it into a default persona, after which it stops
+  // parsePersonas() migrates it into a custom persona, after which it stops
   // being written and drains out of the stored snapshot on the next save.
   if (typeof value.impersonationPrompt === "string") {
     sanitized.impersonationPrompt = value.impersonationPrompt;

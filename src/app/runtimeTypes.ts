@@ -24,7 +24,7 @@ import type { LocalRuntimeSnapshot } from "./localRuntimeStore";
 import type { TurnEffectProposal } from "./turnEffects";
 
 export type Theme = "light" | "dark";
-export type MainSection = "runtime" | "cards" | "lorebooks" | "providers" | "settings";
+export type MainSection = "runtime" | "cards" | "personas" | "lorebooks" | "providers" | "settings";
 export type CardKind = "character" | "rpg";
 export type CardTab = "chat" | "instructions" | "rules" | "lorebooks" | "rpg" | "map";
 export type TextProviderMode = "mock" | "openai-compatible";
@@ -82,7 +82,6 @@ export type Persona = {
   avatarDataUrl?: string;
   /** Lorebooks that only fire while this persona is active. */
   lorebooks: Lorebook[];
-  isDefault: boolean;
 };
 
 export type Lorebook = {

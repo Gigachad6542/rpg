@@ -2,12 +2,6 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { SettingsSection, type RuntimeSettingsView } from "../../src/app/SettingsSection";
-import type { Persona } from "../../src/app/runtimeTypes";
-
-const personas: Persona[] = [
-  { id: "persona_default", name: "Default persona", description: "You are cautious.", lorebooks: [], isDefault: true },
-  { id: "persona_mara", name: "Mara", description: "A careful cartographer.", lorebooks: [], isDefault: false },
-];
 
 describe("SettingsSection", () => {
   it("configures hidden continuity as off, economical, or full with honest call counts", () => {
@@ -27,13 +21,6 @@ describe("SettingsSection", () => {
       <SettingsSection
         runtimeSettings={runtimeSettings}
         setRuntimeSettings={setRuntimeSettings}
-        personas={personas}
-        activePersonaId="persona_default"
-        selectPersona={vi.fn()}
-        addPersona={vi.fn()}
-        editPersona={vi.fn()}
-        removePersona={vi.fn()}
-        makePersonaDefault={vi.fn()}
         promptPreview=""
         dataManagementStatus="Idle."
         exportRuntimeData={vi.fn()}
@@ -79,13 +66,6 @@ describe("SettingsSection", () => {
       <SettingsSection
         runtimeSettings={runtimeSettings}
         setRuntimeSettings={setRuntimeSettings}
-        personas={personas}
-        activePersonaId="persona_default"
-        selectPersona={vi.fn()}
-        addPersona={vi.fn()}
-        editPersona={vi.fn()}
-        removePersona={vi.fn()}
-        makePersonaDefault={vi.fn()}
         promptPreview=""
         dataManagementStatus="Idle."
         exportRuntimeData={exportRuntimeData}
@@ -137,13 +117,6 @@ describe("SettingsSection", () => {
       <SettingsSection
         runtimeSettings={{ textStreaming: false, banEmojis: false, promptDebugLogs: false, diceRollsEnabled: false, onboardingCompleted: true, accentColor: "" }}
         setRuntimeSettings={vi.fn()}
-        personas={personas}
-        activePersonaId="persona_default"
-        selectPersona={vi.fn()}
-        addPersona={vi.fn()}
-        editPersona={vi.fn()}
-        removePersona={vi.fn()}
-        makePersonaDefault={vi.fn()}
         promptPreview=""
         dataManagementStatus="Import parsed. Review before applying."
         exportRuntimeData={vi.fn()}
@@ -164,66 +137,5 @@ describe("SettingsSection", () => {
     expect(applyRuntimeImport).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: /Cancel import/i }));
     expect(cancelRuntimeImport).toHaveBeenCalledTimes(1);
-  });
-
-  it("creates, switches, edits, and deletes personas", () => {
-    const selectPersona = vi.fn();
-    const addPersona = vi.fn();
-    const editPersona = vi.fn();
-    const removePersona = vi.fn();
-    const makePersonaDefault = vi.fn();
-
-    render(
-      <SettingsSection
-        runtimeSettings={{
-          textStreaming: false,
-          banEmojis: false,
-          promptDebugLogs: false,
-          diceRollsEnabled: false,
-          onboardingCompleted: false,
-          accentColor: "",
-        }}
-        setRuntimeSettings={vi.fn()}
-        personas={personas}
-        activePersonaId="persona_default"
-        selectPersona={selectPersona}
-        addPersona={addPersona}
-        editPersona={editPersona}
-        removePersona={removePersona}
-        makePersonaDefault={makePersonaDefault}
-        promptPreview=""
-        dataManagementStatus="Idle."
-        exportRuntimeData={vi.fn()}
-        importRuntimeData={vi.fn()}
-        pendingImportReview={null}
-        applyRuntimeImport={vi.fn()}
-        cancelRuntimeImport={vi.fn()}
-        downloadDiagnostics={vi.fn()}
-        restorePoints={[]}
-        restoreStatus=""
-        restoreRuntimePoint={vi.fn()}
-      />,
-    );
-
-    const personaPanel = screen.getByRole("region", { name: /Persona profiles/i });
-    fireEvent.change(within(personaPanel).getByLabelText(/New persona name/i), { target: { value: "Rook" } });
-    fireEvent.click(within(personaPanel).getByRole("button", { name: /Create persona/i }));
-    expect(addPersona).toHaveBeenCalledWith("Rook");
-
-    fireEvent.click(within(personaPanel).getByRole("button", { name: /^Use Mara$/i }));
-    expect(selectPersona).toHaveBeenCalledWith("persona_mara");
-
-    fireEvent.click(within(personaPanel).getByRole("button", { name: /Make Mara the default persona/i }));
-    expect(makePersonaDefault).toHaveBeenCalledWith("persona_mara");
-
-    fireEvent.click(within(personaPanel).getByRole("button", { name: /Delete Mara/i }));
-    fireEvent.click(screen.getByRole("button", { name: /^Delete persona$/i }));
-    expect(removePersona).toHaveBeenCalledWith("persona_mara");
-
-    const editorPanel = screen.getByRole("region", { name: /Persona editor/i });
-    fireEvent.change(within(editorPanel).getByLabelText(/Persona prompt/i), {
-      target: { value: "I speak plainly." },
-    });
-    expect(editPersona).toHaveBeenCalledWith("persona_default", { description: "I speak plainly." });
   });
 });

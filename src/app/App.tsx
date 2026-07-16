@@ -71,6 +71,7 @@ import {
 import { NoActiveCardRuntimePanel, RuntimeSection } from "./RuntimeSection";
 import { CardsSection } from "./CardsSection";
 import { GlobalLorebooksSection } from "./GlobalLorebooksSection";
+import { PersonasPanel } from "./PersonasPanel";
 import { ProvidersSection } from "./ProvidersSection";
 import { MediaPreviewDialog, MemoryDrawer } from "./Overlays";
 import {
@@ -486,7 +487,6 @@ export function App() {
     addPersona,
     editPersona,
     removePersona,
-    makePersonaDefault,
   } = useRuntimeSessionManagement({
     activeCard,
     providerSettings,
@@ -699,6 +699,19 @@ export function App() {
           />
         ) : null}
 
+        {section === "personas" ? (
+          <div className="workspace-grid settings-grid">
+            <PersonasPanel
+              personas={personas}
+              activePersonaId={activePersonaId}
+              selectPersona={setActivePersonaId}
+              addPersona={addPersona}
+              editPersona={editPersona}
+              removePersona={removePersona}
+            />
+          </div>
+        ) : null}
+
         {section === "lorebooks" ? (
           <GlobalLorebooksSection
             cards={cards}
@@ -736,13 +749,6 @@ export function App() {
           <SettingsSection
             runtimeSettings={runtimeSettings}
             setRuntimeSettings={setRuntimeSettings}
-            personas={personas}
-            activePersonaId={activePersonaId}
-            selectPersona={setActivePersonaId}
-            addPersona={addPersona}
-            editPersona={editPersona}
-            removePersona={removePersona}
-            makePersonaDefault={makePersonaDefault}
             promptPreview={compiledPrompt}
             dataManagementStatus={dataManagementStatus}
             exportRuntimeData={exportRuntimeData}

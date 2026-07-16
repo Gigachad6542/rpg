@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  DEFAULT_PERSONA_ID,
+  NO_PERSONA_ID,
   collectActiveLorebooks,
   createPersona,
   deletePersona,
@@ -10,7 +10,6 @@ import {
   parseActivePersonaId,
   parsePersonas,
   sanitizePersistedPersonas,
-  setDefaultPersona,
   updatePersona,
 } from "../../src/app/personas";
 import { buildResponseContract, buildTurnPromptRequest } from "../../src/app/turnPromptBuilders";
@@ -78,7 +77,7 @@ function card(lorebooks: Lorebook[] = []): RuntimeCard {
 }
 
 describe("parsePersonas", () => {
-  it("migrates the legacy impersonation prompt into a default persona when none are stored", () => {
+  it("migrates the legacy impersonation prompt into a custom persona when none are stored", () => {
     // Arrange
     const legacyPrompt = "Speak in first person.";
 
@@ -87,14 +86,13 @@ describe("parsePersonas", () => {
 
     // Assert
     expect(personas).toHaveLength(1);
-    expect(personas[0].id).toBe(DEFAULT_PERSONA_ID);
+    expect(personas[0].name).toBe("My persona");
     expect(personas[0].description).toBe(legacyPrompt);
-    expect(personas[0].isDefault).toBe(true);
   });
 
   it("ignores the legacy prompt once personas exist", () => {
     // Arrange
-    const stored = [{ id: "persona_mara", name: "Mara", description: "A cartographer.", isDefault: true }];
+    const stored = [{ id: "persona_mara", name: "Mara", description: "A cartographer." }];
 
     // Act
     const personas = parsePersonas(stored, "legacy prompt that should not win");
@@ -104,29 +102,19 @@ describe("parsePersonas", () => {
     expect(personas[0].description).toBe("A cartographer.");
   });
 
-  it("drops malformed records, dedupes ids, and keeps exactly one default", () => {
+  it("returns an empty roster when nothing is stored and there is no legacy prompt", () => {
+    // Arrange & Act & Assert
+    expect(parsePersonas(undefined)).toEqual([]);
+    expect(parsePersonas([])).toEqual([]);
+  });
+
+  it("drops malformed records and dedupes ids", () => {
     // Arrange
     const stored = [
       { name: "No id" },
       "not an object",
-      { id: "persona_a", name: "A", isDefault: true },
-      { id: "persona_a", name: "Duplicate", isDefault: true },
-      { id: "persona_b", name: "B", isDefault: true },
-    ];
-
-    // Act
-    const personas = parsePersonas(stored);
-
-    // Assert
-    expect(personas.map((persona) => persona.id)).toEqual(["persona_a", "persona_b"]);
-    expect(personas.filter((persona) => persona.isDefault)).toHaveLength(1);
-    expect(personas[0].isDefault).toBe(true);
-  });
-
-  it("promotes the first persona to default when nothing is flagged", () => {
-    // Arrange
-    const stored = [
       { id: "persona_a", name: "A" },
+      { id: "persona_a", name: "Duplicate" },
       { id: "persona_b", name: "B" },
     ];
 
@@ -134,8 +122,34 @@ describe("parsePersonas", () => {
     const personas = parsePersonas(stored);
 
     // Assert
-    expect(personas[0].isDefault).toBe(true);
-    expect(personas[1].isDefault).toBe(false);
+    expect(personas.map((persona) => persona.id)).toEqual(["persona_a", "persona_b"]);
+  });
+
+  it("drops an empty legacy default persona but keeps custom personas", () => {
+    // Arrange: the pre-"No persona" empty default really meant "no persona".
+    const stored = [
+      { id: "persona_default", name: "Default persona", description: "" },
+      { id: "persona_mara", name: "Mara", description: "A cartographer." },
+    ];
+
+    // Act
+    const personas = parsePersonas(stored);
+
+    // Assert
+    expect(personas.map((persona) => persona.id)).toEqual(["persona_mara"]);
+  });
+
+  it("keeps a legacy default that carried text, renaming it to a custom persona", () => {
+    // Arrange
+    const stored = [{ id: "persona_default", name: "Default persona", description: "Speak plainly." }];
+
+    // Act
+    const personas = parsePersonas(stored);
+
+    // Assert
+    expect(personas).toHaveLength(1);
+    expect(personas[0].name).toBe("My persona");
+    expect(personas[0].description).toBe("Speak plainly.");
   });
 
   it("normalizes persona lorebook entries with trigger-engine defaults", () => {
@@ -173,29 +187,33 @@ describe("parseActivePersonaId", () => {
     expect(activeId).toBe("persona_b");
   });
 
-  it("falls back to the default persona for a dangling id", () => {
+  it("falls back to no persona for a dangling id", () => {
     // Arrange
     const personas = parsePersonas([
       { id: "persona_a", name: "A" },
-      { id: "persona_b", name: "B", isDefault: true },
+      { id: "persona_b", name: "B" },
     ]);
 
     // Act
     const activeId = parseActivePersonaId("persona_deleted", personas);
 
     // Assert
-    expect(activeId).toBe("persona_b");
+    expect(activeId).toBe(NO_PERSONA_ID);
+  });
+
+  it("defaults to no persona when nothing is stored", () => {
+    // Arrange & Act & Assert
+    expect(parseActivePersonaId(undefined, [])).toBe(NO_PERSONA_ID);
   });
 });
 
 describe("persona mutations", () => {
-  it("creates a non-default persona with a generated id", () => {
+  it("creates a persona with a generated id", () => {
     // Arrange & Act
     const persona = createPersona("  Rook  ");
 
     // Assert
     expect(persona.name).toBe("Rook");
-    expect(persona.isDefault).toBe(false);
     expect(persona.id).toMatch(/^persona_/);
   });
 
@@ -210,49 +228,7 @@ describe("persona mutations", () => {
     expect(updated[0]).toMatchObject({ id: "persona_a", name: "Renamed" });
   });
 
-  it("moves the default flag to a survivor when the default persona is deleted", () => {
-    // Arrange
-    const personas = parsePersonas([
-      { id: "persona_a", name: "A", isDefault: true },
-      { id: "persona_b", name: "B" },
-    ]);
-
-    // Act
-    const remaining = deletePersona(personas, "persona_a");
-
-    // Assert
-    expect(remaining).toHaveLength(1);
-    expect(remaining[0]).toMatchObject({ id: "persona_b", isDefault: true });
-  });
-
-  it("refuses to delete the last persona", () => {
-    // Arrange
-    const personas = parsePersonas([{ id: "persona_a", name: "A" }]);
-
-    // Act
-    const remaining = deletePersona(personas, "persona_a");
-
-    // Assert
-    expect(remaining).toEqual(personas);
-  });
-
-  it("keeps a single default when a new one is chosen", () => {
-    // Arrange
-    const personas = parsePersonas([
-      { id: "persona_a", name: "A", isDefault: true },
-      { id: "persona_b", name: "B" },
-    ]);
-
-    // Act
-    const updated = setDefaultPersona(personas, "persona_b");
-
-    // Assert
-    expect(updated.filter((persona) => persona.isDefault).map((persona) => persona.id)).toEqual(["persona_b"]);
-  });
-});
-
-describe("getActivePersona", () => {
-  it("falls back to the first persona when the active id is unknown", () => {
+  it("removes a persona by id", () => {
     // Arrange
     const personas = parsePersonas([
       { id: "persona_a", name: "A" },
@@ -260,20 +236,57 @@ describe("getActivePersona", () => {
     ]);
 
     // Act
-    const active = getActivePersona(personas, "persona_missing");
+    const remaining = deletePersona(personas, "persona_a");
 
     // Assert
-    expect(active?.id).toBe("persona_a");
+    expect(remaining.map((persona) => persona.id)).toEqual(["persona_b"]);
+  });
+
+  it("allows deleting the last persona, leaving an empty roster", () => {
+    // Arrange
+    const personas = parsePersonas([{ id: "persona_a", name: "A" }]);
+
+    // Act
+    const remaining = deletePersona(personas, "persona_a");
+
+    // Assert
+    expect(remaining).toEqual([]);
+  });
+});
+
+describe("getActivePersona", () => {
+  it("returns null when the active id is unknown", () => {
+    // Arrange
+    const personas = parsePersonas([
+      { id: "persona_a", name: "A" },
+      { id: "persona_b", name: "B" },
+    ]);
+
+    // Act & Assert
+    expect(getActivePersona(personas, "persona_missing")).toBeNull();
+  });
+
+  it("returns null for the no-persona sentinel", () => {
+    // Arrange
+    const personas = parsePersonas([{ id: "persona_a", name: "A" }]);
+
+    // Act & Assert
+    expect(getActivePersona(personas, NO_PERSONA_ID)).toBeNull();
+  });
+
+  it("returns the matching persona for a valid id", () => {
+    // Arrange
+    const personas = parsePersonas([{ id: "persona_a", name: "A" }]);
+
+    // Act & Assert
+    expect(getActivePersona(personas, "persona_a")?.id).toBe("persona_a");
   });
 });
 
 describe("formatPersonaPrompt", () => {
-  it("returns an empty string for an unnamed, empty default persona", () => {
-    // Arrange
-    const [persona] = parsePersonas(undefined, "");
-
-    // Act & Assert
-    expect(formatPersonaPrompt(persona)).toBe("");
+  it("returns an empty string when there is no persona", () => {
+    // Arrange & Act & Assert
+    expect(formatPersonaPrompt(null)).toBe("");
   });
 
   it("includes the persona name and description for a named persona", () => {
@@ -385,13 +398,12 @@ describe("buildResponseContract", () => {
 });
 
 describe("collectActiveLorebooks", () => {
-  it("returns only card lorebooks when the persona has none", () => {
+  it("returns only card lorebooks when there is no active persona", () => {
     // Arrange
     const cardBook = lorebook("card_book", "gate", "The gate remembers.");
-    const [persona] = parsePersonas(undefined, "");
 
     // Act
-    const lorebooks = collectActiveLorebooks(card([cardBook]), persona);
+    const lorebooks = collectActiveLorebooks(card([cardBook]), null);
 
     // Assert
     expect(lorebooks).toEqual([cardBook]);
@@ -438,7 +450,7 @@ describe("sanitizePersistedPersonas", () => {
     expect(sanitizePersistedPersonas({ id: "persona_a" })).toBeUndefined();
   });
 
-  it("strips unknown keys and rejects non-image avatar payloads", () => {
+  it("strips unknown keys (including the legacy default flag) and rejects non-image avatar payloads", () => {
     // Arrange
     const stored = [
       {
@@ -455,7 +467,7 @@ describe("sanitizePersistedPersonas", () => {
     const sanitized = sanitizePersistedPersonas(stored);
 
     // Assert
-    expect(sanitized).toEqual([{ id: "persona_a", name: "A", description: "text", isDefault: true, lorebooks: [] }]);
+    expect(sanitized).toEqual([{ id: "persona_a", name: "A", description: "text", lorebooks: [] }]);
   });
 
   it("keeps a valid base64 image avatar", () => {

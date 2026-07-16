@@ -6,6 +6,7 @@ import { defaultProviderSettings, defaultRuntimeSettings, initialCards } from ".
 import { createTextProvider } from "../../src/app/providerConfig";
 import type { MemoryEntry, Persona, RuntimeCard } from "../../src/app/runtimeTypes";
 import { useRuntimeSessionManagement } from "../../src/app/useRuntimeSessionManagement";
+import { NO_PERSONA_ID } from "../../src/app/personas";
 import { runMemoryConsolidationSafely } from "../../src/runtime/memoryConsolidation";
 
 vi.mock("../../src/app/providerConfig", async (importOriginal) => ({
@@ -30,10 +31,9 @@ const originalMemory: MemoryEntry[] = [
 
 const defaultPersona: Persona = {
   id: "persona-default",
-  name: "Default persona",
+  name: "My persona",
   description: "",
   lorebooks: [],
-  isDefault: true,
 };
 
 function renderSession() {
@@ -195,13 +195,13 @@ describe("useRuntimeSessionManagement", () => {
     expect(result.current.imageNegativePromptDraft).toBe("");
   });
 
-  it("does not create a restore point when the last persona cannot be deleted", () => {
+  it("captures a restore point and clears the active persona when the last persona is deleted", () => {
     const { result, captureRestorePoint } = renderSession();
 
     act(() => result.current.removePersona(defaultPersona.id));
 
-    expect(result.current.personas).toEqual([defaultPersona]);
-    expect(result.current.activePersonaId).toBe(defaultPersona.id);
-    expect(captureRestorePoint).not.toHaveBeenCalled();
+    expect(result.current.personas).toEqual([]);
+    expect(result.current.activePersonaId).toBe(NO_PERSONA_ID);
+    expect(captureRestorePoint).toHaveBeenCalled();
   });
 });

@@ -40,6 +40,7 @@ import type {
 } from "./runtimeTypes";
 import { customImagePresetPrompt } from "./appDefaults";
 import { toGeneratedImageSrc } from "./generatedImages";
+import { getActivePersona } from "./personas";
 import { MessageContent } from "./ChatMessage";
 import { TurnDeltaPanel } from "./TurnDeltaPanel";
 import { StoryCharactersPanel } from "./StoryCharactersPanel";
@@ -126,7 +127,10 @@ export function RuntimeSection(props: {
   const hasPendingMapPromptDraft = Boolean(
     mapPromptDraft && (!props.mapArtifact || !mapArtifactMatchesDraft),
   );
-  const openingText = getCardOpeningText(props.activeCard);
+  const openingText = getCardOpeningText(
+    props.activeCard,
+    getActivePersona(props.personas, props.activePersonaId) !== null,
+  );
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const cancelDeleteChatRef = useRef<HTMLButtonElement | null>(null);
   const [messageWindowSize, setMessageWindowSize] = useState(120);
@@ -798,7 +802,7 @@ export function RuntimeSection(props: {
   );
 }
 
-export function getCardOpeningText(card: RuntimeCard): string {
+export function getCardOpeningText(card: RuntimeCard, hasActivePersona = false): string {
   const greeting = card.greeting.trim();
   if (greeting) {
     return greeting;
@@ -810,7 +814,11 @@ export function getCardOpeningText(card: RuntimeCard): string {
   }
 
   if (card.kind === "rpg") {
-    return "Describe your character, their surroundings, and what they are doing. Or leave the message blank and press Send for a random opening.";
+    // With an active persona the player is already described, so the generic
+    // "describe your character" nudge would be redundant.
+    return hasActivePersona
+      ? "Set the scene, or leave the message blank and press Send for a random opening."
+      : "Describe your character, their surroundings, and what they are doing. Or leave the message blank and press Send for a random opening.";
   }
 
   return card.summary.trim() || `${card.name} is ready.`;

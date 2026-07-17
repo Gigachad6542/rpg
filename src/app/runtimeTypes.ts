@@ -6,6 +6,7 @@
 
 import type { StoryEntity } from "../runtime/hiddenContinuity";
 import type { HiddenContinuityMode } from "../runtime/hiddenContinuityPolicy";
+import type { ThemeColorOverrides } from "./themeColors";
 import type {
   ModelCallCost,
   ModelCallFailure,
@@ -282,6 +283,7 @@ export type RuntimeSettings = {
   economicalModel?: string;
   onboardingCompleted: boolean;
   accentColor: string;
+  themeColors?: ThemeColorOverrides;
 };
 
 export type ModelChoice = {

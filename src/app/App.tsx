@@ -1,5 +1,4 @@
 import {
-  type CSSProperties,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -8,6 +7,7 @@ import {
   useState,
 } from "react";
 import { resolveModelCallBudget } from "../runtime/modelCallBudget";
+import { buildThemeVars } from "./themeColors";
 import {
   selectLorebookEntriesWithProvenanceForPreview,
   type LoreTriggerProvenance,
@@ -552,19 +552,13 @@ export function App() {
       snapshot: { cards, messages, promptRuns, chatSessions },
     });
 
+  const themeStyle = buildThemeVars(runtimeSettings.accentColor, runtimeSettings.themeColors);
+
   return (
     <main
       className={`app-shell ${theme}`}
       data-theme={theme}
-      style={
-        /^#[0-9a-fA-F]{6}$/.test(runtimeSettings.accentColor)
-          ? ({
-              "--accent": runtimeSettings.accentColor,
-              "--accent-strong": `color-mix(in srgb, ${runtimeSettings.accentColor} 78%, #000)`,
-              "--accent-soft": `color-mix(in srgb, ${runtimeSettings.accentColor} 16%, transparent)`,
-            } as CSSProperties)
-          : undefined
-      }
+      style={themeStyle}
     >
       <HydrationGate
         state={hydration}
@@ -747,6 +741,7 @@ export function App() {
 
         {section === "settings" ? (
           <SettingsSection
+            theme={theme}
             runtimeSettings={runtimeSettings}
             setRuntimeSettings={setRuntimeSettings}
             promptPreview={compiledPrompt}

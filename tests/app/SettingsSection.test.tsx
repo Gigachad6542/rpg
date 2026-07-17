@@ -138,4 +138,50 @@ describe("SettingsSection", () => {
     fireEvent.click(screen.getByRole("button", { name: /Cancel import/i }));
     expect(cancelRuntimeImport).toHaveBeenCalledTimes(1);
   });
+
+  it("renders theme color controls and flags low-contrast customizations", () => {
+    const setRuntimeSettings = vi.fn();
+    const runtimeSettings: RuntimeSettingsView = {
+      textStreaming: false,
+      banEmojis: false,
+      promptDebugLogs: false,
+      diceRollsEnabled: false,
+      onboardingCompleted: true,
+      accentColor: "",
+      themeColors: { text: "#f2f2f2" },
+    };
+
+    render(
+      <SettingsSection
+        theme="light"
+        runtimeSettings={runtimeSettings}
+        setRuntimeSettings={setRuntimeSettings}
+        promptPreview=""
+        dataManagementStatus="Idle."
+        exportRuntimeData={vi.fn()}
+        importRuntimeData={vi.fn()}
+        pendingImportReview={null}
+        applyRuntimeImport={vi.fn()}
+        cancelRuntimeImport={vi.fn()}
+        downloadDiagnostics={vi.fn()}
+        restorePoints={[]}
+        restoreStatus=""
+        restoreRuntimePoint={vi.fn()}
+      />,
+    );
+
+    const themePanel = screen.getByRole("region", { name: /Theme colors/i });
+    // A pale primary text on the default panels breaches AA and is surfaced.
+    expect(within(themePanel).getByRole("group", { name: /Color accessibility/i })).toHaveTextContent(/below WCAG AA/i);
+
+    // Editing a swatch persists it under themeColors without dropping existing overrides.
+    fireEvent.change(within(themePanel).getByLabelText(/App background color/i), {
+      target: { value: "#101010" },
+    });
+    expect(setRuntimeSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        themeColors: expect.objectContaining({ text: "#f2f2f2", background: "#101010" }),
+      }),
+    );
+  });
 });

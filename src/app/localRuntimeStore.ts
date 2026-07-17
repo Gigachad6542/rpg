@@ -1,6 +1,7 @@
 import { parseSecretReference } from "../security/keyStorage";
 import { sanitizeCredentialFreeUrl } from "../security/urlSafety";
 import { sanitizePersistedPersonas } from "./personas";
+import { sanitizeThemeColorOverrides } from "./themeColors";
 import { sanitizePromptRunModelCalls } from "./modelCallRecordValidation";
 
 export const RUNTIME_STORAGE_KEY = "local-cards-runtime:v2";
@@ -365,6 +366,10 @@ export function sanitizePersistedRuntimeSettings(value: unknown): Record<string,
   }
   if (typeof value.accentColor === "string" && /^#[0-9a-fA-F]{6}$/.test(value.accentColor)) {
     sanitized.accentColor = value.accentColor;
+  }
+  const themeColors = sanitizeThemeColorOverrides(value.themeColors);
+  if (Object.keys(themeColors).length > 0) {
+    sanitized.themeColors = themeColors;
   }
   // Legacy carrier: pre-persona snapshots stored the impersonation prompt here.
   // parsePersonas() migrates it into a custom persona, after which it stops

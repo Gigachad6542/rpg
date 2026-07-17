@@ -5,6 +5,7 @@ import { mockNarratorModel, qwen37MaxReferencePreset } from "../providers/modelP
 import type { ModelInfo } from "../providers/TextModelAdapter";
 import { TauriStoredSecretTextProvider } from "../providers/tauriStoredSecretTextProvider";
 import { parseSecretReference } from "../security/keyStorage";
+import { sanitizeThemeColorOverrides } from "./themeColors";
 import type {
   ImageProviderSettings,
   ModelChoice,
@@ -321,7 +322,7 @@ export function parseRuntimeSettings(value?: Record<string, unknown>): RuntimeSe
     value?.hiddenContinuityMode === "full"
     ? value.hiddenContinuityMode
     : defaultRuntimeSettings.hiddenContinuityMode;
-  return {
+  const settings: RuntimeSettings = {
     textStreaming: typeof value?.textStreaming === "boolean" ? value.textStreaming : defaultRuntimeSettings.textStreaming,
     banEmojis: typeof value?.banEmojis === "boolean" ? value.banEmojis : defaultRuntimeSettings.banEmojis,
     promptDebugLogs:
@@ -342,6 +343,11 @@ export function parseRuntimeSettings(value?: Record<string, unknown>): RuntimeSe
         ? value.accentColor
         : defaultRuntimeSettings.accentColor,
   };
+  const themeColors = sanitizeThemeColorOverrides(value?.themeColors);
+  if (Object.keys(themeColors).length > 0) {
+    settings.themeColors = themeColors;
+  }
+  return settings;
 }
 
 export function applyPromptDebugRetention(promptRuns: PromptRun[], settings: RuntimeSettings): PromptRun[] {

@@ -109,7 +109,7 @@ describe("App repository integration branches", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository API ready with in-memory SQL fallback.");
+    await screen.findByText("Repository API ready with local browser storage.");
     await waitFor(() =>
       expect(screen.getByText("Local fallback saved; repository save failed: disk full")).toBeInTheDocument(),
     );

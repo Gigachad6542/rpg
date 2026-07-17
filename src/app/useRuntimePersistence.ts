@@ -152,7 +152,7 @@ export function useRuntimePersistence({
         setRepositoryStatus(
           store.getStatus().backend === "tauri-sqlite"
             ? "SQLite repository ready."
-            : "Repository API ready with in-memory SQL fallback.",
+            : "Repository API ready with local browser storage.",
         );
 
         try {
@@ -224,7 +224,7 @@ export function useRuntimePersistence({
             setSaveStatus(
               store.getStatus().backend === "tauri-sqlite"
                 ? "Saved to local SQLite repository."
-                : "Saved to repository API and browser fallback.",
+                : "Saved to the repository and local browser storage.",
             );
           }
         })

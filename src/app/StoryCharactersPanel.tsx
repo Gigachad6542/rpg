@@ -3,7 +3,7 @@ import { Eye, Maximize2, RotateCcw, Trash2, UserRound } from "lucide-react";
 import { type StoryEntity } from "../runtime/hiddenContinuity";
 import type { GeneratedMapArtifact, MediaPreviewArtifact } from "./runtimeTypes";
 import { findCharacterPortraitForEntity, toGeneratedImageSrc } from "./generatedImages";
-import { hasStoryEntityDetails, isDefaultPlayerStoryEntity, orderStoryEntitiesForDisplay } from "./cardNormalization";
+import { formatStoryEntityKind, hasStoryEntityDetails, isDefaultPlayerStoryEntity, orderStoryEntitiesForDisplay } from "./cardNormalization";
 
 export function StoryCharactersPanel(props: {
   entities: StoryEntity[];
@@ -45,6 +45,8 @@ export function StoryCharactersPanel(props: {
       <div className="story-entity-list">
         {entities.map((entity) => {
           const portrait = findCharacterPortraitForEntity(props.portraits, "", entity);
+          const kindLabel = formatStoryEntityKind(entity.kind);
+          const showKind = kindLabel.toLowerCase() !== entity.name.trim().toLowerCase();
           return (
             <div className={`story-entity-item ${entity.kind}`} key={entity.id}>
               <div className="story-entity-main">
@@ -54,6 +56,10 @@ export function StoryCharactersPanel(props: {
                   openMediaPreview={props.openMediaPreview}
                 />
                 <div className="story-entity-copy">
+                  <div className="story-entity-headline">
+                    <span className="story-entity-name">{entity.name}</span>
+                    {showKind ? <span className="story-entity-kind">{kindLabel}</span> : null}
+                  </div>
                   {hasStoryEntityDetails(entity) || !isDefaultPlayerStoryEntity(entity) ? (
                     <button
                       className="secondary-button compact-button story-details-button"

@@ -298,6 +298,7 @@ h3 {
 .icon-button {
   background: var(--surface-raised);
   border: 1px solid var(--border);
+  color: var(--text);
 }
 
 .secondary-button:hover,
@@ -468,6 +469,7 @@ textarea:focus-visible {
 }
 
 .workspace-grid {
+  align-items: start;
   display: grid;
   flex: 1;
   gap: 14px;
@@ -541,8 +543,12 @@ textarea:focus-visible {
   border-bottom: 1px solid var(--border);
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(220px, 1fr) auto;
+  grid-template-columns: minmax(200px, 1.4fr) minmax(150px, 1fr);
   padding: 12px;
+}
+
+.chat-session-bar .chat-actions {
+  grid-column: 1 / -1;
 }
 
 .chat-actions,
@@ -1096,8 +1102,15 @@ textarea:focus-visible {
 }
 
 .story-entity-copy {
+  align-content: start;
   display: grid;
   gap: 8px;
+  min-width: 0;
+}
+
+.story-entity-headline {
+  display: grid;
+  gap: 2px;
   min-width: 0;
 }
 
@@ -1171,7 +1184,7 @@ textarea:focus-visible {
 .story-portrait-status,
 .story-portrait-error {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.25;
   overflow-wrap: anywhere;
 }
@@ -1530,6 +1543,7 @@ input {
 
 .panel,
 .tab-panel {
+  align-content: start;
   display: grid;
   gap: 13px;
   min-width: 0;
@@ -1660,7 +1674,7 @@ input {
 }
 
 .compact-card-row small {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .compact-card-row .button-row {
@@ -1681,9 +1695,9 @@ input {
 .kind-pill {
   border: 1px solid var(--border);
   border-radius: 999px;
-  color: var(--accent);
+  color: var(--accent-text);
   flex: 0 0 auto;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   min-height: 24px;
   padding: 0 8px;
@@ -1886,6 +1900,7 @@ pre {
 .lorebook-settings,
 .compact-fields,
 .rpg-editor-grid {
+  align-items: start;
   display: grid;
   gap: 11px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2018,6 +2033,7 @@ pre {
 }
 
 .button-row {
+  align-items: center;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -2627,6 +2643,7 @@ input[type="search"] {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  margin-inline-start: auto;
 }
 
 .theme-color-controls input[type="color"] {
@@ -2733,8 +2750,8 @@ input[type="search"] {
 .card-import .import-hint,
 .import-hint {
   color: var(--muted);
-  font-size: 11px;
-  line-height: 1.35;
+  font-size: 12px;
+  line-height: 1.4;
   margin: 0;
 }
 
@@ -2753,7 +2770,7 @@ input[type="search"] {
   gap: 10px;
   margin: 14px 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -2899,12 +2916,12 @@ input[type="search"] {
 }
 
 .tag-pill {
-  padding: 2px 9px;
+  padding: 3px 9px;
   border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
-  font-size: 11px;
+  color: var(--accent-text);
+  font-size: 12px;
   font-weight: 700;
 }
 

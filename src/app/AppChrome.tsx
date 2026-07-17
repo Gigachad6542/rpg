@@ -130,7 +130,7 @@ export function AppTopbar({
         </p>
         <h2>{activeCard?.name ?? "Open a saved card"}</h2>
         <p className="title-summary">
-          {activeCard?.summary ?? "The starter RPG is saved in the card library and will stay idle until opened."}
+          {activeCard?.summary ?? "Your cards, chats, and lore stay on this device."}
         </p>
       </div>
       <div className="topbar-actions">

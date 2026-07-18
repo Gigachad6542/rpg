@@ -146,33 +146,33 @@ type Rgb = { r: number; g: number; b: number };
  */
 const DEFAULT_PALETTE: Record<ThemeMode, Record<PaletteKey, string>> = {
   light: {
-    background: "#fdf3e8",
-    surface: "#fffaf4",
-    text: "#3d1f12",
-    muted: "#94614a",
-    border: "#f2d6bd",
-    primary: "#b52a0e",
-    danger: "#b12414",
-    gold: "#f08a1c",
-    accent: "#e5431f",
+    background: "#eef1f7",
+    surface: "#f8fafd",
+    text: "#1a2233",
+    muted: "#586176",
+    border: "#d4dbe9",
+    primary: "#3a63d8",
+    danger: "#c62f2f",
+    gold: "#d0920f",
+    accent: "#3a63d8",
   },
   dark: {
-    background: "#1a0f0a",
-    surface: "#241611",
-    text: "#fce9dd",
-    muted: "#cd9c86",
-    border: "#4a2d20",
-    primary: "#ff6a33",
-    danger: "#ff7a63",
-    gold: "#ffb24d",
-    accent: "#ff6a33",
+    background: "#10141f",
+    surface: "#171d2b",
+    text: "#e9edf8",
+    muted: "#a6b0c9",
+    border: "#2c3550",
+    primary: "#6f9bff",
+    danger: "#ff6b6b",
+    gold: "#f2b750",
+    accent: "#6f9bff",
   },
 };
 
 /** Fixed label color painted on primary buttons (`--primary-text`) per theme. */
 const PRIMARY_TEXT: Record<ThemeMode, string> = {
-  light: "#fffaf4",
-  dark: "#1a0f0a",
+  light: "#f8fafd",
+  dark: "#10141f",
 };
 
 /** The stylesheet default for a base token in the given theme (for picker starting values). */

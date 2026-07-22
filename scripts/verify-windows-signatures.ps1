@@ -6,6 +6,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "windows-file-hash.ps1")
 $bundlePath = (Resolve-Path -LiteralPath $BundleRoot).Path
 $releaseExePath = (Resolve-Path -LiteralPath $ReleaseExecutable).Path
 $evidencePath = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $EvidenceDir))
@@ -42,7 +43,7 @@ $results = foreach ($file in $files) {
     signerSubject = $signature.SignerCertificate.Subject
     signerThumbprint = $signature.SignerCertificate.Thumbprint
     timestampSubject = if ($signature.TimeStamperCertificate) { $signature.TimeStamperCertificate.Subject } else { $null }
-    sha256 = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+    sha256 = Get-Sha256Hex -Path $file
   }
 }
 

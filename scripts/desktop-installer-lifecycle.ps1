@@ -5,6 +5,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot "windows-file-hash.ps1")
 
 $productName = "Local-First RPG"
 $publisher = "localfirst"
@@ -28,6 +29,9 @@ $createdInstall = $false
 $installedLocation = $null
 $runtimeProcess = $null
 $observations = [ordered]@{
+  schema = "rpg.release.windows-installer-lifecycle"
+  schemaVersion = 1
+  status = "pending"
   product = $productName
   version = $expectedVersion
   installer = $null
@@ -38,6 +42,16 @@ $observations = [ordered]@{
   secondLaunchPersistence = $false
   uninstallRegistrationRemoved = $false
   installDirectoryRemoved = $false
+  failureMessage = $null
+  completedAtUtc = $null
+}
+
+function Write-LifecycleEvidence {
+  $observations.completedAtUtc = [DateTime]::UtcNow.ToString("o")
+  $evidencePath = Join-Path $EvidenceDir "windows-installer-lifecycle.json"
+  $json = $observations | ConvertTo-Json -Depth 4
+  [System.IO.File]::WriteAllText($evidencePath, $json, [System.Text.UTF8Encoding]::new($false))
+  return $evidencePath
 }
 
 function Get-RegisteredProduct {
@@ -174,7 +188,7 @@ try {
     throw "Expected installer $expectedInstallerName but found $($installer.Name)."
   }
   $observations.installer = $installer.FullName
-  $observations.installerSha256 = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+  $observations.installerSha256 = Get-Sha256Hex -Path $installer.FullName
 
   $createdInstall = $true
   $installedLocation = $expectedInstallLocation
@@ -229,10 +243,14 @@ try {
   $observations.installDirectoryRemoved = $true
   $createdInstall = $false
 
-  $observations.completedAtUtc = [DateTime]::UtcNow.ToString("o")
-  $evidencePath = Join-Path $EvidenceDir "windows-installer-lifecycle.json"
-  $observations | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $evidencePath -Encoding utf8
+  $observations.status = "pass"
+  $evidencePath = Write-LifecycleEvidence
   Write-Output "Installer lifecycle passed: install, launch, repair/reinstall, persistent relaunch, and uninstall completed. Evidence: $evidencePath"
+} catch {
+  $observations.status = "fail"
+  $observations.failureMessage = $_.Exception.Message
+  Write-LifecycleEvidence | Out-Null
+  throw
 } finally {
   Stop-Runtime $runtimeProcess
   if ($createdInstall -and $installedLocation) {

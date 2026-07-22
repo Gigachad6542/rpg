@@ -5,6 +5,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "windows-file-hash.ps1")
 $resolvedMsi = (Resolve-Path -LiteralPath $MsiPath).Path
 $evidencePath = if ([System.IO.Path]::IsPathRooted($EvidenceDir)) {
   [System.IO.Path]::GetFullPath($EvidenceDir)
@@ -43,7 +44,7 @@ $payload = [ordered]@{
   status = "pass"
   verifiedAt = [DateTimeOffset]::UtcNow.ToString("o")
   file = Split-Path -Leaf $resolvedMsi
-  sha256 = (Get-FileHash -LiteralPath $resolvedMsi -Algorithm SHA256).Hash.ToLowerInvariant()
+  sha256 = Get-Sha256Hex -Path $resolvedMsi
   signerSubject = $signature.SignerCertificate.Subject
   signerThumbprint = $signature.SignerCertificate.Thumbprint
   timestampSubject = $signature.TimeStamperCertificate.Subject

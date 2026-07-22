@@ -67,6 +67,10 @@ describe("Windows installer lifecycle release gate", () => {
     expect(script).toContain("local-first-ai-rpg-runtime.db");
     expect(script).toContain("repair/reinstall");
     expect(script).toContain("uninstall.exe");
+    expect(script).toContain('status = "pending"');
+    expect(script).toContain('$observations.status = "pass"');
+    expect(script).toContain('$observations.status = "fail"');
+    expect(script).toContain("Write-LifecycleEvidence");
     expect(script).toContain("Installer lifecycle passed");
   });
 });

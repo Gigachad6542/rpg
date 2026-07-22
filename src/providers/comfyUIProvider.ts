@@ -4,6 +4,10 @@ import type {
   ImageModelAdapter,
   ImagePromptRequest,
 } from "./ImageModelAdapter";
+import { readBoundedResponseJson, readBoundedResponseText } from "./boundedResponse";
+
+const MAX_COMFY_JSON_RESPONSE_BYTES = 8 * 1024 * 1024;
+const MAX_COMFY_ERROR_RESPONSE_BYTES = 64 * 1024;
 
 export interface ComfyUIImageProviderConfig {
   endpoint: string;
@@ -644,7 +648,11 @@ async function safeResponseText(response: Response): Promise<string> {
   const timeout = responseTimeouts.get(response);
   let text = "";
   try {
-    text = timeout ? await timeout.run(response.text()) : await response.text();
+    text = await readBoundedResponseText(response, {
+      maxBytes: MAX_COMFY_ERROR_RESPONSE_BYTES,
+      label: "ComfyUI error response",
+      ...(timeout ? { run: <T>(operation: Promise<T>) => timeout.run(operation) } : {}),
+    });
   } catch (error) {
     if (timeout?.timedOut()) {
       throw error;
@@ -658,7 +666,11 @@ async function safeResponseText(response: Response): Promise<string> {
 async function readResponseJson<T>(response: Response): Promise<T> {
   const timeout = responseTimeouts.get(response);
   try {
-    return (await (timeout ? timeout.run(response.json()) : response.json())) as T;
+    return await readBoundedResponseJson<T>(response, {
+      maxBytes: MAX_COMFY_JSON_RESPONSE_BYTES,
+      label: "ComfyUI JSON response",
+      ...(timeout ? { run: <Value>(operation: Promise<Value>) => timeout.run(operation) } : {}),
+    });
   } finally {
     cleanupResponseTimeout(response);
   }
@@ -779,7 +791,11 @@ async function fetchComfyEndpoint(
   const timeoutMs = normalizeRequestTimeoutMs(requestTimeoutMs);
   const timeout = createRequestTimeout(init?.signal ?? signal, timeoutMs, "ComfyUI request");
   try {
-    const response = await timeout.run(bindFetch(fetchImpl)(url, { ...init, signal: timeout.signal }));
+    const response = await timeout.run(bindFetch(fetchImpl)(url, {
+      ...init,
+      redirect: "error",
+      signal: timeout.signal,
+    }));
     responseTimeouts.set(response, timeout);
     return response;
   } catch (error) {

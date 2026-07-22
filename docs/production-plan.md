@@ -30,7 +30,11 @@ Not yet proven (the launch gap):
   signed semantic version.
 - The private user-owned repo is ineligible for GitHub artifact attestation, and the
   release preflight fails closed until that is resolved.
-- Live-provider narrative quality (the optional second model call) remains unmeasured. The prior lane was invalidated because it leaked reference facts to the baseline and never made a live call; the replacement paired Qwen3.7-Max experiment is ready but has not been run.
+- The accepted paired Qwen3.7-Max run on 2026-07-19 measured the scoped
+  source-cited evidence-brief tactic (108 strategy runs / 180 provider calls).
+  Blind pairwise prose review, a recent-window discarded-analysis placebo, and
+  a live run on the eventual signed release commit remain outstanding; no broad
+  narrative-quality or cross-model win is claimed.
 
 ## Readiness scorecard
 

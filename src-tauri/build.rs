@@ -10,6 +10,7 @@ fn main() {
             "store_provider_secret",
             "delete_provider_secret",
             "generate_text_with_stored_secret",
+            "cancel_text_generation",
             "persist_generated_image",
             "sync_generated_image_files",
             "discover_local_text_providers",

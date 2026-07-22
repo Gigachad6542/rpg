@@ -8,6 +8,7 @@ import {
   parseVersionedRuntimeExport,
   type RuntimeExportSnapshot,
 } from "./runtimeDataBundle";
+import { buildRuntimeProviderChangeReview, type RuntimeProviderChangeReview } from "./runtimeImportReview";
 import type { RepositoryRuntimeSnapshot } from "./runtimeRepositoryStore";
 import type { AppRuntimeSnapshot } from "./runtimeTypes";
 
@@ -18,6 +19,7 @@ export interface RuntimeImportReview {
   chats: number;
   messages: number;
   savedAt: string;
+  providerChanges: RuntimeProviderChangeReview[];
 }
 
 export interface UseRuntimeDataManagementOptions {
@@ -118,6 +120,12 @@ export function useRuntimeDataManagement({
         chats: pendingImportSnapshot.chatSessions?.length ?? 0,
         messages: countImportedMessages(pendingImportSnapshot),
         savedAt: pendingImportSnapshot.savedAt,
+        providerChanges: buildRuntimeProviderChangeReview({
+          currentProviderSettings: currentSnapshot.providerSettings,
+          currentImageProviderSettings: currentSnapshot.imageProviderSettings,
+          importedProviderSettings: pendingImportSnapshot.providerSettings,
+          importedImageProviderSettings: pendingImportSnapshot.imageProviderSettings,
+        }),
       }
     : null;
 

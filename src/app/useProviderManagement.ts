@@ -1,8 +1,12 @@
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 
 import { fetchComfyUIImageModels } from "../providers/comfyUIProvider";
 import type { KeyStorage, SecureStorageStatus } from "../security/keyStorage";
 import { getErrorMessage } from "./appUtils";
+import {
+  imageProviderCredentialFingerprint,
+  textProviderCredentialFingerprint,
+} from "./providerCredentialBinding";
 import { createTextProvider } from "./providerConfig";
 import {
   forgetStoredProviderKey,
@@ -23,6 +27,36 @@ interface ProviderManagementInput {
   onComfyUiReady?: () => void;
 }
 
+interface BoundSessionCredential {
+  value: string;
+  fingerprint: string;
+}
+
+function useBoundSessionCredential(fingerprint: string) {
+  const [credential, setCredential] = useState<BoundSessionCredential>(() => ({
+    value: "",
+    fingerprint,
+  }));
+  const value = credential.fingerprint === fingerprint ? credential.value : "";
+  const setValue = useCallback<Dispatch<SetStateAction<string>>>((nextValue) => {
+    setCredential((current) => {
+      const currentValue = current.fingerprint === fingerprint ? current.value : "";
+      return {
+        value: typeof nextValue === "function" ? nextValue(currentValue) : nextValue,
+        fingerprint,
+      };
+    });
+  }, [fingerprint]);
+
+  useEffect(() => {
+    setCredential((current) => current.fingerprint === fingerprint
+      ? current
+      : { value: "", fingerprint });
+  }, [fingerprint]);
+
+  return [value, setValue] as const;
+}
+
 export function useProviderManagement(input: ProviderManagementInput) {
   const {
     initialProviderKeyStatus,
@@ -41,8 +75,12 @@ export function useProviderManagement(input: ProviderManagementInput) {
   const [imageProviderStatus, setImageProviderStatus] = useState(
     "ComfyUI image model check has not run yet.",
   );
-  const [sessionApiKey, setSessionApiKey] = useState("");
-  const [imageSessionApiKey, setImageSessionApiKey] = useState("");
+  const [sessionApiKey, setSessionApiKey] = useBoundSessionCredential(
+    textProviderCredentialFingerprint(providerSettings),
+  );
+  const [imageSessionApiKey, setImageSessionApiKey] = useBoundSessionCredential(
+    imageProviderCredentialFingerprint(imageProviderSettings),
+  );
   const [secureStorageStatus, setSecureStorageStatus] = useState<SecureStorageStatus>({
     available: false,
     storageKind: "memory-only",

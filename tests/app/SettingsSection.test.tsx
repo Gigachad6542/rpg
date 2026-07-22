@@ -123,7 +123,13 @@ describe("SettingsSection", () => {
         dataManagementStatus="Import parsed. Review before applying."
         exportRuntimeData={vi.fn()}
         importRuntimeData={vi.fn()}
-        pendingImportReview={{ cards: 3, chats: 5, messages: 21, savedAt: "2026-07-12T00:00:00.000Z" }}
+        pendingImportReview={{
+          cards: 3,
+          chats: 5,
+          messages: 21,
+          savedAt: "2026-07-12T00:00:00.000Z",
+          providerChanges: [],
+        }}
         applyRuntimeImport={applyRuntimeImport}
         cancelRuntimeImport={cancelRuntimeImport}
         downloadDiagnostics={vi.fn()}

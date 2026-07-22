@@ -5,6 +5,7 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        .manage(GenerationCancellationState::default())
         .invoke_handler(tauri::generate_handler![
             initialize_runtime_repository,
             load_runtime_snapshot,
@@ -15,6 +16,7 @@ pub fn run() {
             store_provider_secret,
             delete_provider_secret,
             generate_text_with_stored_secret,
+            cancel_text_generation,
             persist_generated_image,
             sync_generated_image_files,
             discover_local_text_providers,
@@ -29,6 +31,11 @@ mod runtime_repository;
 const KEYRING_SERVICE: &str = "local-first-ai-rpg-runtime";
 const SECRET_STORAGE_KIND: &str = "os-keychain";
 const MAX_PROMPT_CHARS: usize = 200_000;
+const MAX_SYSTEM_PROMPT_CHARS: usize = 200_000;
+const MAX_COMBINED_PROMPT_CHARS: usize = 240_000;
+const MAX_COMBINED_PROMPT_BYTES: usize = 800_000;
+const MAX_ESTIMATED_INPUT_TOKENS: u32 = 60_000;
+const MAX_PROVIDER_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 const DEFAULT_OUTPUT_TOKENS: u32 = 900;
 const MAX_OUTPUT_TOKENS: u32 = 4_096;
 const MAX_MODEL_ID_CHARS: usize = 160;
@@ -37,12 +44,78 @@ const MAX_RESPONSE_FORMAT_JSON_CHARS: usize = 64_000;
 const MAX_GENERATION_SEED: i64 = 9_007_199_254_740_991;
 const DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS: u64 = 60_000;
 const MAX_PROVIDER_REQUEST_TIMEOUT_MS: u64 = 300_000;
+const MAX_GENERATION_REQUEST_ID_CHARS: usize = 128;
 const MAX_GENERATION_REQUESTS_PER_WINDOW: usize = 20;
 const GENERATION_RATE_LIMIT_WINDOW: std::time::Duration = std::time::Duration::from_secs(60);
 
 static GENERATION_REQUEST_TIMESTAMPS: std::sync::OnceLock<
     std::sync::Mutex<Vec<std::time::Instant>>,
 > = std::sync::OnceLock::new();
+
+#[derive(Default)]
+struct GenerationCancellationState {
+    requests: std::sync::Mutex<std::collections::HashMap<String, GenerationCancellationEntry>>,
+}
+
+struct GenerationCancellationEntry {
+    cancel: tokio::sync::watch::Sender<bool>,
+    completed: tokio::sync::watch::Receiver<bool>,
+}
+
+impl GenerationCancellationState {
+    fn register(
+        &self,
+        request_id: &str,
+    ) -> Result<
+        (
+            tokio::sync::watch::Receiver<bool>,
+            tokio::sync::watch::Sender<bool>,
+        ),
+        String,
+    > {
+        let (cancel_sender, cancel_receiver) = tokio::sync::watch::channel(false);
+        let (completed_sender, completed_receiver) = tokio::sync::watch::channel(false);
+        let mut requests = self
+            .requests
+            .lock()
+            .map_err(|_| "Generation cancellation state is unavailable.".to_string())?;
+        if requests.contains_key(request_id) {
+            return Err("Generation request id is already active.".to_string());
+        }
+        requests.insert(
+            request_id.to_string(),
+            GenerationCancellationEntry {
+                cancel: cancel_sender,
+                completed: completed_receiver,
+            },
+        );
+        Ok((cancel_receiver, completed_sender))
+    }
+
+    fn request_cancellation(
+        &self,
+        request_id: &str,
+    ) -> Result<Option<tokio::sync::watch::Receiver<bool>>, String> {
+        let requests = self
+            .requests
+            .lock()
+            .map_err(|_| "Generation cancellation state is unavailable.".to_string())?;
+        let Some(entry) = requests.get(request_id) else {
+            return Ok(None);
+        };
+        entry
+            .cancel
+            .send(true)
+            .map_err(|_| "Generation request was no longer cancellable.".to_string())?;
+        Ok(Some(entry.completed.clone()))
+    }
+
+    fn remove(&self, request_id: &str) {
+        if let Ok(mut requests) = self.requests.lock() {
+            requests.remove(request_id);
+        }
+    }
+}
 
 #[tauri::command]
 fn initialize_runtime_repository(
@@ -120,6 +193,7 @@ struct SecretReferenceInput {
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StoredTextGenerationRequest {
+    request_id: String,
     provider_id: String,
     base_url: String,
     model: String,
@@ -248,11 +322,13 @@ fn delete_provider_secret(
 #[tauri::command]
 async fn generate_text_with_stored_secret(
     request: StoredTextGenerationRequest,
+    cancellation_state: tauri::State<'_, GenerationCancellationState>,
 ) -> Result<StoredTextGenerationResponse, String> {
+    validate_generation_request_id(&request.request_id)?;
     let provider_id = normalize_identifier(&request.provider_id, "provider id")?;
     let base_url = normalize_allowed_provider_base_url(&provider_id, &request.base_url)?;
     validate_secret_reference_for_request(&request.secret_reference, &provider_id, &base_url)?;
-    validate_generation_prompt(&request.prompt)?;
+    validate_generation_prompts(&request.prompt, request.system_prompt.as_deref())?;
     validate_generation_model(&request.model)?;
     let max_output_tokens = validate_max_output_tokens(request.max_output_tokens)?;
     let request_timeout = validate_request_timeout(request.timeout_ms)?;
@@ -261,111 +337,152 @@ async fn generate_text_with_stored_secret(
     let response_format = validate_response_format(request.response_format.as_ref())?;
     check_generation_rate_limit()?;
 
-    let entry = keyring_entry(&request.secret_reference.storage_key)?;
-    let secret = entry.get_password().map_err(|error| match error {
-        keyring::Error::NoEntry => {
-            "Stored provider key reference exists, but the OS keychain entry was not found."
-                .to_string()
+    let request_id = request.request_id.clone();
+    let (mut cancellation, completion) = cancellation_state.register(&request_id)?;
+    let generation = async {
+        let entry = keyring_entry(&request.secret_reference.storage_key)?;
+        let secret = entry.get_password().map_err(|error| match error {
+            keyring::Error::NoEntry => {
+                "Stored provider key reference exists, but the OS keychain entry was not found."
+                    .to_string()
+            }
+            _ => "Could not read provider key from OS keychain. Secret details were redacted."
+                .to_string(),
+        })?;
+
+        let mut messages = Vec::new();
+        if let Some(system_prompt) = request.system_prompt.as_deref() {
+            if !system_prompt.trim().is_empty() {
+                messages.push(serde_json::json!({ "role": "system", "content": system_prompt }));
+            }
         }
-        _ => "Could not read provider key from OS keychain. Secret details were redacted."
-            .to_string(),
-    })?;
+        messages.push(serde_json::json!({ "role": "user", "content": request.prompt }));
 
-    let mut messages = Vec::new();
-    if let Some(system_prompt) = request.system_prompt.as_deref() {
-        if !system_prompt.trim().is_empty() {
-            messages.push(serde_json::json!({ "role": "system", "content": system_prompt }));
-        }
-    }
-    messages.push(serde_json::json!({ "role": "user", "content": request.prompt }));
-
-    let mut body = serde_json::json!({
-        "model": request.model,
-        "temperature": request.temperature,
-        "max_tokens": max_output_tokens,
-        "messages": messages,
-    });
-    if let Some(reasoning) = reasoning {
-        body.as_object_mut()
-            .ok_or_else(|| "Could not build provider request.".to_string())?
-            .insert("reasoning".to_string(), reasoning);
-    }
-    if let Some(seed) = seed {
-        body.as_object_mut()
-            .ok_or_else(|| "Could not build provider request.".to_string())?
-            .insert("seed".to_string(), serde_json::json!(seed));
-    }
-    if let Some(response_format) = response_format {
-        body.as_object_mut()
-            .ok_or_else(|| "Could not build provider request.".to_string())?
-            .insert("response_format".to_string(), response_format);
-    }
-
-    let client = reqwest::Client::builder()
-        .timeout(request_timeout)
-        .build()
-        .map_err(|_| "Could not initialize provider HTTP client.".to_string())?;
-    let response = client
-        .post(format!("{base_url}/chat/completions"))
-        .bearer_auth(&secret)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|_| "Provider request failed before receiving a response.".to_string())?;
-    drop(secret);
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let _ = response.text().await;
-        return Err(format!(
-            "Provider request failed ({status}). Error details were redacted."
-        ));
-    }
-
-    let raw = response
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|_| "Provider returned invalid JSON.".to_string())?;
-    let parsed: ChatCompletionResponse = serde_json::from_value(raw.clone())
-        .map_err(|_| "Provider response did not match chat completion shape.".to_string())?;
-    let choice = parsed.choices.as_ref().and_then(|choices| choices.first());
-    let text = choice
-        .and_then(|choice| choice.message.as_ref())
-        .and_then(|message| message.content.as_deref())
-        .unwrap_or("")
-        .trim()
-        .to_string();
-    let input_tokens = parsed
-        .usage
-        .as_ref()
-        .and_then(|usage| usage.prompt_tokens)
-        .unwrap_or_else(|| {
-            estimate_generation_input_tokens(&request.prompt, request.system_prompt.as_deref())
+        let mut body = serde_json::json!({
+            "model": request.model,
+            "temperature": request.temperature,
+            "max_tokens": max_output_tokens,
+            "messages": messages,
         });
-    let output_tokens = parsed
-        .usage
-        .as_ref()
-        .and_then(|usage| usage.completion_tokens)
-        .unwrap_or_else(|| estimate_text_tokens(&text));
-    let usage_source = usage_source(&parsed.usage);
+        if let Some(reasoning) = reasoning {
+            body.as_object_mut()
+                .ok_or_else(|| "Could not build provider request.".to_string())?
+                .insert("reasoning".to_string(), reasoning);
+        }
+        if let Some(seed) = seed {
+            body.as_object_mut()
+                .ok_or_else(|| "Could not build provider request.".to_string())?
+                .insert("seed".to_string(), serde_json::json!(seed));
+        }
+        if let Some(response_format) = response_format {
+            body.as_object_mut()
+                .ok_or_else(|| "Could not build provider request.".to_string())?
+                .insert("response_format".to_string(), response_format);
+        }
 
-    Ok(StoredTextGenerationResponse {
-        provider_id,
-        model: request.model,
-        text,
-        finish_reason: map_finish_reason(choice.and_then(|choice| choice.finish_reason.as_deref()))
+        let client = reqwest::Client::builder()
+            .timeout(request_timeout)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|_| "Could not initialize provider HTTP client.".to_string())?;
+        let response = client
+            .post(format!("{base_url}/chat/completions"))
+            .bearer_auth(&secret)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|_| "Provider request failed before receiving a response.".to_string())?;
+        drop(secret);
+
+        if !response.status().is_success() {
+            let status = response.status();
+            return Err(format!(
+                "Provider request failed ({status}). Error details were redacted."
+            ));
+        }
+
+        let response_bytes =
+            read_bounded_response(response, MAX_PROVIDER_RESPONSE_BYTES, "Provider response")
+                .await?;
+        let raw = serde_json::from_slice::<serde_json::Value>(&response_bytes)
+            .map_err(|_| "Provider returned invalid JSON.".to_string())?;
+        let parsed: ChatCompletionResponse = serde_json::from_value(raw.clone())
+            .map_err(|_| "Provider response did not match chat completion shape.".to_string())?;
+        let choice = parsed.choices.as_ref().and_then(|choices| choices.first());
+        let text = choice
+            .and_then(|choice| choice.message.as_ref())
+            .and_then(|message| message.content.as_deref())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let input_tokens = parsed
+            .usage
+            .as_ref()
+            .and_then(|usage| usage.prompt_tokens)
+            .unwrap_or_else(|| {
+                estimate_generation_input_tokens(&request.prompt, request.system_prompt.as_deref())
+            });
+        let output_tokens = parsed
+            .usage
+            .as_ref()
+            .and_then(|usage| usage.completion_tokens)
+            .unwrap_or_else(|| estimate_text_tokens(&text));
+        let usage_source = usage_source(&parsed.usage);
+
+        Ok(StoredTextGenerationResponse {
+            provider_id,
+            model: request.model,
+            text,
+            finish_reason: map_finish_reason(
+                choice.and_then(|choice| choice.finish_reason.as_deref()),
+            )
             .to_string(),
-        usage: TextUsage {
-            input_tokens,
-            output_tokens,
-            total_tokens: parsed
-                .usage
-                .and_then(|usage| usage.total_tokens)
-                .unwrap_or(input_tokens + output_tokens),
-        },
-        usage_source,
-        raw,
-    })
+            usage: TextUsage {
+                input_tokens,
+                output_tokens,
+                total_tokens: parsed
+                    .usage
+                    .and_then(|usage| usage.total_tokens)
+                    .unwrap_or(input_tokens + output_tokens),
+            },
+            usage_source,
+            raw,
+        })
+    };
+
+    let result = if *cancellation.borrow() {
+        Err("Generation cancelled before the provider request started.".to_string())
+    } else {
+        tokio::select! {
+            changed = cancellation.changed() => {
+                match changed {
+                    Ok(()) => Err("Generation cancelled after desktop acknowledgement.".to_string()),
+                    Err(_) => Err("Generation cancellation state closed unexpectedly.".to_string()),
+                }
+            }
+            result = generation => result,
+        }
+    };
+    let _ = completion.send(true);
+    cancellation_state.remove(&request_id);
+    result
+}
+
+#[tauri::command]
+async fn cancel_text_generation(
+    request_id: String,
+    cancellation_state: tauri::State<'_, GenerationCancellationState>,
+) -> Result<bool, String> {
+    validate_generation_request_id(&request_id)?;
+    let Some(mut completed) = cancellation_state.request_cancellation(&request_id)? else {
+        return Ok(false);
+    };
+    if !*completed.borrow() {
+        completed.changed().await.map_err(|_| {
+            "Generation stopped, but completion acknowledgement was lost.".to_string()
+        })?;
+    }
+    Ok(true)
 }
 
 const CHUB_DOWNLOAD_URL: &str = "https://api.chub.ai/api/characters/download";
@@ -455,38 +572,21 @@ async fn discover_local_text_providers() -> Result<Vec<LocalProviderDetection>, 
     let mut detections = Vec::new();
 
     for candidate in local_provider_candidates() {
-        let Ok(mut response) = client.get(candidate.models_url).send().await else {
+        let Ok(response) = client.get(candidate.models_url).send().await else {
             continue;
         };
-        if !response.status().is_success()
-            || response
-                .content_length()
-                .is_some_and(|length| length > MAX_LOCAL_MODEL_RESPONSE_BYTES as u64)
-        {
+        if !response.status().is_success() {
             continue;
         }
-
-        let mut bytes = Vec::new();
-        let mut too_large = false;
-        loop {
-            match response.chunk().await {
-                Ok(Some(chunk)) if bytes.len() + chunk.len() <= MAX_LOCAL_MODEL_RESPONSE_BYTES => {
-                    bytes.extend_from_slice(&chunk);
-                }
-                Ok(Some(_)) => {
-                    too_large = true;
-                    break;
-                }
-                Ok(None) => break,
-                Err(_) => {
-                    too_large = true;
-                    break;
-                }
-            }
-        }
-        if too_large {
+        let Ok(bytes) = read_bounded_response(
+            response,
+            MAX_LOCAL_MODEL_RESPONSE_BYTES,
+            "Local model response",
+        )
+        .await
+        else {
             continue;
-        }
+        };
         let Ok(payload) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
             continue;
         };
@@ -542,6 +642,7 @@ async fn download_chub_character(
 
     let client = reqwest::Client::builder()
         .timeout(request_timeout)
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|_| "Could not initialize the Chub HTTP client.".to_string())?;
     let response = client
@@ -558,15 +659,9 @@ async fn download_chub_character(
         ));
     }
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|_| "Chub returned an unreadable response.".to_string())?;
+    let bytes = read_bounded_response(response, MAX_CHUB_CARD_BYTES, "Chub character").await?;
     if bytes.is_empty() {
         return Err("Chub returned an empty response.".to_string());
-    }
-    if bytes.len() > MAX_CHUB_CARD_BYTES {
-        return Err("Chub character exceeds the local size limit.".to_string());
     }
 
     Ok(ChubDownloadResponse {
@@ -801,6 +896,68 @@ fn validate_generation_prompt(prompt: &str) -> Result<(), String> {
     }
     if prompt.chars().count() > MAX_PROMPT_CHARS {
         return Err("Prompt exceeds the local safety limit.".to_string());
+    }
+    Ok(())
+}
+
+fn validate_generation_prompts(prompt: &str, system_prompt: Option<&str>) -> Result<(), String> {
+    validate_generation_prompt(prompt)?;
+    let system_prompt = system_prompt.unwrap_or("");
+    if system_prompt.chars().count() > MAX_SYSTEM_PROMPT_CHARS {
+        return Err("System prompt exceeds the local safety limit.".to_string());
+    }
+    let combined_chars = prompt
+        .chars()
+        .count()
+        .saturating_add(system_prompt.chars().count());
+    if combined_chars > MAX_COMBINED_PROMPT_CHARS {
+        return Err("Combined prompts exceed the local character limit.".to_string());
+    }
+    if prompt.len().saturating_add(system_prompt.len()) > MAX_COMBINED_PROMPT_BYTES {
+        return Err("Combined prompts exceed the local byte limit.".to_string());
+    }
+    if estimate_generation_input_tokens(prompt, Some(system_prompt)) > MAX_ESTIMATED_INPUT_TOKENS {
+        return Err("Combined prompts exceed the local estimated-token limit.".to_string());
+    }
+    Ok(())
+}
+
+async fn read_bounded_response(
+    mut response: reqwest::Response,
+    max_bytes: usize,
+    label: &str,
+) -> Result<Vec<u8>, String> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > max_bytes as u64)
+    {
+        return Err(format!("{label} exceeds the local size limit."));
+    }
+
+    let mut bytes =
+        Vec::with_capacity(response.content_length().unwrap_or(0).min(max_bytes as u64) as usize);
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| format!("{label} could not be read."))?
+    {
+        if bytes.len().saturating_add(chunk.len()) > max_bytes {
+            return Err(format!("{label} exceeds the local size limit."));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+
+fn validate_generation_request_id(request_id: &str) -> Result<(), String> {
+    if request_id.is_empty() || request_id.len() > MAX_GENERATION_REQUEST_ID_CHARS {
+        return Err("Generation request id is invalid.".to_string());
+    }
+    if !request_id
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        return Err("Generation request id contains unsupported characters.".to_string());
     }
     Ok(())
 }
@@ -1183,6 +1340,20 @@ mod tests {
     #[test]
     fn generation_request_limits_reject_oversized_prompts_models_and_outputs() {
         assert!(validate_generation_prompt("x".repeat(MAX_PROMPT_CHARS + 1).as_str()).is_err());
+        assert!(validate_generation_prompts(
+            "player",
+            Some("x".repeat(MAX_SYSTEM_PROMPT_CHARS + 1).as_str()),
+        )
+        .is_err());
+        assert!(validate_generation_prompts(
+            "x".repeat(MAX_PROMPT_CHARS).as_str(),
+            Some(
+                "y".repeat(MAX_COMBINED_PROMPT_CHARS - MAX_PROMPT_CHARS + 1)
+                    .as_str()
+            ),
+        )
+        .is_err());
+        assert!(validate_generation_prompts("player", Some("system")).is_ok());
         assert!(validate_generation_model("model name with spaces").is_err());
         assert!(validate_generation_model("qwen3.7-max").is_ok());
         assert!(validate_max_output_tokens(Some(MAX_OUTPUT_TOKENS + 1)).is_err());
@@ -1195,6 +1366,33 @@ mod tests {
             std::time::Duration::from_millis(DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS)
         );
         assert!(validate_request_timeout(Some(MAX_PROVIDER_REQUEST_TIMEOUT_MS + 1)).is_err());
+    }
+
+    #[test]
+    fn generation_cancellation_ids_and_acknowledgements_are_bounded() {
+        assert!(validate_generation_request_id("generation-abc-1").is_ok());
+        assert!(validate_generation_request_id("bad/request").is_err());
+        assert!(
+            validate_generation_request_id(&"x".repeat(MAX_GENERATION_REQUEST_ID_CHARS + 1))
+                .is_err()
+        );
+
+        let state = GenerationCancellationState::default();
+        let (receiver, completion) = state.register("generation-abc-1").unwrap();
+        assert!(!*receiver.borrow());
+        let acknowledgement = state
+            .request_cancellation("generation-abc-1")
+            .unwrap()
+            .unwrap();
+        assert!(*receiver.borrow());
+        assert!(!*acknowledgement.borrow());
+        completion.send(true).unwrap();
+        assert!(*acknowledgement.borrow());
+        state.remove("generation-abc-1");
+        assert!(state
+            .request_cancellation("generation-abc-1")
+            .unwrap()
+            .is_none());
     }
 
     #[test]

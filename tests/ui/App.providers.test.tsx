@@ -217,6 +217,10 @@ describe("local-first card runtime UI: providers", () => {
       H.fireEvent.change(H.within(llmProviderSection).getByLabelText(/^Base URL$/i), {
         target: { value: "https://example.test/v1" },
       });
+      expect(H.within(llmProviderSection).getByLabelText(/Session API key/i)).toHaveValue("");
+      H.fireEvent.change(H.within(llmProviderSection).getByLabelText(/Session API key/i), {
+        target: { value: "replacement-endpoint-secret" },
+      });
       H.fireEvent.click(H.within(llmProviderSection).getByRole("button", { name: /Store key securely/i }));
       await H.waitFor(() =>
         expect(H.within(llmProviderSection).getByText(/known hosted URL or a loopback local endpoint/i)).toBeInTheDocument(),

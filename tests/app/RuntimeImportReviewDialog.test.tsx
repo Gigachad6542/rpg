@@ -12,6 +12,11 @@ const review: RuntimeImportReviewView = {
   chats: 5,
   messages: 21,
   savedAt: "2026-07-12T00:00:00.000Z",
+  providerChanges: [{
+    label: "Text provider",
+    before: "openrouter / old-model at https://openrouter.ai/api/v1",
+    after: "local / local-model at http://127.0.0.1:1234/v1",
+  }],
 };
 
 function ReviewHarness(props: { apply: () => void; cancel: () => void }) {
@@ -53,6 +58,8 @@ describe("RuntimeImportReviewDialog", () => {
     expect(dialog).toHaveAttribute("aria-modal", "true");
     expect(dialog).toHaveTextContent(/3 cards.*5 chats.*21 messages/i);
     expect(dialog).toHaveTextContent(/restore point.*before replacement/i);
+    expect(dialog).toHaveTextContent(/Text provider.*openrouter.*local-model/i);
+    expect(dialog).toHaveTextContent(/Session-only credentials are cleared/i);
 
     const cancelButton = screen.getByRole("button", { name: /Cancel import/i });
     const applyButton = screen.getByRole("button", { name: /Replace runtime data/i });

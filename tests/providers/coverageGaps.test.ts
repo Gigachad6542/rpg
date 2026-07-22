@@ -268,28 +268,13 @@ describe("provider coverage gap characterization", () => {
     }
     expect(chunks).toEqual(["0:true:"]);
 
-    vi.useFakeTimers();
-    try {
-      const slowBodyProvider = new OpenAICompatibleTextProvider({
-        baseUrl: "https://example.test/v1",
-        apiKey: "session-key",
-        requestTimeoutMs: 25,
-        fetchImpl: (async () =>
-          ({
-            ok: true,
-            json: () => Promise.reject(new Error("parser failed after timeout")),
-            text: () => Promise.resolve(""),
-          }) as Response) as typeof fetch,
-      });
-
-      const pending = expect(slowBodyProvider.generateText({ model: "qwen", prompt: "Hello" })).rejects.toThrow(
-        /parser failed after timeout/i,
-      );
-      await vi.advanceTimersByTimeAsync(30);
-      await pending;
-    } finally {
-      vi.useRealTimers();
-    }
+    const invalidJsonProvider = new OpenAICompatibleTextProvider({
+      baseUrl: "https://example.test/v1",
+      apiKey: "session-key",
+      fetchImpl: (async () => new Response("{", { status: 200 })) as typeof fetch,
+    });
+    await expect(invalidJsonProvider.generateText({ model: "qwen", prompt: "Hello" }))
+      .rejects.toThrow(/JSON|Unexpected/i);
 
     vi.useFakeTimers();
     try {
@@ -297,13 +282,11 @@ describe("provider coverage gap characterization", () => {
         baseUrl: "https://example.test/v1",
         apiKey: "session-key",
         requestTimeoutMs: 25,
-        fetchImpl: (async () =>
-          ({
-            ok: false,
-            status: 503,
-            statusText: "Unavailable",
-            text: () => new Promise<string>(() => undefined),
-          }) as Response) as typeof fetch,
+        fetchImpl: (async () => new Response(new ReadableStream<Uint8Array>({
+          start() {
+            // Intentionally never yields or closes so the bounded reader must honor the request timeout.
+          },
+        }), { status: 503, statusText: "Unavailable" })) as typeof fetch,
       });
 
       const pending = expect(slowErrorBodyProvider.generateText({ model: "qwen", prompt: "Hello" })).rejects.toThrow(
@@ -856,12 +839,11 @@ describe("provider coverage gap characterization", () => {
 
     vi.useFakeTimers();
     try {
-      const timeoutBody = {
-        ok: false,
-        status: 503,
-        statusText: "Unavailable",
-        text: () => new Promise<string>(() => undefined),
-      } as Response;
+      const timeoutBody = new Response(new ReadableStream<Uint8Array>({
+        start() {
+          // Headers arrive, but the error body never yields or closes.
+        },
+      }), { status: 503, statusText: "Unavailable" });
       const provider = new ComfyUIImageProvider({
         endpoint: "http://127.0.0.1:8188",
         workflowJson: JSON.stringify({ "1": { class_type: "SaveImage", inputs: { text: "{{prompt}}" } } }),

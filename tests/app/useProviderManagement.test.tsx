@@ -168,4 +168,57 @@ describe("useProviderManagement", () => {
 
     expect(setImageProviderSettings).not.toHaveBeenCalled();
   });
+
+  it("binds session credentials to provider identity and endpoint changes", async () => {
+    const keyStorage = createKeyStorage();
+    const { result } = renderHook(() => {
+      const [providerSettings, setProviderSettings] = useState<ProviderSettings>({
+        ...defaultProviderSettings,
+        mode: "openai-compatible",
+        providerId: "openrouter",
+        baseUrl: "https://openrouter.ai/api/v1",
+      });
+      const [imageProviderSettings, setImageProviderSettings] = useState<ImageProviderSettings>({
+        ...defaultImageProviderSettings,
+        mode: "prompt-only",
+      });
+      const management = useProviderManagement({
+        initialProviderKeyStatus: "No key stored.",
+        providerSettings,
+        setProviderSettings,
+        imageProviderSettings,
+        setImageProviderSettings,
+        providerTestCard: initialCards[0],
+        keyStorage,
+        desktopRuntime: false,
+      });
+      return { management, setProviderSettings, setImageProviderSettings };
+    });
+
+    await waitFor(() => expect(result.current.management.secureStorageStatus.available).toBe(true));
+
+    act(() => {
+      result.current.management.setSessionApiKey("hosted-secret");
+      result.current.management.setImageSessionApiKey("image-secret");
+    });
+    expect(result.current.management.sessionApiKey).toBe("hosted-secret");
+    expect(result.current.management.imageSessionApiKey).toBe("image-secret");
+
+    act(() => result.current.setProviderSettings((current) => ({
+      ...current,
+      providerId: "local",
+      baseUrl: "http://127.0.0.1:1234/v1",
+    })));
+    expect(result.current.management.sessionApiKey).toBe("");
+    expect(result.current.management.imageSessionApiKey).toBe("image-secret");
+
+    fetchComfyUIImageModelsMock.mockResolvedValue([defaultImageProviderSettings.model]);
+    act(() => result.current.setImageProviderSettings((current) => ({
+      ...current,
+      mode: "comfyui",
+      endpoint: "http://127.0.0.1:8188",
+    })));
+    await waitFor(() => expect(result.current.management.imageSessionApiKey).toBe(""));
+    await waitFor(() => expect(result.current.management.imageProviderStatus).toMatch(/ready/i));
+  });
 });

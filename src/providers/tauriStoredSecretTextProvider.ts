@@ -53,9 +53,11 @@ export class TauriStoredSecretTextProvider implements TextModelAdapter {
 
   async generateText(request: TextGenerationRequest): Promise<TextGenerationResponse> {
     request.signal?.throwIfAborted();
-    const response = await raceWithAbort(
+    const requestId = createGenerationRequestId();
+    const response = await raceWithDesktopAbort(
       this.invokeImpl<StoredSecretTextResponse>("generate_text_with_stored_secret", {
         request: {
+          requestId,
           providerId: this.id,
           displayName: this.displayName,
           baseUrl: this.baseUrl,
@@ -72,6 +74,7 @@ export class TauriStoredSecretTextProvider implements TextModelAdapter {
         },
       }),
       request.signal,
+      () => this.invokeImpl<boolean>("cancel_text_generation", { requestId }),
     );
     const inputTokens =
       response.usage?.inputTokens ??
@@ -102,22 +105,53 @@ export class TauriStoredSecretTextProvider implements TextModelAdapter {
   }
 }
 
-function raceWithAbort<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
+let generationRequestSequence = 0;
+
+function createGenerationRequestId(): string {
+  generationRequestSequence = (generationRequestSequence + 1) % Number.MAX_SAFE_INTEGER;
+  return `generation-${Date.now().toString(36)}-${generationRequestSequence.toString(36)}`;
+}
+
+function raceWithDesktopAbort<T>(
+  operation: Promise<T>,
+  signal: AbortSignal | undefined,
+  cancel: () => Promise<boolean>,
+): Promise<T> {
   if (!signal) {
     return operation;
   }
   signal.throwIfAborted();
   return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(new DOMException("Generation stopped", "AbortError"));
+    let aborting = false;
+    const onAbort = () => {
+      aborting = true;
+      void cancel().then(
+        (acknowledged) => {
+          if (acknowledged) {
+            reject(new DOMException(
+              "Generation stopped after desktop cancellation was acknowledged.",
+              "AbortError",
+            ));
+            return;
+          }
+          reject(new Error("Generation stop was requested, but the desktop request was no longer active."));
+        },
+        () => reject(new Error("Generation stop was requested, but desktop cancellation could not be confirmed.")),
+      );
+    };
     signal.addEventListener("abort", onAbort, { once: true });
     operation.then(
       (value) => {
         signal.removeEventListener("abort", onAbort);
-        resolve(value);
+        if (!aborting) {
+          resolve(value);
+        }
       },
       (error: unknown) => {
         signal.removeEventListener("abort", onAbort);
-        reject(error);
+        if (!aborting) {
+          reject(error);
+        }
       },
     );
   });

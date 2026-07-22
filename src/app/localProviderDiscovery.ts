@@ -1,4 +1,5 @@
 import type { ProviderSettings } from "./runtimeTypes";
+import { readBoundedResponseText } from "../providers/boundedResponse";
 
 export type LocalProviderCandidate = {
   id: "ollama" | "lm-studio" | "llama-cpp" | "koboldcpp";
@@ -88,8 +89,10 @@ export async function discoverLocalProviders(invokeOverride?: Invoke): Promise<L
         redirect: "error",
       });
       if (!response.ok) throw new Error(`Local model endpoint returned ${response.status}.`);
-      const text = await response.text();
-      if (text.length > 512_000) throw new Error("Local model response was too large.");
+      const text = await readBoundedResponseText(response, {
+        maxBytes: 512_000,
+        label: "Local model response",
+      });
       return JSON.parse(text) as unknown;
     } finally {
       globalThis.clearTimeout(timeout);

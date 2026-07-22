@@ -189,6 +189,12 @@
           "markdownDescription": "Enables the backup_runtime_database command without any pre-configured scope."
         },
         {
+          "description": "Enables the cancel_text_generation command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cancel-text-generation",
+          "markdownDescription": "Enables the cancel_text_generation command without any pre-configured scope."
+        },
+        {
           "description": "Enables the delete_provider_secret command without any pre-configured scope.",
           "type": "string",
           "const": "allow-delete-provider-secret",
@@ -265,6 +271,12 @@
           "type": "string",
           "const": "deny-backup-runtime-database",
           "markdownDescription": "Denies the backup_runtime_database command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cancel_text_generation command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cancel-text-generation",
+          "markdownDescription": "Denies the cancel_text_generation command without any pre-configured scope."
         },
         {
           "description": "Denies the delete_provider_secret command without any pre-configured scope.",

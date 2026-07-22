@@ -608,12 +608,11 @@ describe("ComfyUI image provider", () => {
     vi.useFakeTimers();
     try {
       const fetchImpl = vi.fn(async () =>
-        ({
-          ok: true,
-          status: 200,
-          json: () => new Promise<unknown>(() => undefined),
-          text: () => Promise.resolve(""),
-        }) as Response,
+        new Response(new ReadableStream<Uint8Array>({
+          start() {
+            // Headers arrive, but the body never yields or closes.
+          },
+        }), { status: 200 }),
       );
       const provider = new ComfyUIImageProvider({
         endpoint: "http://127.0.0.1:8188",

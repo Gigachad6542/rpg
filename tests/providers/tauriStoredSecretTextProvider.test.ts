@@ -64,6 +64,7 @@ describe("Tauri stored-secret text provider", () => {
       "generate_text_with_stored_secret",
       expect.objectContaining({
         request: expect.objectContaining({
+          requestId: expect.stringMatching(/^generation-/),
           secretReference: expect.objectContaining({
             storageKey: "openrouter:apiKey",
           }),
@@ -138,5 +139,57 @@ describe("Tauri stored-secret text provider", () => {
       provider.generateText({ model: "qwen3.7-max", prompt: "Wait.", signal: controller.signal }),
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(invokeImpl).not.toHaveBeenCalled();
+  });
+
+  it("waits for desktop cancellation acknowledgement before reporting a stopped request", async () => {
+    let acknowledgeCancellation!: (acknowledged: boolean) => void;
+    const cancellationAcknowledgement = new Promise<boolean>((resolve) => {
+      acknowledgeCancellation = resolve;
+    });
+    const invokeMock = vi.fn((command: string, _args?: Record<string, unknown>) => {
+      if (command === "cancel_text_generation") {
+        return cancellationAcknowledgement;
+      }
+      return new Promise<unknown>(() => undefined);
+    });
+    const invokeImpl = invokeMock as unknown as <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ) => Promise<T>;
+    const provider = new TauriStoredSecretTextProvider({
+      id: "openrouter",
+      displayName: "OpenRouter BYOK",
+      baseUrl: "https://openrouter.ai/api/v1",
+      secretReference: {
+        providerId: "openrouter",
+        secretName: "apiKey",
+        storageKind: "os-keychain",
+        storageKey: "openrouter:apiKey",
+        providerBaseUrl: "https://openrouter.ai/api/v1",
+      },
+      invokeImpl,
+    });
+    const controller = new AbortController();
+    const pending = provider.generateText({
+      model: "qwen3.7-max",
+      prompt: "Wait.",
+      signal: controller.signal,
+    });
+    await Promise.resolve();
+    controller.abort();
+
+    let settled = false;
+    void pending.finally(() => {
+      settled = true;
+    }).catch(() => undefined);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    acknowledgeCancellation(true);
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    const generationRequest = invokeMock.mock.calls.find(([command]) => command === "generate_text_with_stored_secret");
+    const cancellationRequest = invokeMock.mock.calls.find(([command]) => command === "cancel_text_generation");
+    expect(cancellationRequest?.[1]).toEqual({
+      requestId: (generationRequest?.[1] as { request: { requestId: string } }).request.requestId,
+    });
   });
 });

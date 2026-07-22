@@ -12,6 +12,14 @@ import {
   extractReasoningObservation,
   mergeReasoningObservations,
 } from "./reasoningObservation";
+import {
+  assertBoundedResponseContentLength,
+  readBoundedResponseJson,
+  readBoundedResponseText,
+} from "./boundedResponse";
+
+const MAX_PROVIDER_RESPONSE_BYTES = 8 * 1024 * 1024;
+const MAX_PROVIDER_ERROR_BYTES = 64 * 1024;
 
 export interface OpenAICompatibleTextProviderConfig {
   id?: string;
@@ -97,6 +105,7 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
       const response = await timeout.run(
         this.fetchImpl(`${this.baseUrl}/chat/completions`, {
           method: "POST",
+          redirect: "error",
           headers,
           signal: timeout.signal,
           body: JSON.stringify({
@@ -123,7 +132,11 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
         );
       }
 
-      const payload = (await timeout.run(response.json())) as ChatCompletionResponse;
+      const payload = await readBoundedResponseJson<ChatCompletionResponse>(response, {
+        maxBytes: MAX_PROVIDER_RESPONSE_BYTES,
+        label: "OpenAI-compatible provider response",
+        run: (operation) => timeout.run(operation),
+      });
       const text = payload.choices?.[0]?.message?.content?.trim() ?? "";
       const inputTokens =
         payload.usage?.prompt_tokens ??
@@ -174,6 +187,7 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
       const response = await timeout.run(
         this.fetchImpl(`${this.baseUrl}/chat/completions`, {
           method: "POST",
+          redirect: "error",
           headers,
           signal: timeout.signal,
           body: JSON.stringify({
@@ -202,7 +216,13 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
       }
 
       const reader = response.body.getReader();
+      assertBoundedResponseContentLength(
+        response,
+        MAX_PROVIDER_RESPONSE_BYTES,
+        "OpenAI-compatible provider stream",
+      );
       const decoder = new TextDecoder();
+      let responseBytes = 0;
       let buffer = "";
       let index = 0;
       let finishReason: TextGenerationResponse["finishReason"] | undefined;
@@ -213,6 +233,11 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
         const { done, value } = await timeout.run(reader.read());
         if (done) {
           break;
+        }
+        responseBytes += value.byteLength;
+        if (responseBytes > MAX_PROVIDER_RESPONSE_BYTES) {
+          await reader.cancel().catch(() => undefined);
+          throw new Error("OpenAI-compatible provider stream exceeded the response safety limit.");
         }
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split(/\r?\n/);
@@ -394,7 +419,11 @@ function createRequestTimeout(
 
 async function readResponseText(timeout: RequestTimeout, response: Response): Promise<string> {
   try {
-    return await timeout.run(response.text());
+    return await readBoundedResponseText(response, {
+      maxBytes: MAX_PROVIDER_ERROR_BYTES,
+      label: "OpenAI-compatible provider error response",
+      run: (operation) => timeout.run(operation),
+    });
   } catch (error) {
     if (timeout.timedOut()) {
       throw error;

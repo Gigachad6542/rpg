@@ -33,6 +33,7 @@ describe("OpenAI-compatible text provider", () => {
       "https://example.test/v1/chat/completions",
       expect.objectContaining({
         method: "POST",
+        redirect: "error",
         headers: expect.objectContaining({
           authorization: "Bearer session-key",
         }),
@@ -54,6 +55,22 @@ describe("OpenAI-compatible text provider", () => {
       },
       usageSource: "provider",
     });
+  });
+
+  it("rejects an oversized response at the provider boundary before parsing JSON", async () => {
+    const response = new Response(JSON.stringify({ choices: [] }), {
+      status: 200,
+      headers: { "content-length": String(9 * 1024 * 1024) },
+    });
+    const provider = new OpenAICompatibleTextProvider({
+      baseUrl: "http://127.0.0.1:1234/v1",
+      allowUnauthenticated: true,
+      fetchImpl: vi.fn(async () => response) as unknown as typeof fetch,
+    });
+
+    await expect(provider.generateText({ model: "local-model", prompt: "Hello" }))
+      .rejects.toThrow(/safety limit/i);
+    expect(response.bodyUsed).toBe(false);
   });
 
   it("requests and extracts observable reasoning without mixing it into visible text", async () => {
@@ -386,11 +403,11 @@ describe("OpenAI-compatible text provider", () => {
     vi.useFakeTimers();
     try {
       const fetchImpl = vi.fn(async () =>
-        ({
-          ok: true,
-          json: () => new Promise<unknown>(() => undefined),
-          text: () => Promise.resolve(""),
-        }) as Response,
+        new Response(new ReadableStream<Uint8Array>({
+          start() {
+            // Headers arrive, but the body never yields or closes.
+          },
+        }), { status: 200 }),
       );
       const provider = new OpenAICompatibleTextProvider({
         baseUrl: "https://example.test/v1",

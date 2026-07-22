@@ -85,6 +85,14 @@ describe("useRuntimeDataManagement", () => {
     const importedSnapshot = createSnapshot({
       activeCardId: initialCards[1].id,
       savedAt: "2026-07-15T02:00:00.000Z",
+      providerSettings: {
+        ...defaultProviderSettings,
+        mode: "openai-compatible",
+        providerId: "local",
+        displayName: "LM Studio",
+        baseUrl: "http://127.0.0.1:1234/v1",
+        model: "local-model",
+      },
     });
     const rawJson = JSON.stringify(buildVersionedRuntimeExport(toRuntimeExportSnapshot(importedSnapshot)));
     const { result } = renderManagement({ captureRestorePoint, hydrateFromSnapshot });
@@ -92,6 +100,12 @@ describe("useRuntimeDataManagement", () => {
     act(() => result.current.importRuntimeData(rawJson));
 
     expect(result.current.pendingImportSnapshot?.activeCardId).toBe(initialCards[1].id);
+    expect(result.current.pendingImportReview?.providerChanges).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        label: "Text provider",
+        after: expect.stringContaining("http://127.0.0.1:1234/v1"),
+      }),
+    ]));
     expect(captureRestorePoint).not.toHaveBeenCalled();
     expect(hydrateFromSnapshot).not.toHaveBeenCalled();
 

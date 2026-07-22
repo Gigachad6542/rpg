@@ -13,6 +13,7 @@
     "allow-store-provider-secret",
     "allow-delete-provider-secret",
     "allow-generate-text-with-stored-secret",
+    "allow-cancel-text-generation",
     "allow-persist-generated-image",
     "allow-sync-generated-image-files",
     "allow-discover-local-text-providers",

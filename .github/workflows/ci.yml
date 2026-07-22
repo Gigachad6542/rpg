@@ -48,6 +48,12 @@ jobs:
       - name: Test with coverage
         run: pnpm test:coverage
 
+      - name: Phase 1 deterministic runtime evaluation
+        run: pnpm eval:phase1
+
+      - name: Phase 1.1 deterministic memory evaluation
+        run: pnpm eval:phase1.1
+
       - name: Build frontend
         run: pnpm build
 
@@ -122,6 +128,12 @@ jobs:
 
       - name: Unit tests
         run: pnpm test
+
+      - name: Phase 1 deterministic runtime evaluation
+        run: pnpm eval:phase1
+
+      - name: Phase 1.1 deterministic memory evaluation
+        run: pnpm eval:phase1.1
 
       - name: Build frontend
         run: pnpm build

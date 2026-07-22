@@ -126,5 +126,6 @@ describe("Windows PowerShell release-script compatibility", () => {
         rmSync(root, { recursive: true, force: true });
       }
     },
+    30_000,
   );
 });

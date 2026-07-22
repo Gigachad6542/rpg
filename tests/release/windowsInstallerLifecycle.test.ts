@@ -63,8 +63,14 @@ describe("Windows installer lifecycle release gate", () => {
     expect(script).toContain('"DisplayName"');
     expect(script).toContain('"DisplayVersion"');
     expect(script).toContain('"InstallLocation"');
+    expect(script).toContain('$runtimeDataRoot = Join-Path $tempRoot "RuntimeData"');
+    expect(script).toContain('$startInfo.EnvironmentVariables["APPDATA"]');
+    expect(script).toContain('$startInfo.EnvironmentVariables["LOCALAPPDATA"]');
+    expect(script).toContain('$startInfo.EnvironmentVariables["TEMP"]');
+    expect(script).toContain('$startInfo.EnvironmentVariables["TMP"]');
     expect(script).toContain("LOCAL_FIRST_AI_RPG_RUNTIME_APP_DATA_DIR");
     expect(script).toContain("local-first-ai-rpg-runtime.db");
+    expect(script).toContain("Installed runtime exited before creating its database");
     expect(script).toContain("repair/reinstall");
     expect(script).toContain("uninstall.exe");
     expect(script).toContain('status = "pending"');

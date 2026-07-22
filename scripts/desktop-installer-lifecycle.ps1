@@ -24,7 +24,11 @@ $expectedVersion = [string]$tauriConfig.version
 $expectedInstallerName = "${productName}_${expectedVersion}_x64-setup.exe"
 $expectedInstallLocation = Join-Path $env:LOCALAPPDATA $productName
 $smokeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("local-first-rpg-installer-lifecycle-" + [guid]::NewGuid().ToString("N"))
-$runtimeDataRoot = Join-Path $smokeRoot "RuntimeData"
+$profileRoot = Join-Path $smokeRoot "Profile"
+$roamingRoot = Join-Path $profileRoot "Roaming"
+$localRoot = Join-Path $profileRoot "Local"
+$tempRoot = Join-Path $profileRoot "Temp"
+$runtimeDataRoot = Join-Path $tempRoot "RuntimeData"
 $createdInstall = $false
 $installedLocation = $null
 $runtimeProcess = $null
@@ -127,6 +131,10 @@ function Start-IsolatedRuntime {
   $startInfo.WorkingDirectory = Split-Path -Parent $ExecutablePath
   $startInfo.UseShellExecute = $false
   $startInfo.CreateNoWindow = $true
+  $startInfo.EnvironmentVariables["APPDATA"] = $roamingRoot
+  $startInfo.EnvironmentVariables["LOCALAPPDATA"] = $localRoot
+  $startInfo.EnvironmentVariables["TEMP"] = $tempRoot
+  $startInfo.EnvironmentVariables["TMP"] = $tempRoot
   $startInfo.EnvironmentVariables["LOCAL_FIRST_AI_RPG_RUNTIME_APP_DATA_DIR"] = $runtimeDataRoot
   $process = [System.Diagnostics.Process]::Start($startInfo)
   if (-not $process) {
@@ -145,7 +153,12 @@ function Stop-Runtime {
 }
 
 function Wait-ForDatabase {
+  param([Parameter(Mandatory = $true)]$Process)
+
   for ($attempt = 0; $attempt -lt 30; $attempt++) {
+    if ($Process.HasExited) {
+      throw "Installed runtime exited before creating its database with code $($Process.ExitCode)."
+    }
     $database = Get-ChildItem -LiteralPath $runtimeDataRoot -File -Filter "local-first-ai-rpg-runtime.db" -ErrorAction SilentlyContinue |
       Select-Object -First 1
     if ($database) {
@@ -168,7 +181,7 @@ function Wait-ForRemoval {
   throw "Installer lifecycle left residue at $Path."
 }
 
-New-Item -ItemType Directory -Force -Path $runtimeDataRoot, $EvidenceDir | Out-Null
+New-Item -ItemType Directory -Force -Path $roamingRoot, $localRoot, $tempRoot, $runtimeDataRoot, $EvidenceDir | Out-Null
 
 try {
   $existing = @(Get-RegisteredProduct)
@@ -201,7 +214,7 @@ try {
   }
 
   $runtimeProcess = Start-IsolatedRuntime -ExecutablePath $installedExecutable
-  $database = Wait-ForDatabase
+  $database = Wait-ForDatabase -Process $runtimeProcess
   Start-Sleep -Seconds 2
   if ($runtimeProcess.HasExited) {
     throw "Installed runtime exited during first launch with code $($runtimeProcess.ExitCode)."

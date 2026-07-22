@@ -31,6 +31,39 @@ describe("persisted model-call validation", () => {
     expect(parsePersistedModelCallRecords([validCall])).toEqual([validCall]);
   });
 
+  it("accepts the current conditional memory-evidence phase", () => {
+    const memoryEvidenceCall = {
+      ...validCall,
+      phase: "memory-evidence",
+      stateProposalCount: 0,
+    } as const;
+
+    expect(parsePersistedModelCallRecords([memoryEvidenceCall])).toEqual([memoryEvidenceCall]);
+  });
+
+  it("persists bounded reasoning proof but rejects private reasoning traces", () => {
+    const observedReasoningCall = {
+      ...validCall,
+      reasoning: {
+        request: "enabled",
+        observed: true,
+        traceAvailable: true,
+        encrypted: false,
+        tokenCount: 200,
+      },
+    } as const;
+
+    expect(parsePersistedModelCallRecords([observedReasoningCall])).toEqual([observedReasoningCall]);
+    expect(parsePersistedModelCallRecords([{
+      ...observedReasoningCall,
+      reasoning: { ...observedReasoningCall.reasoning, trace: "private chain" },
+    }])).toBeUndefined();
+    expect(parsePersistedModelCallRecords([{
+      ...observedReasoningCall,
+      reasoning: { ...observedReasoningCall.reasoning, tokenCount: validCall.usage.outputTokens + 1 },
+    }])).toBeUndefined();
+  });
+
   it("accepts a nontrivial runtime cost rounded with the canonical USD rule", () => {
     const roundedRuntimeCall = {
       ...validCall,

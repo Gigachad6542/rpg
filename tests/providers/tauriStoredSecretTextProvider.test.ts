@@ -13,8 +13,12 @@ describe("Tauri stored-secret text provider", () => {
       finishReason: "stop",
       usage: {
         inputTokens: 12,
-        outputTokens: 4,
-        totalTokens: 16,
+        outputTokens: 14,
+        totalTokens: 26,
+      },
+      raw: {
+        choices: [{ message: { content: "The gate opens.", reasoning: "The key matches the lock." } }],
+        usage: { completion_tokens_details: { reasoning_tokens: 9 } },
       },
     }));
     const provider = new TauriStoredSecretTextProvider({
@@ -38,13 +42,20 @@ describe("Tauri stored-secret text provider", () => {
         model: "qwen3.7-max",
         prompt: "Open the gate.",
         temperature: 0.4,
+        seed: 37119,
+        responseFormat: { type: "json_object" },
         timeoutMs: 12_000,
+        reasoning: { enabled: true, exclude: false },
       }),
     ).resolves.toMatchObject({
       providerId: "openrouter",
       text: "The gate opens.",
       usage: {
-        totalTokens: 16,
+        totalTokens: 26,
+      },
+      reasoning: {
+        trace: "The key matches the lock.",
+        tokenCount: 9,
       },
       usageSource: "provider",
     });
@@ -57,6 +68,9 @@ describe("Tauri stored-secret text provider", () => {
             storageKey: "openrouter:apiKey",
           }),
           timeoutMs: 12_000,
+          seed: 37119,
+          responseFormat: { type: "json_object" },
+          reasoning: { enabled: true, exclude: false },
         }),
       }),
     );

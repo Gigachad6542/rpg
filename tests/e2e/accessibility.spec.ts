@@ -58,7 +58,7 @@ async function auditMemoryDialog(page: Page, theme: string) {
   await expect(dialog).toBeHidden();
 }
 
-async function auditSettingsDialogs(page: Page, theme: string, createPersona: boolean) {
+async function auditPersonaDeletionDialog(page: Page, theme: string, createPersona: boolean) {
   if (createPersona) {
     await page.getByLabel(/^New persona name$/i).fill("Accessibility persona");
     await page.getByRole("button", { name: /^Create persona$/i }).click();
@@ -70,7 +70,9 @@ async function auditSettingsDialogs(page: Page, theme: string, createPersona: bo
   await expectNoAutomatedWcagViolations(page, `${theme} persona deletion dialog`);
   await page.keyboard.press("Escape");
   await expect(deleteDialog).toBeHidden();
+}
 
+async function auditSettingsDialogs(page: Page, theme: string) {
   const exportBundle = await page.evaluate((storageKey) => {
     const snapshot = JSON.parse(localStorage.getItem(storageKey) ?? "null");
     return JSON.stringify({
@@ -110,21 +112,26 @@ test("primary dark and light product surfaces pass automated WCAG A/AA checks", 
   await expectNoAutomatedWcagViolations(page, "dark runtime");
   await auditMemoryDialog(page, "dark");
 
-  for (const section of ["Cards", "Lorebooks", "API Keys", "Settings"] as const) {
+  for (const section of ["Cards", "Personas", "Lorebooks", "API Keys", "Settings"] as const) {
     await page.getByRole("button", { name: new RegExp(`^${section}$`) }).click();
     await expectNoAutomatedWcagViolations(page, `dark ${section}`);
+    if (section === "Personas") {
+      await auditPersonaDeletionDialog(page, "dark", true);
+    }
   }
-  await auditSettingsDialogs(page, "dark", true);
+  await auditSettingsDialogs(page, "dark");
 
   await page.getByRole("button", { name: /^Light mode$/i }).click();
   await expectNoAutomatedWcagViolations(page, "light Settings");
-  await auditSettingsDialogs(page, "light", false);
+  await auditSettingsDialogs(page, "light");
 
-  for (const section of ["Runtime", "Cards", "Lorebooks", "API Keys"] as const) {
+  for (const section of ["Runtime", "Cards", "Personas", "Lorebooks", "API Keys"] as const) {
     await page.getByRole("button", { name: new RegExp(`^${section}$`) }).click();
     await expectNoAutomatedWcagViolations(page, `light ${section}`);
     if (section === "Runtime") {
       await auditMemoryDialog(page, "light");
+    } else if (section === "Personas") {
+      await auditPersonaDeletionDialog(page, "light", false);
     }
   }
 });
@@ -156,7 +163,7 @@ test("primary surfaces reflow at 320 CSS pixels and remain valid in forced color
   await expectNoHorizontalReflowFailures(page, "onboarding at 320 CSS pixels");
   await onboarding.getByRole("button", { name: /Start mock demo/i }).click();
 
-  for (const section of ["Runtime", "Cards", "Lorebooks", "API Keys", "Settings"] as const) {
+  for (const section of ["Runtime", "Cards", "Personas", "Lorebooks", "API Keys", "Settings"] as const) {
     await page.getByRole("button", { name: new RegExp(`^${section}$`) }).click();
     await expectNoHorizontalReflowFailures(page, `${section} at 320 CSS pixels`);
   }

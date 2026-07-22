@@ -100,6 +100,7 @@ export const defaultProviderSettings: ProviderSettings = {
 };
 
 export const openRouterModelChoices: ModelChoice[] = [
+  { id: "qwen/qwen3.7-max", label: "Qwen3.7-Max (reasoning)" },
   { id: "qwen/qwen3-235b-a22b", label: "Qwen3 235B A22B" },
   { id: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet" },
   { id: "openai/gpt-4o-mini", label: "GPT-4o Mini" },
@@ -275,7 +276,8 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   banEmojis: false,
   promptDebugLogs: false,
   diceRollsEnabled: false,
-  hiddenContinuityMode: "full",
+  dialogueExampleMode: "all",
+  hiddenContinuityMode: "evidence-brief",
   economicalModel: "",
   onboardingCompleted: false,
   accentColor: "",

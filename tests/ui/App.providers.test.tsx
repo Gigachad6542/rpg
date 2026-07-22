@@ -267,7 +267,7 @@ describe("local-first card runtime UI: providers", () => {
     });
     const openRouterModelSelect = H.within(llmProviderSection).getByLabelText(/^Model$/i) as HTMLSelectElement;
     expect(openRouterModelSelect.tagName).toBe("SELECT");
-    expect(H.within(openRouterModelSelect).getByRole("option", { name: /Qwen3/i })).toBeInTheDocument();
+    expect(H.within(openRouterModelSelect).getByRole("option", { name: /Qwen3\.7-Max/i })).toBeInTheDocument();
     H.fireEvent.change(openRouterModelSelect, { target: { value: "anthropic/claude-3.5-sonnet" } });
     expect(openRouterModelSelect).toHaveValue("anthropic/claude-3.5-sonnet");
 
@@ -425,11 +425,19 @@ describe("local-first card runtime UI: providers", () => {
         ),
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(
+        JSON.parse(window.localStorage.getItem(H.RUNTIME_STORAGE_KEY) ?? "{}").imageProviderSettings?.model,
+      ).toBe("missing-image-model.safetensors");
 
       const secondRender = await H.renderApp();
       secondRender.unmount();
       rejectStartup(new Error("late startup failure"));
       await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(
+        JSON.parse(window.localStorage.getItem(H.RUNTIME_STORAGE_KEY) ?? "{}").imageProviderSettings?.model,
+      ).toBe("missing-image-model.safetensors");
     } finally {
       H.vi.unstubAllGlobals();
     }

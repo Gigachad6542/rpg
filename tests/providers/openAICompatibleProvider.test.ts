@@ -25,6 +25,8 @@ describe("OpenAI-compatible text provider", () => {
       model: "qwen3.7-max",
       prompt: "Open the cellar door.",
       temperature: 0.4,
+      seed: 37119,
+      responseFormat: { type: "json_object" },
     });
 
     expect(fetchImpl).toHaveBeenCalledWith(
@@ -40,6 +42,8 @@ describe("OpenAI-compatible text provider", () => {
     expect(JSON.parse(String(fetchCalls[0][1].body))).toMatchObject({
       model: "qwen3.7-max",
       temperature: 0.4,
+      seed: 37119,
+      response_format: { type: "json_object" },
     });
     expect(response).toMatchObject({
       providerId: "test-provider",
@@ -50,6 +54,59 @@ describe("OpenAI-compatible text provider", () => {
       },
       usageSource: "provider",
     });
+  });
+
+  it("requests and extracts observable reasoning without mixing it into visible text", async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{
+            message: {
+              content: "The answer remains concise.",
+              reasoning: "I compared the deadline with the travel time.",
+              reasoning_details: [{
+                type: "reasoning.text",
+                text: "I compared the deadline with the travel time.",
+                format: "unknown",
+                id: "reasoning-1",
+              }],
+            },
+            finish_reason: "stop",
+          }],
+          usage: {
+            prompt_tokens: 20,
+            completion_tokens: 35,
+            total_tokens: 55,
+            completion_tokens_details: { reasoning_tokens: 24 },
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    const provider = new OpenAICompatibleTextProvider({
+      id: "openrouter",
+      baseUrl: "https://openrouter.ai/api/v1",
+      apiKey: "session-key",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    const response = await provider.generateText({
+      model: "qwen/qwen3.7-max",
+      prompt: "Can we arrive before the fifth bell?",
+      reasoning: { enabled: true, exclude: false },
+    });
+
+    const fetchCalls = fetchImpl.mock.calls as unknown as Array<[string, RequestInit]>;
+    expect(JSON.parse(String(fetchCalls[0][1].body))).toMatchObject({
+      reasoning: { enabled: true, exclude: false },
+    });
+    expect(response.reasoning).toEqual({
+      trace: "I compared the deadline with the travel time.",
+      format: "text",
+      encrypted: false,
+      tokenCount: 24,
+    });
+    expect(response.text).toBe("The answer remains concise.");
   });
 
   it("includes the trusted system prompt in fallback input-token usage", async () => {
@@ -183,6 +240,43 @@ describe("OpenAI-compatible text provider", () => {
     expect(JSON.parse(String(fetchCalls[0][1].body))).toMatchObject({
       stream: true,
     });
+  });
+
+  it("preserves streamed reasoning separately from visible text", async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(
+          'data: {"choices":[{"delta":{"reasoning":"Check the older deadline. "}}]}\n\n',
+        ));
+        controller.enqueue(encoder.encode(
+          'data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.summary","summary":"The route is too slow.","format":"unknown","id":"r-2"}]}}]}\n\n',
+        ));
+        controller.enqueue(encoder.encode(
+          'data: {"choices":[{"delta":{"content":"We will miss it."},"finish_reason":"stop"}],"usage":{"prompt_tokens":9,"completion_tokens":12,"total_tokens":21,"completion_tokens_details":{"reasoning_tokens":8}}}\n\n',
+        ));
+        controller.close();
+      },
+    });
+    const provider = new OpenAICompatibleTextProvider({
+      baseUrl: "https://openrouter.ai/api/v1",
+      apiKey: "session-key",
+      fetchImpl: vi.fn(async () => new Response(stream, { status: 200 })) as unknown as typeof fetch,
+    });
+
+    const chunks = [];
+    for await (const chunk of provider.streamText?.({
+      model: "qwen/qwen3.7-max",
+      prompt: "Can we arrive?",
+      reasoning: { enabled: true, exclude: false },
+    }) ?? []) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks.map((chunk) => chunk.text).join("")).toBe("We will miss it.");
+    expect(chunks.map((chunk) => chunk.reasoning?.trace).filter(Boolean).join(""))
+      .toBe("Check the older deadline. The route is too slow.");
+    expect(chunks[chunks.length - 1].reasoning).toMatchObject({ tokenCount: 8 });
   });
 
   it("rejects a stream that closes without a done marker or finish reason", async () => {

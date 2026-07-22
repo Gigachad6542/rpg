@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 
 import {
   appendRestorePoint,
@@ -36,6 +36,7 @@ export interface UseRuntimePersistenceOptions {
   currentSnapshot: AppRuntimeSnapshot;
   applyResolvedRuntimeState: (state: ResolvedRuntimeSnapshotState) => void;
   desktopRuntime?: boolean;
+  generationInFlightRef?: MutableRefObject<boolean>;
 }
 
 export interface RuntimePersistenceController {
@@ -58,11 +59,14 @@ export function useRuntimePersistence({
   currentSnapshot,
   applyResolvedRuntimeState,
   desktopRuntime,
+  generationInFlightRef,
 }: UseRuntimePersistenceOptions): RuntimePersistenceController {
   const isDesktopRuntime = desktopRuntime ?? isTauriRuntime();
   const repositoryStoreRef = useRef<Awaited<ReturnType<typeof RuntimeRepositoryStore.create>> | null>(null);
   const snapshotSaveQueueRef = useRef<SnapshotSaveQueue<RepositoryRuntimeSnapshot> | null>(null);
   const currentSnapshotRef = useRef(currentSnapshot);
+  const internalGenerationInFlightRef = useRef(false);
+  const turnGenerationInFlightRef = generationInFlightRef ?? internalGenerationInFlightRef;
   const restoreSignatureRef = useRef("");
   const [saveStatus, setSaveStatus] = useState(
     initialSnapshot ? "Loaded local runtime snapshot." : "Ready for local save.",
@@ -264,6 +268,10 @@ export function useRuntimePersistence({
   }, []);
 
   const restoreRuntimeFromPoint = useCallback((pointId: string) => {
+    if (turnGenerationInFlightRef.current) {
+      setRestoreStatus("Stop the in-flight generation before restoring runtime data.");
+      return;
+    }
     const point = findRestorePoint(restorePoints, pointId);
     if (!point) {
       setRestoreStatus("That restore point is no longer available.");
@@ -278,7 +286,7 @@ export function useRuntimePersistence({
       fallbackMessages: starterMessages,
     }));
     setRestoreStatus(`Restored "${point.label}" from ${formatRestorePointTime(point.createdAt)}.`);
-  }, [applyResolvedRuntimeState, captureRestorePoint, restorePoints]);
+  }, [applyResolvedRuntimeState, captureRestorePoint, restorePoints, turnGenerationInFlightRef]);
 
   const getRepositoryBackend = useCallback(
     () => repositoryStoreRef.current?.getStatus().backend ?? "unknown",

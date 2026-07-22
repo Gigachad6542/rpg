@@ -78,6 +78,61 @@ describe("chat lifecycle mutations", () => {
     expect(result.activeChatIds[card.id]).toBe(existing.id);
   });
 
+  it("retains prompt runs from a deleted parent while a branch still references them", () => {
+    const card = initialCards[0];
+    const active = initializeChatTurnState(
+      createChatSession(card.id, "Parent", {
+        id: "chat_parent",
+        messages: [{ id: "assistant-parent", role: "assistant", content: "Parent reply", promptRunId: "run-shared" }],
+      }),
+      card,
+    );
+    const branch = initializeChatTurnState(
+      createChatSession(card.id, "Branch", {
+        id: "chat_branch",
+        branchOfId: active.id,
+        messages: [{
+          id: "assistant-branch",
+          role: "assistant",
+          content: "Variant two",
+          promptRunId: "run-shared",
+          variants: ["Variant one", "Variant two"],
+          activeVariantIndex: 1,
+          variantRunIds: ["run-shared", "run-branch-variant"],
+        }],
+      }),
+      card,
+    );
+
+    const result = deleteActiveChatState({
+      activeCard: card,
+      activeChat: active,
+      cards: [card],
+      chatSessions: [active, branch],
+      activeChatIds: { [card.id]: active.id },
+      promptRuns: [promptRunWithId("run-shared", active.id), promptRunWithId("run-orphan", active.id)],
+      generatedMaps: [],
+      createFallbackChat: () => branch,
+    });
+
+    expect(result.promptRuns.map((run) => run.id)).toEqual(["run-shared"]);
+
+    const afterBranchDeletion = deleteActiveChatState({
+      activeCard: result.cards[0],
+      activeChat: branch,
+      cards: result.cards,
+      chatSessions: result.chatSessions,
+      activeChatIds: result.activeChatIds,
+      promptRuns: result.promptRuns,
+      generatedMaps: [],
+      createFallbackChat: () => initializeChatTurnState(
+        createChatSession(card.id, "Fallback", { id: "chat_final_fallback" }),
+        card,
+      ),
+    });
+    expect(afterBranchDeletion.promptRuns).toEqual([]);
+  });
+
   it("archives the last active chat without dropping older archives", () => {
     const card = initialCards[0];
     const active = initializeChatTurnState(
@@ -138,8 +193,12 @@ describe("chat lifecycle mutations", () => {
 });
 
 function promptRun(chatId: string): PromptRun {
+  return promptRunWithId(`run_${chatId}`, chatId);
+}
+
+function promptRunWithId(id: string, chatId: string): PromptRun {
   return {
-    id: `run_${chatId}`,
+    id,
     cardId: initialCards[0].id,
     chatId,
     compiledPrompt: "",

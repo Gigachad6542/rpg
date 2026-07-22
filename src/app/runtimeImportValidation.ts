@@ -242,9 +242,17 @@ const ModelCallFailureSchema = z.object({
   message: z.string().min(1).max(240).refine((message) => !containsSecretLikeTelemetry(message)),
 }).strict();
 
+const ModelCallReasoningSchema = z.object({
+  request: z.enum(["enabled", "disabled", "unspecified"]),
+  observed: z.boolean(),
+  traceAvailable: z.boolean(),
+  encrypted: z.boolean(),
+  tokenCount: z.number().int().nonnegative().optional(),
+}).strict();
+
 const ModelCallSchema = z
   .object({
-    phase: z.enum(["hidden-continuity", "visible-response"]),
+    phase: z.enum(["hidden-continuity", "memory-evidence", "visible-response"]),
     provider: z.string(),
     model: z.string(),
     usage: TokenUsageSchema,
@@ -256,6 +264,7 @@ const ModelCallSchema = z
     usageSource: z.enum(["provider", "estimated", "unavailable"]).optional(),
     cost: ModelCallCostSchema.optional(),
     failure: ModelCallFailureSchema.optional(),
+    reasoning: ModelCallReasoningSchema.optional(),
     stateProposalCount: z.number().int().nonnegative().max(10_000).optional(),
   })
   .passthrough()

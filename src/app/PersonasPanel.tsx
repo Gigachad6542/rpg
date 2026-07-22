@@ -16,6 +16,7 @@ export function PersonasPanel(props: {
   addPersona: (name: string) => void;
   editPersona: (personaId: string, changes: Partial<Persona>) => void;
   removePersona: (personaId: string) => void;
+  isGenerating?: boolean;
 }) {
   const [newPersonaName, setNewPersonaName] = useState("");
   const [editingPersonaId, setEditingPersonaId] = useState<string | null>(null);
@@ -116,6 +117,7 @@ export function PersonasPanel(props: {
               type="button"
               className="persona-select"
               onClick={() => props.selectPersona(NO_PERSONA_ID)}
+              disabled={props.isGenerating}
             >
               <span className="persona-avatar persona-avatar-fallback" aria-hidden="true">
                 <UserRound size={16} />
@@ -130,7 +132,7 @@ export function PersonasPanel(props: {
                 type="button"
                 className="secondary-button compact-button"
                 onClick={() => props.selectPersona(NO_PERSONA_ID)}
-                disabled={props.activePersonaId === NO_PERSONA_ID}
+                disabled={props.activePersonaId === NO_PERSONA_ID || props.isGenerating}
                 aria-label="Use no persona"
               >
                 <Check size={15} />
@@ -166,7 +168,7 @@ export function PersonasPanel(props: {
                   type="button"
                   className="secondary-button compact-button"
                   onClick={() => props.selectPersona(persona.id)}
-                  disabled={persona.id === props.activePersonaId}
+                  disabled={persona.id === props.activePersonaId || props.isGenerating}
                   aria-label={`Use ${persona.name}`}
                 >
                   <Check size={15} />
@@ -177,6 +179,7 @@ export function PersonasPanel(props: {
                   className="secondary-button danger-button compact-button"
                   onClick={() => setPendingDeletePersona(persona)}
                   aria-label={`Delete ${persona.name}`}
+                  disabled={props.isGenerating}
                 >
                   <Trash2 size={15} />
                 </button>
@@ -190,13 +193,14 @@ export function PersonasPanel(props: {
             value={newPersonaName}
             onChange={(event) => setNewPersonaName(event.target.value)}
             placeholder="Mara the cartographer"
+            disabled={props.isGenerating}
           />
         </label>
         <button
           className="primary-button compact-button"
           type="button"
           onClick={createPersona}
-          disabled={!newPersonaName.trim()}
+          disabled={!newPersonaName.trim() || props.isGenerating}
         >
           <Plus size={16} />
           Create persona
@@ -208,6 +212,7 @@ export function PersonasPanel(props: {
           title={`Delete ${pendingDeletePersona.name}?`}
           cancelLabel="Cancel deletion"
           confirmLabel="Delete persona"
+          confirmDisabled={props.isGenerating}
           cancel={() => setPendingDeletePersona(null)}
           confirm={() => {
             props.removePersona(pendingDeletePersona.id);
@@ -233,6 +238,7 @@ export function PersonasPanel(props: {
               <input
                 value={editingPersona.name}
                 onChange={(event) => props.editPersona(editingPersona.id, { name: event.target.value })}
+                disabled={props.isGenerating}
               />
             </label>
             <label className="field">
@@ -242,17 +248,19 @@ export function PersonasPanel(props: {
                 onChange={(event) => props.editPersona(editingPersona.id, { description: event.target.value })}
                 rows={8}
                 placeholder="Describe the user's persona, point of view, boundaries, or roleplay voice the card should account for."
+                disabled={props.isGenerating}
               />
             </label>
             <label className="field">
               <span>Persona avatar</span>
-              <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void readAvatar(event)} />
+              <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void readAvatar(event)} disabled={props.isGenerating} />
             </label>
             {editingPersona.avatarDataUrl ? (
               <button
                 type="button"
                 className="secondary-button compact-button"
                 onClick={() => props.editPersona(editingPersona.id, { avatarDataUrl: undefined })}
+                disabled={props.isGenerating}
               >
                 <Trash2 size={15} />
                 Remove avatar
@@ -274,6 +282,7 @@ export function PersonasPanel(props: {
                         type="checkbox"
                         checked={lorebook.enabled}
                         onChange={(event) => updatePersonaLorebook(lorebook.id, { enabled: event.target.checked })}
+                        disabled={props.isGenerating}
                       />
                       <span>
                         {lorebook.name} · {lorebook.entries.length} entries
@@ -284,6 +293,7 @@ export function PersonasPanel(props: {
                       className="secondary-button danger-button compact-button"
                       onClick={() => removePersonaLorebook(lorebook.id)}
                       aria-label={`Remove ${lorebook.name}`}
+                      disabled={props.isGenerating}
                     >
                       <Trash2 size={15} />
                     </button>
@@ -298,13 +308,14 @@ export function PersonasPanel(props: {
                 onChange={(event) => setLorebookImportDraft(event.target.value)}
                 rows={6}
                 placeholder='{"name":"My history","entries":[{"keys":["home"],"content":"I grew up on the coast."}]}'
+                disabled={props.isGenerating}
               />
             </label>
             <button
               className="primary-button compact-button"
               type="button"
               onClick={importPersonaLorebook}
-              disabled={!lorebookImportDraft.trim()}
+              disabled={!lorebookImportDraft.trim() || props.isGenerating}
             >
               <Upload size={16} />
               Attach lorebook

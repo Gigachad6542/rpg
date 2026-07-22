@@ -103,6 +103,7 @@ interface AppTopbarProps {
   section: MainSection;
   activeCard: ActiveCardSummary | null;
   runtimeRunning: boolean;
+  isGenerating?: boolean;
   editCard: () => void;
   openMemory: () => void;
   shutdownRuntime: () => void;
@@ -113,6 +114,7 @@ export function AppTopbar({
   section,
   activeCard,
   runtimeRunning,
+  isGenerating = false,
   editCard,
   openMemory,
   shutdownRuntime,
@@ -135,7 +137,7 @@ export function AppTopbar({
       </div>
       <div className="topbar-actions">
         {section === "runtime" && activeCard ? (
-          <button className="secondary-button" type="button" onClick={editCard}>
+          <button className="secondary-button" type="button" onClick={editCard} disabled={isGenerating}>
             <PenLine size={17} />
             Edit card
           </button>

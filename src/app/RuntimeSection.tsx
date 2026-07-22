@@ -43,6 +43,7 @@ import { toGeneratedImageSrc } from "./generatedImages";
 import { getActivePersona } from "./personas";
 import { MessageContent } from "./ChatMessage";
 import { TurnDeltaPanel } from "./TurnDeltaPanel";
+import type { ModelReasoningTraceMap } from "./reasoningTraces";
 import { StoryCharactersPanel } from "./StoryCharactersPanel";
 
 export function RuntimeSection(props: {
@@ -77,6 +78,7 @@ export function RuntimeSection(props: {
   isGenerating: boolean;
   stopGeneration: () => void;
   streamingReply: string;
+  reasoningTraces: ModelReasoningTraceMap;
   promptRuns: PromptRun[];
   ruleWarning: string | null;
   mapPrompt: string | null;
@@ -175,6 +177,7 @@ export function RuntimeSection(props: {
             <select
               aria-label="Active chat"
               value={props.activeChat?.id ?? ""}
+              disabled={props.isGenerating}
               onChange={(event) => {
                 setMessageWindowSize(120);
                 setAutoFollow(true);
@@ -194,6 +197,7 @@ export function RuntimeSection(props: {
             <select
               aria-label="Active persona"
               value={props.activePersonaId}
+              disabled={props.isGenerating}
               onChange={(event) => props.selectPersona(event.target.value)}
             >
               {props.personas.map((persona) => (
@@ -204,7 +208,7 @@ export function RuntimeSection(props: {
             </select>
           </label>
           <div className="chat-actions">
-            <button className="secondary-button compact-button" type="button" onClick={props.startNewChat}>
+            <button className="secondary-button compact-button" type="button" onClick={props.startNewChat} disabled={props.isGenerating}>
               <Plus size={16} />
               New chat
             </button>
@@ -212,7 +216,7 @@ export function RuntimeSection(props: {
               className="secondary-button compact-button"
               type="button"
               onClick={props.branchChat}
-              disabled={!props.activeChat || props.messages.length === 0}
+              disabled={!props.activeChat || props.messages.length === 0 || props.isGenerating}
             >
               <GitBranch size={16} />
               Branch chat
@@ -224,7 +228,7 @@ export function RuntimeSection(props: {
                 setChatTitleDraft(props.activeChat?.title ?? "");
                 setIsRenamingChat((current) => !current);
               }}
-              disabled={!props.activeChat}
+              disabled={!props.activeChat || props.isGenerating}
             >
               <PenLine size={16} />
               Rename
@@ -233,7 +237,7 @@ export function RuntimeSection(props: {
               <Download size={16} />
               Export
             </button>
-            <button className="secondary-button compact-button" type="button" onClick={props.archiveChat} disabled={!props.activeChat}>
+            <button className="secondary-button compact-button" type="button" onClick={props.archiveChat} disabled={!props.activeChat || props.isGenerating}>
               <Archive size={16} />
               Archive
             </button>
@@ -247,7 +251,7 @@ export function RuntimeSection(props: {
                 Cancel delete chat
               </button>
             ) : null}
-            <button className="secondary-button danger-button compact-button" type="button" onClick={props.deleteChat}>
+            <button className="secondary-button danger-button compact-button" type="button" onClick={props.deleteChat} disabled={!props.activeChat || props.isGenerating}>
               <Trash2 size={16} />
               {props.isDeleteChatPending ? "Confirm delete chat" : "Delete chat"}
             </button>
@@ -265,16 +269,16 @@ export function RuntimeSection(props: {
           >
             <label className="field">
               <span>Chat name</span>
-              <input value={chatTitleDraft} maxLength={120} onChange={(event) => setChatTitleDraft(event.target.value)} autoFocus />
+              <input value={chatTitleDraft} maxLength={120} onChange={(event) => setChatTitleDraft(event.target.value)} autoFocus disabled={props.isGenerating} />
             </label>
-            <button className="primary-button compact-button" type="submit">Save name</button>
+            <button className="primary-button compact-button" type="submit" disabled={props.isGenerating}>Save name</button>
           </form>
         ) : null}
         {props.archivedChats.length > 0 ? (
           <details className="archived-chat-list">
             <summary>Archived chats ({props.archivedChats.length})</summary>
             {props.archivedChats.map((chat) => (
-              <button className="secondary-button compact-button" type="button" key={chat.id} onClick={() => props.restoreChat(chat.id)}>
+              <button className="secondary-button compact-button" type="button" key={chat.id} onClick={() => props.restoreChat(chat.id)} disabled={props.isGenerating}>
                 <ArchiveRestore size={15} />
                 Restore {chat.title}
               </button>
@@ -358,6 +362,7 @@ export function RuntimeSection(props: {
                           className="message-swipe-arrow"
                           aria-label="Previous reply"
                           onClick={() => props.swipeMessageVariant(message.id, -1)}
+                          disabled={props.isGenerating}
                         >
                           <ChevronLeft size={14} />
                         </button>
@@ -369,6 +374,7 @@ export function RuntimeSection(props: {
                           className="message-swipe-arrow"
                           aria-label="Next reply"
                           onClick={() => props.swipeMessageVariant(message.id, 1)}
+                          disabled={props.isGenerating}
                         >
                           <ChevronRight size={14} />
                         </button>
@@ -380,6 +386,7 @@ export function RuntimeSection(props: {
                         className="message-action"
                         aria-label="Regenerate reply"
                         onClick={() => void props.regenerateLastReply()}
+                        disabled={props.isGenerating}
                       >
                         <RefreshCw size={13} />
                         Regenerate
@@ -389,6 +396,7 @@ export function RuntimeSection(props: {
                       type="button"
                       className="message-action"
                       aria-label="Edit message"
+                      disabled={props.isGenerating}
                       onClick={() => {
                         setEditingMessageId(message.id);
                         setEditDraft(message.content);
@@ -406,13 +414,14 @@ export function RuntimeSection(props: {
                     aria-label="Edit message text"
                     value={editDraft}
                     onChange={(event) => setEditDraft(event.target.value)}
+                    disabled={props.isGenerating}
                     rows={4}
                   />
                   <div className="message-editor-actions">
                     <button
                       type="button"
                       className="primary-button compact-button"
-                      disabled={!editDraft.trim()}
+                      disabled={!editDraft.trim() || props.isGenerating}
                       onClick={() => {
                         props.editMessage(message.id, editDraft);
                         setEditingMessageId(null);
@@ -438,7 +447,9 @@ export function RuntimeSection(props: {
               )}
               {message.role === "assistant" ? (() => {
                 const activeVariantIndex = message.activeVariantIndex ?? Math.max((message.variants?.length ?? 1) - 1, 0);
-                const runId = message.variantRunIds?.[activeVariantIndex] || message.promptRunId;
+                const runId = message.variants && message.variants.length > 1
+                  ? message.variantRunIds?.[activeVariantIndex]
+                  : message.promptRunId;
                 const run = runId ? props.promptRuns.find((candidate) => candidate.id === runId) : undefined;
                 if (!run) {
                   return null;
@@ -451,8 +462,9 @@ export function RuntimeSection(props: {
                 return (
                   <TurnDeltaPanel
                     run={run}
+                    reasoningTraces={props.reasoningTraces}
                     onUndo={() => props.undoTurnEffects(message.id)}
-                    canUndo={canUndo}
+                    canUndo={canUndo && !props.isGenerating}
                     undone={undone}
                   />
                 );
@@ -500,7 +512,7 @@ export function RuntimeSection(props: {
                   }
                 }
               }}
-              disabled={!props.runtimeRunning}
+              disabled={!props.runtimeRunning || props.isGenerating}
               rows={4}
               placeholder="Type what you want to say or do..."
             />
@@ -532,7 +544,7 @@ export function RuntimeSection(props: {
               className="secondary-button compact-button"
               type="button"
               onClick={props.writeForMe}
-              disabled={!props.runtimeRunning}
+              disabled={!props.runtimeRunning || props.isGenerating}
             >
               <Wand2 size={16} />
               Write for me

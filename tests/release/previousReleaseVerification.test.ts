@@ -128,6 +128,28 @@ function runVerifier(
   );
 }
 
+function resolveAuthenticodePowerShell(): string {
+  for (const executable of ["pwsh", "powershell"]) {
+    const probe = spawnSync(
+      executable,
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "Get-Command Get-AuthenticodeSignature -ErrorAction Stop | Out-Null",
+      ],
+      { cwd: workspaceRoot, encoding: "utf8", windowsHide: true },
+    );
+    if (!probe.error && probe.status === 0) {
+      return executable;
+    }
+  }
+
+  throw new Error(
+    "Windows release verification requires pwsh or powershell with Get-AuthenticodeSignature available.",
+  );
+}
+
 describe("previous Windows release metadata verification", () => {
   it("accepts an older release only when checksum and provenance bind the exact MSI", () => {
     const fixture = createFixture();
@@ -221,7 +243,7 @@ describe("previous Windows release metadata verification", () => {
     () => {
       const fixture = createFixture();
       const result = spawnSync(
-        "powershell",
+        resolveAuthenticodePowerShell(),
         [
           "-NoProfile",
           "-ExecutionPolicy",

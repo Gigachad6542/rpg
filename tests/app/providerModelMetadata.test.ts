@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { getConfiguredTextModelInfoForModel } from "../../src/app/providerConfig";
+import {
+  getConfiguredTextModelInfoForModel,
+  shouldEnableVisibleReasoning,
+} from "../../src/app/providerConfig";
 import type { ProviderSettings } from "../../src/app/runtimeTypes";
 
 describe("provider model metadata routing", () => {
@@ -25,5 +28,19 @@ describe("provider model metadata routing", () => {
       displayName: "small-economical-model",
       providerId: "local",
     });
+  });
+
+  it("enables explicit visible reasoning only for the known Qwen3.7-Max model", () => {
+    const settings: ProviderSettings = {
+      mode: "openai-compatible",
+      providerId: "openrouter",
+      displayName: "OpenRouter",
+      baseUrl: "https://openrouter.ai/api/v1",
+      model: "qwen/qwen3.7-max",
+    };
+
+    expect(shouldEnableVisibleReasoning(settings)).toBe(true);
+    expect(shouldEnableVisibleReasoning({ ...settings, model: "vendor/unknown" })).toBe(false);
+    expect(shouldEnableVisibleReasoning({ ...settings, mode: "mock", providerId: "mock" })).toBe(false);
   });
 });

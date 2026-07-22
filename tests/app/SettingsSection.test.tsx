@@ -4,15 +4,14 @@ import { describe, expect, it, vi } from "vitest";
 import { SettingsSection, type RuntimeSettingsView } from "../../src/app/SettingsSection";
 
 describe("SettingsSection", () => {
-  it("configures hidden continuity as off, economical, or full with honest call counts", () => {
+  it("offers the tested windowed evidence brief as the sole two-call memory option", () => {
     const setRuntimeSettings = vi.fn();
     const runtimeSettings = {
       textStreaming: false,
       banEmojis: false,
       promptDebugLogs: false,
       diceRollsEnabled: false,
-      hiddenContinuityMode: "full",
-      economicalModel: "economical-model",
+      hiddenContinuityMode: "evidence-brief",
       onboardingCompleted: true,
       accentColor: "",
     } as RuntimeSettingsView;
@@ -37,15 +36,14 @@ describe("SettingsSection", () => {
 
     const runtimePanel = screen.getByRole("region", { name: /Runtime settings/i });
     expect(within(runtimePanel).getByText(/Desktop keys stored in the OS keychain use request\/response/i)).toBeInTheDocument();
-    expect(within(runtimePanel).getByText(/full.*2 calls/i)).toBeInTheDocument();
-    fireEvent.change(within(runtimePanel).getByLabelText(/Hidden continuity mode/i), {
+    expect(within(runtimePanel).getByText(/older context.*four-message window/i)).toBeInTheDocument();
+    const memoryMode = within(runtimePanel).getByLabelText(/Two-model-call memory/i);
+    expect(within(memoryMode).getAllByRole("option")).toHaveLength(2);
+    fireEvent.change(memoryMode, {
       target: { value: "off" },
     });
     expect(setRuntimeSettings).toHaveBeenCalledWith({ ...runtimeSettings, hiddenContinuityMode: "off" });
-    fireEvent.change(within(runtimePanel).getByLabelText(/Economical continuity model/i), {
-      target: { value: "small-model" },
-    });
-    expect(setRuntimeSettings).toHaveBeenCalledWith({ ...runtimeSettings, economicalModel: "small-model" });
+    expect(within(runtimePanel).queryByLabelText(/Economical continuity model/i)).not.toBeInTheDocument();
   });
 
   it("updates runtime settings and imports runtime JSON drafts", () => {
@@ -84,10 +82,14 @@ describe("SettingsSection", () => {
     fireEvent.click(within(runtimePanel).getByLabelText(/Text streaming/i));
     fireEvent.click(within(runtimePanel).getByLabelText(/Ban emojis/i));
     fireEvent.click(within(runtimePanel).getByLabelText(/Prompt debug logs/i));
+    fireEvent.change(within(runtimePanel).getByLabelText(/Dialogue examples/i), {
+      target: { value: "selective" },
+    });
 
     expect(setRuntimeSettings).toHaveBeenCalledWith({ ...runtimeSettings, textStreaming: false });
     expect(setRuntimeSettings).toHaveBeenCalledWith({ ...runtimeSettings, banEmojis: true });
     expect(setRuntimeSettings).toHaveBeenCalledWith({ ...runtimeSettings, promptDebugLogs: true });
+    expect(setRuntimeSettings).toHaveBeenCalledWith({ ...runtimeSettings, dialogueExampleMode: "selective" });
     expect(screen.getByText("(no runtime settings enabled)")).toBeInTheDocument();
 
     const dataPanel = screen.getByRole("region", { name: /Runtime data management/i });

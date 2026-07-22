@@ -9,6 +9,7 @@ export type RuntimeImportReviewView = {
 
 export function RuntimeImportReviewDialog(props: {
   review: RuntimeImportReviewView;
+  applyDisabled?: boolean;
   apply: () => void;
   cancel: () => void;
 }) {
@@ -19,6 +20,7 @@ export function RuntimeImportReviewDialog(props: {
       title="Replace current runtime data?"
       cancelLabel="Cancel import"
       confirmLabel="Replace runtime data"
+      confirmDisabled={props.applyDisabled}
       cancel={cancel}
       confirm={apply}
     >

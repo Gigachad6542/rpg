@@ -5,7 +5,13 @@ import type {
   TextGenerationRequest,
   TextGenerationResponse,
   TextModelAdapter,
+  TextReasoningConfig,
+  TextReasoningObservation,
 } from "./TextModelAdapter";
+import {
+  extractReasoningObservation,
+  mergeReasoningObservations,
+} from "./reasoningObservation";
 
 export interface OpenAICompatibleTextProviderConfig {
   id?: string;
@@ -22,6 +28,9 @@ export interface OpenAICompatibleTextProviderConfig {
 interface ChatCompletionChoice {
   message?: {
     content?: string | null;
+    reasoning?: unknown;
+    reasoning_content?: unknown;
+    reasoning_details?: unknown;
   };
   finish_reason?: string | null;
 }
@@ -32,6 +41,9 @@ interface ChatCompletionResponse {
     prompt_tokens?: number;
     completion_tokens?: number;
     total_tokens?: number;
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+    };
   };
 }
 
@@ -90,6 +102,9 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
           body: JSON.stringify({
             model: request.model,
             temperature: request.temperature,
+            seed: request.seed,
+            response_format: request.responseFormat,
+            reasoning: toProviderReasoning(request.reasoning),
             max_tokens: request.maxOutputTokens,
             messages: [
               request.systemPrompt ? { role: "system", content: request.systemPrompt } : null,
@@ -114,6 +129,7 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
         payload.usage?.prompt_tokens ??
         estimateTextTokens([request.systemPrompt, request.prompt].filter(Boolean).join("\n\n"));
       const outputTokens = payload.usage?.completion_tokens ?? estimateTextTokens(text);
+      const reasoning = extractReasoningObservation(payload);
 
       return {
         providerId: this.id,
@@ -131,6 +147,7 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
           payload.usage.total_tokens !== undefined
             ? "provider"
             : "estimated",
+        ...(reasoning ? { reasoning } : {}),
         raw: payload,
       };
     } finally {
@@ -162,6 +179,9 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
           body: JSON.stringify({
             model: request.model,
             temperature: request.temperature,
+            seed: request.seed,
+            response_format: request.responseFormat,
+            reasoning: toProviderReasoning(request.reasoning),
             max_tokens: request.maxOutputTokens,
             stream: true,
             messages: [
@@ -187,6 +207,7 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
       let index = 0;
       let finishReason: TextGenerationResponse["finishReason"] | undefined;
       let usage: TextGenerationResponse["usage"] | undefined;
+      let terminalReasoning: TextReasoningObservation | undefined;
 
       while (true) {
         const { done, value } = await timeout.run(reader.read());
@@ -204,6 +225,7 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
           }
           finishReason = event.finishReason ?? finishReason;
           usage = event.usage ?? usage;
+          terminalReasoning = mergeReasoningObservations(terminalReasoning, event.reasoning);
           if (event.doneMarker) {
             yield {
               text: "",
@@ -211,14 +233,18 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
               done: true,
               finishReason: finishReason ?? "stop",
               ...(usage ? { usage, usageSource: "provider" as const } : {}),
+              ...(toTerminalReasoningMetadata(terminalReasoning)
+                ? { reasoning: toTerminalReasoningMetadata(terminalReasoning) }
+                : {}),
             };
             return;
           }
-          if (event.text.length > 0) {
+          if (event.text.length > 0 || event.reasoning) {
             yield {
               text: event.text,
               index,
               done: false,
+              ...(event.reasoning ? { reasoning: event.reasoning } : {}),
             };
             index += 1;
           }
@@ -231,8 +257,14 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
         if (event) {
           finishReason = event.finishReason ?? finishReason;
           usage = event.usage ?? usage;
-          if (event.text.length > 0) {
-            yield { text: event.text, index, done: false };
+          terminalReasoning = mergeReasoningObservations(terminalReasoning, event.reasoning);
+          if (event.text.length > 0 || event.reasoning) {
+            yield {
+              text: event.text,
+              index,
+              done: false,
+              ...(event.reasoning ? { reasoning: event.reasoning } : {}),
+            };
             index += 1;
           }
           if (event.doneMarker) {
@@ -242,6 +274,9 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
               done: true,
               finishReason: finishReason ?? "stop",
               ...(usage ? { usage, usageSource: "provider" as const } : {}),
+              ...(toTerminalReasoningMetadata(terminalReasoning)
+                ? { reasoning: toTerminalReasoningMetadata(terminalReasoning) }
+                : {}),
             };
             return;
           }
@@ -257,6 +292,9 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
         done: true,
         finishReason,
         ...(usage ? { usage, usageSource: "provider" as const } : {}),
+        ...(toTerminalReasoningMetadata(terminalReasoning)
+          ? { reasoning: toTerminalReasoningMetadata(terminalReasoning) }
+          : {}),
       };
     } finally {
       timeout.cleanup();
@@ -266,6 +304,17 @@ export class OpenAICompatibleTextProvider implements TextModelAdapter {
 
 function bindFetch(fetchImpl: typeof fetch = globalThis.fetch): typeof fetch {
   return fetchImpl.bind(globalThis) as typeof fetch;
+}
+
+function toTerminalReasoningMetadata(
+  observation: TextReasoningObservation | undefined,
+): TextReasoningObservation | undefined {
+  if (!observation || (observation.tokenCount === undefined && !observation.encrypted)) return undefined;
+  return {
+    format: observation.encrypted ? "encrypted" : "unavailable",
+    encrypted: observation.encrypted,
+    ...(observation.tokenCount === undefined ? {} : { tokenCount: observation.tokenCount }),
+  };
 }
 
 const defaultRequestTimeoutMs = 60_000;
@@ -375,6 +424,16 @@ function normalizeBaseUrl(value: string): string {
   return url.toString().replace(/\/+$/, "");
 }
 
+function toProviderReasoning(reasoning: TextReasoningConfig | undefined): Record<string, unknown> | undefined {
+  if (!reasoning) return undefined;
+  return {
+    ...(reasoning.enabled !== undefined ? { enabled: reasoning.enabled } : {}),
+    ...(reasoning.effort !== undefined ? { effort: reasoning.effort } : {}),
+    ...(reasoning.maxTokens !== undefined ? { max_tokens: reasoning.maxTokens } : {}),
+    ...(reasoning.exclude !== undefined ? { exclude: reasoning.exclude } : {}),
+  };
+}
+
 function isLoopbackBaseUrl(value: string): boolean {
   const url = new URL(value);
   return (
@@ -418,6 +477,7 @@ interface ParsedStreamEvent {
   doneMarker: boolean;
   finishReason?: TextGenerationResponse["finishReason"];
   usage?: TextGenerationResponse["usage"];
+  reasoning?: TextReasoningObservation;
 }
 
 function parseStreamLine(line: string): ParsedStreamEvent | undefined {
@@ -442,11 +502,13 @@ function parseStreamLine(line: string): ParsedStreamEvent | undefined {
     };
     const reportedUsage = readCompleteStreamUsage(parsed.usage);
     const rawFinishReason = parsed.choices?.[0]?.finish_reason;
+    const reasoning = extractReasoningObservation(parsed);
     return {
       text: parsed.choices?.[0]?.delta?.content ?? "",
       doneMarker: false,
       ...(typeof rawFinishReason === "string" ? { finishReason: mapFinishReason(rawFinishReason) } : {}),
       ...(reportedUsage ? { usage: reportedUsage } : {}),
+      ...(reasoning ? { reasoning } : {}),
     };
   } catch {
     return undefined;

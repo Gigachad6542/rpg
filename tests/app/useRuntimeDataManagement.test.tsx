@@ -106,6 +106,22 @@ describe("useRuntimeDataManagement", () => {
     expect(result.current.dataManagementStatus).toContain(importedSnapshot.savedAt);
   });
 
+  it("keeps a reviewed import pending while a turn generation is in flight", () => {
+    const importedSnapshot = createSnapshot({ savedAt: "2026-07-15T03:00:00.000Z" });
+    const rawJson = JSON.stringify(buildVersionedRuntimeExport(toRuntimeExportSnapshot(importedSnapshot)));
+    const { result, captureRestorePoint, hydrateFromSnapshot } = renderManagement({
+      generationInFlightRef: { current: true },
+    });
+
+    act(() => result.current.importRuntimeData(rawJson));
+    act(() => result.current.applyRuntimeImport());
+
+    expect(captureRestorePoint).not.toHaveBeenCalled();
+    expect(hydrateFromSnapshot).not.toHaveBeenCalled();
+    expect(result.current.pendingImportSnapshot).not.toBeNull();
+    expect(result.current.dataManagementStatus).toMatch(/stop the in-flight generation/i);
+  });
+
   it("downloads a versioned runtime export and redacted repository diagnostics", () => {
     const secret = "sk-live-diagnostics-secret";
     const currentSnapshot = createSnapshot({

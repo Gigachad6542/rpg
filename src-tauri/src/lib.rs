@@ -32,6 +32,9 @@ const MAX_PROMPT_CHARS: usize = 200_000;
 const DEFAULT_OUTPUT_TOKENS: u32 = 900;
 const MAX_OUTPUT_TOKENS: u32 = 4_096;
 const MAX_MODEL_ID_CHARS: usize = 160;
+const MAX_RESPONSE_FORMAT_NAME_CHARS: usize = 64;
+const MAX_RESPONSE_FORMAT_JSON_CHARS: usize = 64_000;
+const MAX_GENERATION_SEED: i64 = 9_007_199_254_740_991;
 const DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS: u64 = 60_000;
 const MAX_PROVIDER_REQUEST_TIMEOUT_MS: u64 = 300_000;
 const MAX_GENERATION_REQUESTS_PER_WINDOW: usize = 20;
@@ -124,8 +127,20 @@ struct StoredTextGenerationRequest {
     prompt: String,
     system_prompt: Option<String>,
     temperature: Option<f32>,
+    seed: Option<i64>,
+    response_format: Option<serde_json::Value>,
     max_output_tokens: Option<u32>,
     timeout_ms: Option<u64>,
+    reasoning: Option<StoredReasoningConfig>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredReasoningConfig {
+    enabled: Option<bool>,
+    effort: Option<String>,
+    max_tokens: Option<u32>,
+    exclude: Option<bool>,
 }
 
 #[derive(serde::Serialize)]
@@ -241,6 +256,9 @@ async fn generate_text_with_stored_secret(
     validate_generation_model(&request.model)?;
     let max_output_tokens = validate_max_output_tokens(request.max_output_tokens)?;
     let request_timeout = validate_request_timeout(request.timeout_ms)?;
+    let reasoning = validate_reasoning_config(request.reasoning.as_ref(), max_output_tokens)?;
+    let seed = validate_generation_seed(request.seed)?;
+    let response_format = validate_response_format(request.response_format.as_ref())?;
     check_generation_rate_limit()?;
 
     let entry = keyring_entry(&request.secret_reference.storage_key)?;
@@ -261,12 +279,27 @@ async fn generate_text_with_stored_secret(
     }
     messages.push(serde_json::json!({ "role": "user", "content": request.prompt }));
 
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "model": request.model,
         "temperature": request.temperature,
         "max_tokens": max_output_tokens,
         "messages": messages,
     });
+    if let Some(reasoning) = reasoning {
+        body.as_object_mut()
+            .ok_or_else(|| "Could not build provider request.".to_string())?
+            .insert("reasoning".to_string(), reasoning);
+    }
+    if let Some(seed) = seed {
+        body.as_object_mut()
+            .ok_or_else(|| "Could not build provider request.".to_string())?
+            .insert("seed".to_string(), serde_json::json!(seed));
+    }
+    if let Some(response_format) = response_format {
+        body.as_object_mut()
+            .ok_or_else(|| "Could not build provider request.".to_string())?
+            .insert("response_format".to_string(), response_format);
+    }
 
     let client = reqwest::Client::builder()
         .timeout(request_timeout)
@@ -796,6 +829,134 @@ fn validate_max_output_tokens(value: Option<u32>) -> Result<u32, String> {
     Ok(tokens)
 }
 
+fn validate_generation_seed(value: Option<i64>) -> Result<Option<i64>, String> {
+    match value {
+        Some(seed) if seed.unsigned_abs() > MAX_GENERATION_SEED as u64 => {
+            Err("Generation seed exceeds the supported integer range.".to_string())
+        }
+        _ => Ok(value),
+    }
+}
+
+fn validate_response_format(
+    value: Option<&serde_json::Value>,
+) -> Result<Option<serde_json::Value>, String> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let object = value
+        .as_object()
+        .ok_or_else(|| "Response format must be an object.".to_string())?;
+    let response_type = object
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "Response format type is required.".to_string())?;
+
+    match response_type {
+        "json_object" => {
+            if object.len() != 1 {
+                return Err("JSON object response format contains unsupported fields.".to_string());
+            }
+        }
+        "json_schema" => {
+            if object
+                .keys()
+                .any(|key| key != "type" && key != "json_schema")
+            {
+                return Err("JSON schema response format contains unsupported fields.".to_string());
+            }
+            let descriptor = object
+                .get("json_schema")
+                .and_then(serde_json::Value::as_object)
+                .ok_or_else(|| "JSON schema response format requires json_schema.".to_string())?;
+            if descriptor
+                .keys()
+                .any(|key| key != "name" && key != "strict" && key != "schema")
+            {
+                return Err("JSON schema descriptor contains unsupported fields.".to_string());
+            }
+            let name = descriptor
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "JSON schema response format requires a name.".to_string())?;
+            if name.is_empty()
+                || name.chars().count() > MAX_RESPONSE_FORMAT_NAME_CHARS
+                || !name.chars().all(|character| {
+                    character.is_ascii_alphanumeric() || matches!(character, '_' | '-')
+                })
+            {
+                return Err("JSON schema response format name is invalid.".to_string());
+            }
+            if descriptor
+                .get("strict")
+                .is_some_and(|strict| !strict.is_boolean())
+            {
+                return Err("JSON schema strict must be a boolean.".to_string());
+            }
+            if !descriptor
+                .get("schema")
+                .is_some_and(serde_json::Value::is_object)
+            {
+                return Err("JSON schema response format requires an object schema.".to_string());
+            }
+        }
+        _ => return Err("Response format type is not supported.".to_string()),
+    }
+
+    let serialized = serde_json::to_string(value)
+        .map_err(|_| "Response format could not be serialized.".to_string())?;
+    if serialized.chars().count() > MAX_RESPONSE_FORMAT_JSON_CHARS {
+        return Err("Response format exceeds the local safety limit.".to_string());
+    }
+    Ok(Some(value.clone()))
+}
+
+fn validate_reasoning_config(
+    value: Option<&StoredReasoningConfig>,
+    max_output_tokens: u32,
+) -> Result<Option<serde_json::Value>, String> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.effort.is_some() && value.max_tokens.is_some() {
+        return Err("Reasoning effort and maxTokens cannot both be set.".to_string());
+    }
+    if let Some(effort) = value.effort.as_deref() {
+        if !matches!(
+            effort,
+            "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+        ) {
+            return Err("Reasoning effort is not supported.".to_string());
+        }
+    }
+    if let Some(tokens) = value.max_tokens {
+        if tokens == 0 || tokens >= max_output_tokens {
+            return Err(
+                "Reasoning maxTokens must be positive and lower than the total output limit."
+                    .to_string(),
+            );
+        }
+    }
+
+    let mut result = serde_json::Map::new();
+    if let Some(enabled) = value.enabled {
+        result.insert("enabled".to_string(), serde_json::Value::Bool(enabled));
+    }
+    if let Some(effort) = value.effort.as_ref() {
+        result.insert(
+            "effort".to_string(),
+            serde_json::Value::String(effort.clone()),
+        );
+    }
+    if let Some(tokens) = value.max_tokens {
+        result.insert("max_tokens".to_string(), serde_json::Value::from(tokens));
+    }
+    if let Some(exclude) = value.exclude {
+        result.insert("exclude".to_string(), serde_json::Value::Bool(exclude));
+    }
+    Ok(Some(serde_json::Value::Object(result)))
+}
+
 fn validate_request_timeout(value: Option<u64>) -> Result<std::time::Duration, String> {
     let timeout_ms = value.unwrap_or(DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS);
     if timeout_ms == 0 || timeout_ms > MAX_PROVIDER_REQUEST_TIMEOUT_MS {
@@ -1034,6 +1195,71 @@ mod tests {
             std::time::Duration::from_millis(DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS)
         );
         assert!(validate_request_timeout(Some(MAX_PROVIDER_REQUEST_TIMEOUT_MS + 1)).is_err());
+    }
+
+    #[test]
+    fn optional_generation_seed_and_response_format_are_bounded() {
+        assert_eq!(
+            validate_generation_seed(Some(37_119)).unwrap(),
+            Some(37_119)
+        );
+        assert!(validate_generation_seed(Some(MAX_GENERATION_SEED + 1)).is_err());
+        let json_object = serde_json::json!({ "type": "json_object" });
+        assert_eq!(
+            validate_response_format(Some(&json_object)).unwrap(),
+            Some(json_object)
+        );
+        let json_schema = serde_json::json!({
+            "type": "json_schema",
+            "json_schema": {
+                "name": "memory_evidence_brief",
+                "strict": true,
+                "schema": { "type": "object", "properties": {} }
+            }
+        });
+        assert_eq!(
+            validate_response_format(Some(&json_schema)).unwrap(),
+            Some(json_schema)
+        );
+        assert!(validate_response_format(Some(&serde_json::json!({
+            "type": "json_schema",
+            "json_schema": { "name": "bad name", "schema": {} }
+        })))
+        .is_err());
+        assert!(validate_response_format(Some(&serde_json::json!({
+            "type": "text"
+        })))
+        .is_err());
+    }
+
+    #[test]
+    fn reasoning_request_is_bounded_and_serialized_for_the_provider() {
+        let enabled = StoredReasoningConfig {
+            enabled: Some(true),
+            effort: None,
+            max_tokens: None,
+            exclude: Some(false),
+        };
+        assert_eq!(
+            validate_reasoning_config(Some(&enabled), 4_000).unwrap(),
+            Some(serde_json::json!({ "enabled": true, "exclude": false }))
+        );
+
+        let conflicting = StoredReasoningConfig {
+            enabled: Some(true),
+            effort: Some("high".to_string()),
+            max_tokens: Some(2_000),
+            exclude: Some(false),
+        };
+        assert!(validate_reasoning_config(Some(&conflicting), 4_000).is_err());
+
+        let oversized = StoredReasoningConfig {
+            enabled: Some(true),
+            effort: None,
+            max_tokens: Some(4_000),
+            exclude: Some(false),
+        };
+        assert!(validate_reasoning_config(Some(&oversized), 4_000).is_err());
     }
 
     #[test]

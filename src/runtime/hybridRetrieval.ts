@@ -3,6 +3,7 @@ export const HYBRID_RETRIEVAL_SOURCES = [
   "lore",
   "rolling-summary",
   "event",
+  "dialogue-example",
 ] as const;
 
 export type HybridRetrievalSource = (typeof HYBRID_RETRIEVAL_SOURCES)[number];

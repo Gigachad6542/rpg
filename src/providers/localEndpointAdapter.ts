@@ -34,4 +34,8 @@ export class LocalEndpointTextProvider implements TextModelAdapter {
   async generateText(request: Parameters<TextModelAdapter["generateText"]>[0]) {
     return this.transport.generateText(request);
   }
+
+  streamText(request: Parameters<NonNullable<TextModelAdapter["streamText"]>>[0]) {
+    return this.transport.streamText(request);
+  }
 }

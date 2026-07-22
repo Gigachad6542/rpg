@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState, type MutableRefObject } from "react";
 
 import { countImportedMessages } from "./appControllerHelpers";
 import { downloadJson, formatDownloadTimestamp, getErrorMessage, toRuntimeExportSnapshot } from "./appUtils";
@@ -29,6 +29,7 @@ export interface UseRuntimeDataManagementOptions {
   providerKeyStatus: string;
   imageProviderStatus: string;
   getRepositoryBackend: () => RepositoryBackend;
+  generationInFlightRef?: MutableRefObject<boolean>;
 }
 
 export interface RuntimeDataManagementController {
@@ -51,7 +52,10 @@ export function useRuntimeDataManagement({
   providerKeyStatus,
   imageProviderStatus,
   getRepositoryBackend,
+  generationInFlightRef,
 }: UseRuntimeDataManagementOptions): RuntimeDataManagementController {
+  const internalGenerationInFlightRef = useRef(false);
+  const turnGenerationInFlightRef = generationInFlightRef ?? internalGenerationInFlightRef;
   const [dataManagementStatus, setDataManagementStatus] = useState(
     "Runtime export, import, and diagnostics are ready.",
   );
@@ -80,6 +84,10 @@ export function useRuntimeDataManagement({
 
   function applyRuntimeImport() {
     if (!pendingImportSnapshot) return;
+    if (turnGenerationInFlightRef.current) {
+      setDataManagementStatus("Stop the in-flight generation before applying a runtime import.");
+      return;
+    }
     captureRestorePoint();
     hydrateFromSnapshot(pendingImportSnapshot as RepositoryRuntimeSnapshot, "Imported runtime export.");
     setDataManagementStatus(`Imported runtime export saved at ${pendingImportSnapshot.savedAt}.`);

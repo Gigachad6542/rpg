@@ -103,6 +103,7 @@ export function App() {
   const [cardTab, setCardTab] = useState<CardTab>("chat");
   const [draft, setDraft] = useState("");
   const [runtimeRunning, setRuntimeRunning] = useState(true);
+  const turnGenerationInFlightRef = useRef(false);
   const [promptRuns, setPromptRuns] = useState<PromptRun[]>(() => initialRuntimeState.promptRuns);
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [ruleWarning, setRuleWarning] = useState<string | null>(null);
@@ -167,13 +168,15 @@ export function App() {
             }
           : undefined,
         sources: {
-          cardDefinition: formatDetailedCharacterDefinition(activeCard),
+          cardDefinition: formatDetailedCharacterDefinition(activeCard, {
+            includeExampleDialogs: (runtimeSettings.dialogueExampleMode ?? "all") === "all",
+          }),
           personaDescription: activePersona?.description,
           memoryEntries: activeCard.memory.map((entry) => `${entry.label}: ${entry.detail}`),
         },
       });
     },
-    [activeCard, activePersona, messages, draft],
+    [activeCard, activePersona, messages, draft, runtimeSettings.dialogueExampleMode],
   );
   const activeLorebookEntries = activeLoreSelection.entries;
   const activeLoreTriggers: LoreTriggerProvenance[] = activeLoreSelection.triggers;
@@ -299,10 +302,12 @@ export function App() {
     setSessionApiKey,
     setProviderKeyStatus,
     generateCustomImageFromRequest,
+    generationInFlightRef: turnGenerationInFlightRef,
   });
   const {
     isGenerating,
     streamingReply,
+    reasoningTraces,
     generateTurn: generateMockTurn,
     regenerateLastReply,
     stopGeneration,
@@ -324,6 +329,7 @@ export function App() {
     setRuleWarning,
     runSlashCommand,
     generateMissingCharacterPortraits,
+    generationInFlightRef: turnGenerationInFlightRef,
   });
 
   // The prompt preview recompiles the full token-budgeted prompt, which is
@@ -455,6 +461,7 @@ export function App() {
     initialSnapshot,
     currentSnapshot,
     applyResolvedRuntimeState,
+    generationInFlightRef: turnGenerationInFlightRef,
   });
   const {
     dataManagementStatus,
@@ -473,6 +480,7 @@ export function App() {
     providerKeyStatus,
     imageProviderStatus,
     getRepositoryBackend,
+    generationInFlightRef: turnGenerationInFlightRef,
   });
   const {
     isConsolidatingMemory,
@@ -484,6 +492,7 @@ export function App() {
     shutdownRuntime,
     startRuntime,
     completeOnboarding,
+    selectPersona,
     addPersona,
     editPersona,
     removePersona,
@@ -506,6 +515,7 @@ export function App() {
     stopGeneration,
     captureRestorePoint,
     commitManualActiveCardState,
+    generationInFlightRef: turnGenerationInFlightRef,
   });
 
   useEffect(() => {
@@ -579,6 +589,7 @@ export function App() {
           section={section}
           activeCard={activeCard}
           runtimeRunning={runtimeRunning}
+          isGenerating={isGenerating}
           editCard={() => {
             if (!activeCard) {
               return;
@@ -594,6 +605,7 @@ export function App() {
         {section === "runtime" ? (
           activeCard ? (
             <RuntimeSection
+              key={`${activeCard.id}:${activeChat?.id ?? "no-chat"}`}
               activeCard={activeCard}
               activeChat={activeChat}
               cardChats={getCardChats(activeCard.id, chatSessions)}
@@ -613,7 +625,7 @@ export function App() {
               isDeleteChatPending={pendingDeleteChatId === activeChat?.id}
               personas={personas}
               activePersonaId={activePersonaId}
-              selectPersona={setActivePersonaId}
+              selectPersona={selectPersona}
               messages={visibleMessages}
               editMessage={editMessageContent}
               regenerateLastReply={regenerateLastReply}
@@ -628,7 +640,8 @@ export function App() {
               isGenerating={isGenerating}
               stopGeneration={stopGeneration}
               streamingReply={streamingReply}
-              promptRuns={promptRuns.filter((run) => run.cardId === activeCard.id && (!activeChat || run.chatId === activeChat.id))}
+              reasoningTraces={reasoningTraces}
+              promptRuns={promptRuns.filter((run) => run.cardId === activeCard.id)}
               ruleWarning={ruleWarning}
               mapPrompt={mapPrompt}
               mapArtifact={mapArtifact}
@@ -698,10 +711,11 @@ export function App() {
             <PersonasPanel
               personas={personas}
               activePersonaId={activePersonaId}
-              selectPersona={setActivePersonaId}
+              selectPersona={selectPersona}
               addPersona={addPersona}
               editPersona={editPersona}
               removePersona={removePersona}
+              isGenerating={isGenerating}
             />
           </div>
         ) : null}
@@ -721,7 +735,6 @@ export function App() {
             providerKeyStatus={providerKeyStatus}
             providerTestStatus={providerTestStatus}
             providerSettings={providerSettings}
-            economicalModel={runtimeSettings.economicalModel}
             setProviderSettings={setProviderSettings}
             imageProviderSettings={imageProviderSettings}
             setImageProviderSettings={setImageProviderSettings}
@@ -755,6 +768,7 @@ export function App() {
             restorePoints={restorePointViews}
             restoreStatus={restoreStatus}
             restoreRuntimePoint={restoreRuntimeFromPoint}
+            isGenerating={isGenerating}
           />
         ) : null}
       </section>

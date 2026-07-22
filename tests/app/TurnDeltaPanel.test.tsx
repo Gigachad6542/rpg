@@ -45,7 +45,7 @@ describe("TurnDeltaPanel", () => {
           stateProposals: [],
           modelCalls: [
             {
-              phase: "hidden-continuity",
+              phase: "memory-evidence",
               provider: "telemetry-provider",
               model: "mock-narrator",
               usage: { inputTokens: 30, outputTokens: 5, totalTokens: 35 },
@@ -75,7 +75,7 @@ describe("TurnDeltaPanel", () => {
     fireEvent.click(summary);
 
     expect(screen.getByText(/retains its own usage, latency, cost status, failure, and proposal count/i)).toBeInTheDocument();
-    expect(screen.getByText(/Continuity preparation/i)).toBeInTheDocument();
+    expect(screen.getByText(/Memory evidence brief/i)).toBeInTheDocument();
     expect(screen.getByText(/Visible response/i)).toBeInTheDocument();
     expect(screen.getAllByText(/telemetry-provider \/ mock-narrator/i)).toHaveLength(2);
     expect(screen.getByText(/30 input.*5 output.*35 total/i)).toBeInTheDocument();
@@ -86,6 +86,80 @@ describe("TurnDeltaPanel", () => {
     expect(screen.getByText(/640 ms phase duration/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Cost unknown/i)).toHaveLength(2);
     expect(screen.getAllByText(/0 state proposals/i)).toHaveLength(2);
+  });
+
+  it("shows verified reasoning status and exposes the private trace only in a warning disclosure", () => {
+    render(
+      <TurnDeltaPanel
+        run={promptRun({
+          stateChanges: [],
+          stateProposals: [],
+          modelCalls: [{
+            phase: "visible-response",
+            provider: "openrouter",
+            model: "qwen/qwen3.7-max",
+            usage: { inputTokens: 20, outputTokens: 30, totalTokens: 50 },
+            durationMs: 400,
+            status: "success",
+            reasoning: {
+              request: "enabled",
+              observed: true,
+              traceAvailable: true,
+              encrypted: false,
+              tokenCount: 18,
+            },
+          }],
+        })}
+        reasoningTraces={{
+          "run-1:visible-response": {
+            trace: "The deadline precedes the party's arrival.",
+            format: "text",
+            encrypted: false,
+            tokenCount: 18,
+          },
+        }}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText(/1 model calls/i));
+    expect(screen.getByText(/Reasoning confirmed.*18 reasoning tokens/i)).toBeInTheDocument();
+    const traceDisclosure = screen.getByText(/Show model reasoning.*private.*spoilers/i);
+    expect(screen.queryByText("The deadline precedes the party's arrival.")).not.toBeInTheDocument();
+    fireEvent.click(traceDisclosure);
+    expect(screen.getByText(/may expose private memory, hidden plot facts, or instructions/i)).toBeInTheDocument();
+    expect(screen.getByText("The deadline precedes the party's arrival.")).toBeInTheDocument();
+  });
+
+  it("does not call a zero-token reasoning report confirmed thinking", () => {
+    render(
+      <TurnDeltaPanel
+        run={promptRun({
+          stateChanges: [],
+          stateProposals: [],
+          modelCalls: [{
+            phase: "visible-response",
+            provider: "openrouter",
+            model: "qwen/qwen3.7-max",
+            usage: { inputTokens: 20, outputTokens: 12, totalTokens: 32 },
+            durationMs: 240,
+            status: "success",
+            reasoning: {
+              request: "enabled",
+              observed: true,
+              traceAvailable: false,
+              encrypted: false,
+              tokenCount: 0,
+            },
+          }],
+        })}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText(/1 model calls/i));
+    expect(screen.getByText(/provider reported 0 reasoning tokens/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Reasoning confirmed/i)).not.toBeInTheDocument();
   });
 
   it("shows applied and blocked proposals with provenance and supports undo", () => {

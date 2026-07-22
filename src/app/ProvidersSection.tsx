@@ -28,7 +28,6 @@ export function ProvidersSection(props: {
   providerKeyStatus: string;
   providerTestStatus: string;
   providerSettings: ProviderSettings;
-  economicalModel?: string;
   setProviderSettings: (settings: ProviderSettings) => void;
   imageProviderSettings: ImageProviderSettings;
   setImageProviderSettings: (settings: ImageProviderSettings) => void;
@@ -173,8 +172,8 @@ export function ProvidersSection(props: {
           Stored desktop keys are used through the local backend; React keeps only a secret reference.
         </p>
         <p className="field-help">
-          Full and economical continuity make two sequential text-model calls; turning hidden continuity off makes one
-          visible-response call. Expand the model-call summary under a turn to inspect phase, tokens, latency, cost,
+          The optional two-call memory tactic runs only after context leaves the four-message response window: the same
+          selected model builds a source-cited evidence brief, then writes the visible response. Expand the model-call summary under a turn to inspect phase, tokens, latency, cost,
           failures, and state proposals. Unknown provider pricing is shown as unknown rather than zero.
         </p>
         <label className="field">
@@ -323,17 +322,6 @@ export function ProvidersSection(props: {
           pricing={props.providerSettings.pricing}
           onChange={(pricing) => updateSettings({ pricing })}
         />
-        {props.economicalModel?.trim() && props.economicalModel.trim() !== props.providerSettings.model ? (
-          <ModelPricingFields
-            key={`${props.providerSettings.providerId}:economical:${props.economicalModel.trim()}`}
-            label="Economical hidden model"
-            model={props.economicalModel.trim()}
-            pricing={props.providerSettings.economicalPricing?.model === props.economicalModel.trim()
-              ? props.providerSettings.economicalPricing
-              : undefined}
-            onChange={(economicalPricing) => updateSettings({ economicalPricing })}
-          />
-        ) : null}
         <label className="field">
           <span>Session API key</span>
           <input

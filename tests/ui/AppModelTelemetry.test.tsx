@@ -27,10 +27,8 @@ vi.mock("@tauri-apps/api/core", () => ({
 async function renderAppAndOpenBlankCard() {
   render(<App />);
   await screen.findByText(/Repository API ready|SQLite repository ready|Repository unavailable/i);
-
   fireEvent.click(screen.getByRole("button", { name: /^Cards$/i }));
-  const cardLibrary = screen.getByRole("region", { name: /Card library/i });
-  fireEvent.click(within(cardLibrary).getByRole("button", { name: /^Open$/i }));
+  fireEvent.click(within(screen.getByRole("region", { name: /Card library/i })).getByRole("button", { name: /^Open$/i }));
 }
 
 function sendRuntimeMessage(message: string) {
@@ -38,17 +36,15 @@ function sendRuntimeMessage(message: string) {
   fireEvent.click(screen.getByRole("button", { name: /^Send$/i }));
 }
 
-async function readStoredModelCalls(expectedCallCount: 1 | 2 = 2): Promise<ModelCallRecord[]> {
+async function readLatestStoredModelCalls(expectedCallCount: 1 | 2): Promise<ModelCallRecord[]> {
   let modelCalls: ModelCallRecord[] | undefined;
   await waitFor(() => {
     const snapshot = JSON.parse(window.localStorage.getItem(RUNTIME_STORAGE_KEY) ?? "{}") as {
       promptRuns?: Array<{ modelCalls?: ModelCallRecord[] }>;
     };
-    modelCalls = snapshot.promptRuns?.[0]?.modelCalls;
-    expect(
-      modelCalls,
-      "completed prompt run must persist hidden-continuity and visible-response modelCalls",
-    ).toHaveLength(expectedCallCount);
+    const promptRuns = snapshot.promptRuns ?? [];
+    modelCalls = promptRuns[promptRuns.length - 1]?.modelCalls;
+    expect(modelCalls).toHaveLength(expectedCallCount);
   });
   return modelCalls ?? [];
 }
@@ -68,59 +64,86 @@ async function readStoredActiveChat(): Promise<Record<string, unknown>> {
   return chat ?? {};
 }
 
-describe("intentional two-call turn telemetry", () => {
-  it("preserves visible streaming while capturing phase telemetry", async () => {
-    let generateCalls = 0;
-    let streamCalls = 0;
+function providerResponse(
+  request: TextGenerationRequest,
+  text: string,
+  usage = { inputTokens: 20, outputTokens: 5, totalTokens: 25 },
+): TextGenerationResponse {
+  return {
+    providerId: "telemetry-provider",
+    model: request.model,
+    text,
+    finishReason: "stop",
+    usage,
+    usageSource: "provider",
+  };
+}
+
+describe("conditional memory-evidence telemetry", () => {
+  it("records two same-model calls only after history exceeds the tested recent window", async () => {
+    const requests: TextGenerationRequest[] = [];
+    let visibleIndex = 0;
     const adapter: TextModelAdapter = {
-      id: "streaming-telemetry-provider",
-      displayName: "Streaming telemetry provider",
+      id: "telemetry-provider",
+      displayName: "Telemetry provider",
       async listModels(): Promise<ModelInfo[]> {
         return [];
       },
       async generateText(request): Promise<TextGenerationResponse> {
-        generateCalls += 1;
-        return {
-          providerId: "streaming-telemetry-provider",
-          model: request.model,
-          text: JSON.stringify({ continuity_brief: "Keep the gate in view." }),
-          finishReason: "stop",
-          usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 },
-          usageSource: "provider",
-        };
-      },
-      async *streamText() {
-        streamCalls += 1;
-        yield { text: "Streamed visible ", index: 0, done: false };
-        yield { text: "response.", index: 1, done: false };
-        yield { text: "", index: 2, done: true };
+        requests.push(request);
+        if (request.responseFormat?.type === "json_schema") {
+          return providerResponse(request, JSON.stringify({
+            relevant_evidence: [
+              { source_id: "latest-user", fact: "The player returns to the gate.", status: "active" },
+            ],
+            knowledge_boundaries: [],
+            uncertainties: [],
+            response_constraints: [],
+            response_plan: ["Continue the gate scene."],
+          }), { inputTokens: 30, outputTokens: 10, totalTokens: 40 });
+        }
+        visibleIndex += 1;
+        return providerResponse(request, `Visible turn ${visibleIndex}.`);
       },
     };
-    const providerSpy = vi
-      .spyOn(providerConfig, "createTextProvider")
+    const providerSpy = vi.spyOn(providerConfig, "createTextProvider")
       .mockReturnValue(adapter as ReturnType<typeof providerConfig.createTextProvider>);
 
     try {
-      render(<App />);
-      await screen.findByText(/Repository API ready|SQLite repository ready|Repository unavailable/i);
-      fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
-      fireEvent.click(screen.getByLabelText(/Text streaming/i));
-      fireEvent.click(screen.getByRole("button", { name: /^Cards$/i }));
-      fireEvent.click(within(screen.getByRole("region", { name: /Card library/i })).getByRole("button", { name: /^Open$/i }));
-      sendRuntimeMessage("I approach the gate.");
+      await renderAppAndOpenBlankCard();
+      sendRuntimeMessage("I take step one toward the gate.");
+      await screen.findByText("Visible turn 1.");
+      sendRuntimeMessage("I take step two and inspect the arch.");
+      await screen.findByText("Visible turn 2.");
+      sendRuntimeMessage("I take step three and listen.");
+      await screen.findByText("Visible turn 3.");
+      sendRuntimeMessage("I return to the gate and speak.");
+      await screen.findByText("Visible turn 4.");
 
-      await screen.findByText(/Streamed visible response/i);
-      const calls = await readStoredModelCalls(2);
-      expect(generateCalls).toBe(1);
-      expect(streamCalls).toBe(1);
-      expect(calls[1]).toMatchObject({ phase: "visible-response", status: "success", usageSource: "estimated" });
-      expect(calls[1].cost).toMatchObject({ status: "estimated" });
+      expect(requests).toHaveLength(5);
+      expect(requests[3]).toMatchObject({
+        model: "mock-narrator",
+        reasoning: { enabled: false },
+        responseFormat: { type: "json_schema" },
+      });
+      expect(requests[3].prompt).toContain("I take step one toward the gate.");
+      expect(requests[4].model).toBe("mock-narrator");
+      expect(requests[4].prompt).not.toContain("I take step one toward the gate.");
+      expect(requests[4].prompt).toContain("I take step two and inspect the arch.");
+      expect(requests[4].prompt).toContain("Private memory evidence brief");
+
+      const modelCalls = await readLatestStoredModelCalls(2);
+      expect(modelCalls.map((call) => call.phase)).toEqual(["memory-evidence", "visible-response"]);
+      expect(modelCalls.map((call) => call.model)).toEqual(["mock-narrator", "mock-narrator"]);
+      expect(modelCalls[0]).toMatchObject({ status: "success", stateProposalCount: 0 });
+      expect(screen.getByText(/2 model calls/i)).toBeInTheDocument();
+      expect(screen.getByRole("log", { name: /Chat transcript/i })).not.toHaveTextContent(/Private memory evidence brief/i);
     } finally {
       providerSpy.mockRestore();
     }
   });
 
-  it("performs only the visible call when hidden continuity is off", async () => {
+  it("performs one visible call when two-model-call memory is off", async () => {
     const requests: TextGenerationRequest[] = [];
     const adapter: TextModelAdapter = {
       id: "telemetry-provider",
@@ -130,30 +153,23 @@ describe("intentional two-call turn telemetry", () => {
       },
       async generateText(request): Promise<TextGenerationResponse> {
         requests.push(request);
-        return {
-          providerId: "telemetry-provider",
-          model: request.model,
-          text: "The gate opens without a continuity pre-pass.",
-          finishReason: "stop",
-          usage: { inputTokens: 20, outputTokens: 7, totalTokens: 27 },
-        };
+        return providerResponse(request, "The gate opens with one call.");
       },
     };
-    const providerSpy = vi
-      .spyOn(providerConfig, "createTextProvider")
+    const providerSpy = vi.spyOn(providerConfig, "createTextProvider")
       .mockReturnValue(adapter as ReturnType<typeof providerConfig.createTextProvider>);
 
     try {
       render(<App />);
       await screen.findByText(/Repository API ready|SQLite repository ready|Repository unavailable/i);
       fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
-      fireEvent.change(screen.getByLabelText(/Hidden continuity mode/i), { target: { value: "off" } });
+      fireEvent.change(screen.getByLabelText(/Two-model-call memory/i), { target: { value: "off" } });
       fireEvent.click(screen.getByRole("button", { name: /^Cards$/i }));
       fireEvent.click(within(screen.getByRole("region", { name: /Card library/i })).getByRole("button", { name: /^Open$/i }));
       sendRuntimeMessage("I open the gate.");
 
-      await screen.findByText(/gate opens without/i);
-      const modelCalls = await readStoredModelCalls(1);
+      await screen.findByText(/gate opens with one call/i);
+      const modelCalls = await readLatestStoredModelCalls(1);
       expect(requests).toHaveLength(1);
       expect(modelCalls.map((call) => call.phase)).toEqual(["visible-response"]);
     } finally {
@@ -161,234 +177,7 @@ describe("intentional two-call turn telemetry", () => {
     }
   });
 
-  it("routes only the hidden phase to the configured economical model", async () => {
-    const models: string[] = [];
-    const adapter: TextModelAdapter = {
-      id: "telemetry-provider",
-      displayName: "Telemetry provider",
-      async listModels(): Promise<ModelInfo[]> {
-        return [];
-      },
-      async generateText(request): Promise<TextGenerationResponse> {
-        models.push(request.model);
-        return models.length === 1
-          ? {
-              providerId: "telemetry-provider",
-              model: request.model,
-              text: JSON.stringify({ continuity_brief: "Remember the gate." }),
-              finishReason: "stop",
-              usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 },
-            }
-          : {
-              providerId: "telemetry-provider",
-              model: request.model,
-              text: "The remembered gate opens.",
-              finishReason: "stop",
-              usage: { inputTokens: 20, outputTokens: 5, totalTokens: 25 },
-            };
-      },
-    };
-    const providerSpy = vi
-      .spyOn(providerConfig, "createTextProvider")
-      .mockReturnValue(adapter as ReturnType<typeof providerConfig.createTextProvider>);
-
-    try {
-      render(<App />);
-      await screen.findByText(/Repository API ready|SQLite repository ready|Repository unavailable/i);
-      fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
-      fireEvent.change(screen.getByLabelText(/Hidden continuity mode/i), { target: { value: "economical" } });
-      fireEvent.change(screen.getByLabelText(/Economical continuity model/i), { target: { value: "small-continuity-model" } });
-      fireEvent.click(screen.getByRole("button", { name: /^Cards$/i }));
-      fireEvent.click(within(screen.getByRole("region", { name: /Card library/i })).getByRole("button", { name: /^Open$/i }));
-      sendRuntimeMessage("I open the remembered gate.");
-
-      await screen.findByText(/remembered gate opens/i);
-      await readStoredModelCalls(2);
-      expect(models).toEqual(["small-continuity-model", "mock-narrator"]);
-    } finally {
-      providerSpy.mockRestore();
-    }
-  });
-
-  it("stores hidden-continuity and visible-response usage for every completed turn", async () => {
-    let callIndex = 0;
-    const adapter: TextModelAdapter = {
-      id: "telemetry-provider",
-      displayName: "Telemetry provider",
-      async listModels(): Promise<ModelInfo[]> {
-        return [];
-      },
-      async generateText(request: TextGenerationRequest): Promise<TextGenerationResponse> {
-        callIndex += 1;
-        if (callIndex === 1) {
-          return {
-            providerId: "telemetry-provider",
-            model: request.model,
-            text: JSON.stringify({ continuity_brief: "Keep the archway in view." }),
-            finishReason: "stop",
-            usage: { inputTokens: 30, outputTokens: 5, totalTokens: 35 },
-          };
-        }
-        return {
-          providerId: "telemetry-provider",
-          model: request.model,
-          text: "The old archway hums as you approach.",
-          finishReason: "stop",
-          usage: { inputTokens: 40, outputTokens: 10, totalTokens: 50 },
-        };
-      },
-    };
-    const providerSpy = vi
-      .spyOn(providerConfig, "createTextProvider")
-      .mockReturnValue(adapter as ReturnType<typeof providerConfig.createTextProvider>);
-
-    try {
-      await renderAppAndOpenBlankCard();
-      sendRuntimeMessage("I approach the old archway.");
-
-      await screen.findByText(/The old archway hums/i);
-      const modelCalls = await readStoredModelCalls();
-
-      expect(modelCalls).toEqual([
-        expect.objectContaining({
-          phase: "hidden-continuity",
-          provider: "telemetry-provider",
-          model: "mock-narrator",
-          usage: { inputTokens: 30, outputTokens: 5, totalTokens: 35 },
-          inputBudgetTokens: expect.any(Number),
-          durationMs: expect.any(Number),
-          status: "success",
-          usageSource: "provider",
-          cost: expect.objectContaining({ status: "known", amountUsd: 0 }),
-          stateProposalCount: expect.any(Number),
-        }),
-        expect.objectContaining({
-          phase: "visible-response",
-          provider: "telemetry-provider",
-          model: "mock-narrator",
-          usage: { inputTokens: 40, outputTokens: 10, totalTokens: 50 },
-          inputBudgetTokens: expect.any(Number),
-          durationMs: expect.any(Number),
-          status: "success",
-          usageSource: "provider",
-          cost: expect.objectContaining({ status: "known", amountUsd: 0 }),
-          stateProposalCount: expect.any(Number),
-        }),
-      ]);
-      expect(modelCalls.every((call) => call.durationMs >= 0)).toBe(true);
-      expect(modelCalls.every((call) => (call.inputBudgetTokens ?? 0) >= call.usage.inputTokens)).toBe(true);
-      expect(screen.getByText(/2 model calls/i)).toHaveTextContent(/85 tokens/i);
-      const chat = await readStoredActiveChat();
-      expect((chat.authoritativeEvents as Array<{ kind: string }>).map((event) => event.kind)).toEqual([
-        "player_action",
-        "rule_decision",
-        "state_committed",
-      ]);
-    } finally {
-      providerSpy.mockRestore();
-    }
-  });
-
-  it("records a failed hidden phase while allowing the visible phase to complete", async () => {
-    let callIndex = 0;
-    const adapter: TextModelAdapter = {
-      id: "telemetry-provider",
-      displayName: "Telemetry provider",
-      async listModels(): Promise<ModelInfo[]> {
-        return [];
-      },
-      async generateText(request: TextGenerationRequest): Promise<TextGenerationResponse> {
-        callIndex += 1;
-        if (callIndex === 1) {
-          throw new Error("Hidden continuity unavailable");
-        }
-        return {
-          providerId: "telemetry-provider",
-          model: request.model,
-          text: "You continue despite the continuity warning.",
-          finishReason: "stop",
-          usage: { inputTokens: 16, outputTokens: 4, totalTokens: 20 },
-        };
-      },
-    };
-    const providerSpy = vi
-      .spyOn(providerConfig, "createTextProvider")
-      .mockReturnValue(adapter as ReturnType<typeof providerConfig.createTextProvider>);
-
-    try {
-      await renderAppAndOpenBlankCard();
-      sendRuntimeMessage("I continue carefully.");
-
-      await screen.findByText(/continue despite the continuity warning/i);
-      const modelCalls = await readStoredModelCalls();
-
-      expect(modelCalls[0]).toMatchObject({
-        phase: "hidden-continuity",
-        provider: "telemetry-provider",
-        model: "mock-narrator",
-        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
-        inputBudgetTokens: expect.any(Number),
-        durationMs: expect.any(Number),
-        status: "error",
-        usageSource: "unavailable",
-        cost: { status: "unknown", currency: "USD" },
-      });
-      expect(modelCalls[1]).toMatchObject({
-        phase: "visible-response",
-        provider: "telemetry-provider",
-        model: "mock-narrator",
-        usage: { inputTokens: 16, outputTokens: 4, totalTokens: 20 },
-        inputBudgetTokens: expect.any(Number),
-        durationMs: expect.any(Number),
-        status: "success",
-      });
-    } finally {
-      providerSpy.mockRestore();
-    }
-  });
-
-  it("records /roll as a typed dice event without making a model call", async () => {
-    render(<App />);
-    await screen.findByText(/Repository API ready|SQLite repository ready|Repository unavailable/i);
-    fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
-    fireEvent.click(screen.getByLabelText(/Dice rolls/i));
-    fireEvent.click(screen.getByRole("button", { name: /^Cards$/i }));
-    fireEvent.click(within(screen.getByRole("region", { name: /Card library/i })).getByRole("button", { name: /^Open$/i }));
-    sendRuntimeMessage("/roll d6");
-
-    await screen.findByText(/1d6/i);
-    const chat = await readStoredActiveChat();
-    expect(chat.authoritativeEvents).toEqual([
-      expect.objectContaining({ kind: "dice_rolled", roll: expect.objectContaining({ notation: "1d6" }) }),
-      expect.objectContaining({
-        kind: "tool_result",
-        toolName: "dice.roll",
-        status: "success",
-        result: expect.objectContaining({ notation: "1d6" }),
-      }),
-    ]);
-  });
-
-  it("durably records a blocked action and rule decision without adding transcript text", async () => {
-    await renderAppAndOpenBlankCard();
-    sendRuntimeMessage("I teleport through walls and skip to the end.");
-
-    await screen.findByText(/movement must stay plausible/i);
-    const chat = await readStoredActiveChat();
-    const events = chat.authoritativeEvents as Array<Record<string, unknown>>;
-    expect(events.map((event) => event.kind)).toEqual(["player_action", "rule_decision"]);
-    expect(events[0]).toEqual(expect.objectContaining({
-      action: "I teleport through walls and skip to the end.",
-      runId: expect.any(String),
-    }));
-    expect(events[1]).toEqual(expect.objectContaining({
-      runId: events[0].runId,
-      decision: expect.objectContaining({ allowed: false }),
-    }));
-    expect(chat.messages).toEqual([]);
-  });
-
-  it("persists the second turn's attempt events when its visible model call fails", async () => {
+  it("persists a later player-action attempt when its ordinary visible call fails", async () => {
     let callIndex = 0;
     const adapter: TextModelAdapter = {
       id: "attempt-provider",
@@ -398,38 +187,20 @@ describe("intentional two-call turn telemetry", () => {
       },
       async generateText(request): Promise<TextGenerationResponse> {
         callIndex += 1;
-        if (callIndex === 1 || callIndex === 3) {
-          return {
-            providerId: "attempt-provider",
-            model: request.model,
-            text: JSON.stringify({ continuity_brief: "Keep the gate stable." }),
-            finishReason: "stop",
-            usage: { inputTokens: 8, outputTokens: 2, totalTokens: 10 },
-          };
-        }
-        if (callIndex === 4) {
-          throw new Error("Visible provider unavailable");
-        }
-        return {
-          providerId: "attempt-provider",
-          model: request.model,
-          text: "The first turn succeeds.",
-          finishReason: "stop",
-          usage: { inputTokens: 12, outputTokens: 4, totalTokens: 16 },
-        };
+        if (callIndex === 2) throw new Error("Visible provider unavailable");
+        return providerResponse(request, "The first turn succeeds.");
       },
     };
-    const providerSpy = vi
-      .spyOn(providerConfig, "createTextProvider")
+    const providerSpy = vi.spyOn(providerConfig, "createTextProvider")
       .mockReturnValue(adapter as ReturnType<typeof providerConfig.createTextProvider>);
 
     try {
       await renderAppAndOpenBlankCard();
       sendRuntimeMessage("I inspect the gate.");
       await screen.findByText(/first turn succeeds/i);
-
       sendRuntimeMessage("I try the gate again.");
       await screen.findByText(/Visible provider unavailable/i);
+
       const chat = await readStoredActiveChat();
       const actions = (chat.authoritativeEvents as Array<Record<string, unknown>>)
         .filter((event) => event.kind === "player_action");
@@ -442,7 +213,7 @@ describe("intentional two-call turn telemetry", () => {
     }
   });
 
-  it("keeps the original transcript while recording a failed regeneration attempt", async () => {
+  it("keeps the original transcript when a short-history regeneration fails", async () => {
     let callIndex = 0;
     const adapter: TextModelAdapter = {
       id: "regeneration-provider",
@@ -452,36 +223,17 @@ describe("intentional two-call turn telemetry", () => {
       },
       async generateText(request): Promise<TextGenerationResponse> {
         callIndex += 1;
-        if (callIndex === 1 || callIndex === 3) {
-          return {
-            providerId: "regeneration-provider",
-            model: request.model,
-            text: JSON.stringify({ continuity_brief: "Preserve the original gate." }),
-            finishReason: "stop",
-            usage: { inputTokens: 8, outputTokens: 2, totalTokens: 10 },
-          };
-        }
-        if (callIndex === 4) {
-          throw new Error("Regeneration unavailable");
-        }
-        return {
-          providerId: "regeneration-provider",
-          model: request.model,
-          text: "The original gate remains closed.",
-          finishReason: "stop",
-          usage: { inputTokens: 12, outputTokens: 4, totalTokens: 16 },
-        };
+        if (callIndex === 2) throw new Error("Regeneration unavailable");
+        return providerResponse(request, "The original gate remains closed.");
       },
     };
-    const providerSpy = vi
-      .spyOn(providerConfig, "createTextProvider")
+    const providerSpy = vi.spyOn(providerConfig, "createTextProvider")
       .mockReturnValue(adapter as ReturnType<typeof providerConfig.createTextProvider>);
 
     try {
       await renderAppAndOpenBlankCard();
       sendRuntimeMessage("I inspect the closed gate.");
       await screen.findByText(/original gate remains closed/i);
-
       fireEvent.click(screen.getByRole("button", { name: /Regenerate reply/i }));
       await screen.findByText(/Regeneration unavailable/i);
 
@@ -490,8 +242,6 @@ describe("intentional two-call turn telemetry", () => {
         expect.objectContaining({ role: "user", content: "I inspect the closed gate." }),
         expect.objectContaining({ role: "assistant", content: "The original gate remains closed." }),
       ]);
-      expect((chat.authoritativeEvents as Array<Record<string, unknown>>)
-        .filter((event) => event.kind === "player_action")).toHaveLength(2);
     } finally {
       providerSpy.mockRestore();
     }

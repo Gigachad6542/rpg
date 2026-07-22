@@ -253,8 +253,7 @@ export function branchChatTurnState(
     targetChatId: branch.id,
     targetBranchId: branch.id,
     messageIdMap,
-    createEventId: (event, index) =>
-      `${event.id.slice(0, 120)}__branch_${branch.id.slice(-80)}_${index}`.slice(0, 256),
+    createEventId: (_event, index) => createBranchedEventId(branch.id, index),
   });
   const rollingSummary = branchRollingSummary(
     parent.rollingSummary ?? null,
@@ -274,6 +273,14 @@ export function branchChatTurnState(
     ...(authoritativeEvents.length > 0 ? { authoritativeEvents } : {}),
     rollingSummary,
   };
+}
+
+function createBranchedEventId(branchId: string, index: number): string {
+  const prefix = "event_";
+  const suffix = `_${index}`;
+  const maxIdCharacters = 160;
+  const availableBranchCharacters = Math.max(1, maxIdCharacters - prefix.length - suffix.length);
+  return `${prefix}${branchId.slice(-availableBranchCharacters)}${suffix}`;
 }
 
 /**

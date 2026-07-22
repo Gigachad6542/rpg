@@ -19,7 +19,7 @@ export function parsePersistedModelCallRecords(value: unknown): ModelCallRecord[
   if (new Set(phases).size !== phases.length) {
     return undefined;
   }
-  if (phases.length === 2 && phases[0] !== "hidden-continuity") {
+  if (phases.length === 2 && phases[0] !== "hidden-continuity" && phases[0] !== "memory-evidence") {
     return undefined;
   }
   return calls;
@@ -65,7 +65,7 @@ function parsePersistedModelCallRecord(value: unknown): ModelCallRecord | undefi
   const phase = value.phase;
   const status = value.status;
   if (
-    (phase !== "hidden-continuity" && phase !== "visible-response") ||
+    (phase !== "hidden-continuity" && phase !== "memory-evidence" && phase !== "visible-response") ||
     (status !== "success" && status !== "error") ||
     !isBoundedNonEmptyString(value.provider) ||
     !isBoundedNonEmptyString(value.model) ||
@@ -88,6 +88,7 @@ function parsePersistedModelCallRecord(value: unknown): ModelCallRecord | undefi
     : undefined;
   const stateProposalCount = readOptionalNonnegativeInteger(value.stateProposalCount, 10_000);
   const failure = readFailure(value.failure);
+  const reasoning = readReasoning(value.reasoning, usage.outputTokens);
 
   if (
     (value.inputBudgetTokens !== undefined && inputBudgetTokens === undefined) ||
@@ -95,7 +96,8 @@ function parsePersistedModelCallRecord(value: unknown): ModelCallRecord | undefi
     (value.budgetSource !== undefined && budgetSource === undefined) ||
     (value.usageSource !== undefined && usageSource === undefined) ||
     (value.stateProposalCount !== undefined && stateProposalCount === undefined) ||
-    (value.failure !== undefined && failure === undefined)
+    (value.failure !== undefined && failure === undefined) ||
+    (value.reasoning !== undefined && reasoning === undefined)
   ) {
     return undefined;
   }
@@ -118,7 +120,37 @@ function parsePersistedModelCallRecord(value: unknown): ModelCallRecord | undefi
     ...(usageSource === undefined ? {} : { usageSource }),
     ...(cost === undefined ? {} : { cost }),
     ...(failure === undefined ? {} : { failure }),
+    ...(reasoning === undefined ? {} : { reasoning }),
     ...(stateProposalCount === undefined ? {} : { stateProposalCount }),
+  };
+}
+
+function readReasoning(
+  value: unknown,
+  outputTokens: number,
+): ModelCallRecord["reasoning"] | undefined {
+  if (!isRecord(value)) return undefined;
+  const allowedKeys = new Set(["request", "observed", "traceAvailable", "encrypted", "tokenCount"]);
+  if (Object.keys(value).some((key) => !allowedKeys.has(key))) return undefined;
+  if (
+    value.request !== "enabled" &&
+    value.request !== "disabled" &&
+    value.request !== "unspecified"
+  ) return undefined;
+  if (
+    typeof value.observed !== "boolean" ||
+    typeof value.traceAvailable !== "boolean" ||
+    typeof value.encrypted !== "boolean"
+  ) return undefined;
+  const tokenCount = readOptionalNonnegativeInteger(value.tokenCount, outputTokens);
+  if (value.tokenCount !== undefined && tokenCount === undefined) return undefined;
+  if (!value.observed && (value.traceAvailable || value.encrypted || tokenCount !== undefined)) return undefined;
+  return {
+    request: value.request,
+    observed: value.observed,
+    traceAvailable: value.traceAvailable,
+    encrypted: value.encrypted,
+    ...(tokenCount === undefined ? {} : { tokenCount }),
   };
 }
 

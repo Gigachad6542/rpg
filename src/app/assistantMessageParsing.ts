@@ -95,7 +95,9 @@ export function stripTrailingCallToAction(content: string): string {
   if (!strippedBody) {
     return content;
   }
-  return statusBlock ? `${strippedBody}\n\n${statusBlock}` : strippedBody;
+  return statusBlock
+    ? `${strippedBody}\n\n\`\`\`status\n${statusBlock}\n\`\`\``
+    : strippedBody;
 }
 
 export function isPlayerCallToAction(paragraph: string): boolean {

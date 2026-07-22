@@ -1,19 +1,21 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "ratings": [
     {
-      "blindId": "replace-with-sample-id",
-      "coherence": 3,
+      "blindId": "replace-with-every-blind-id-from-the-run",
+      "memoryFidelity": 3,
+      "continuity": 3,
+      "characterConsistency": 3,
       "agency": 3,
-      "repetition": 3,
-      "pacing": 3,
-      "characterConsistency": 3
+      "proseQuality": 3
     }
   ],
   "preferences": [
     {
-      "winnerBlindId": "replace-with-winner-id",
-      "loserBlindId": "replace-with-loser-id"
+      "pairId": "replace-with-pair-id-from-the-review-packet",
+      "leftBlindId": "replace-with-left-blind-id",
+      "rightBlindId": "replace-with-right-blind-id",
+      "preferredBlindId": null
     }
   ]
 }

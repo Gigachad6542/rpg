@@ -4,6 +4,7 @@ import type {
   TextGenerationResponse,
   TextModelAdapter,
 } from "../providers/TextModelAdapter";
+import { mergeReasoningObservations } from "../providers/reasoningObservation";
 import type { resolveModelCallBudget } from "../runtime/modelCallBudget";
 import {
   calculateModelCallCost,
@@ -15,7 +16,7 @@ import type { ModelCallRecord } from "./runtimeTypes";
 
 export type TextModelCallOutcome =
   | { response: TextGenerationResponse }
-  | { error: unknown };
+  | { error: unknown; response?: TextGenerationResponse };
 
 export function createModelCallCaptureAdapter(
   adapter: TextModelAdapter,
@@ -49,9 +50,11 @@ async function* captureStream(
 ) {
   let text = "";
   let terminalChunk: TextChunk | undefined;
+  let reasoning: TextGenerationResponse["reasoning"];
   try {
     for await (const chunk of adapter.streamText?.(request) ?? []) {
       text += chunk.text;
+      reasoning = mergeReasoningObservations(reasoning, chunk.reasoning);
       if (chunk.done) terminalChunk = chunk;
       yield chunk;
     }
@@ -75,6 +78,7 @@ async function* captureStream(
           usageSource: terminalChunk.usage
             ? terminalChunk.usageSource ?? "provider"
             : "estimated",
+          ...(reasoning ? { reasoning } : {}),
           raw: { streamed: true },
         },
       });
@@ -93,6 +97,7 @@ export function toModelCallRecord(input: {
   durationMs: number;
   outcome?: TextModelCallOutcome;
   pricing?: ReturnType<typeof resolveModelPricing>;
+  reasoningRequest?: "enabled" | "disabled" | "unspecified";
   stateProposalCount: number;
 }): ModelCallRecord {
   const response = input.outcome && "response" in input.outcome
@@ -101,11 +106,14 @@ export function toModelCallRecord(input: {
   const usage = response
     ? { ...response.usage }
     : { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
-  const failed = !response || response.finishReason === "error" || response.text.trim().length === 0;
+  const explicitError = input.outcome && "error" in input.outcome
+    ? input.outcome.error
+    : undefined;
+  const failed = explicitError !== undefined || !response || response.finishReason === "error" || response.text.trim().length === 0;
   const failure = failed
     ? classifyModelCallFailure(
-        input.outcome && "error" in input.outcome
-          ? input.outcome.error
+        explicitError !== undefined
+          ? explicitError
           : new Error(
               response?.text.trim().length === 0
                 ? "Provider returned an empty response."
@@ -114,6 +122,7 @@ export function toModelCallRecord(input: {
       )
     : undefined;
   const usageSource = response ? response.usageSource ?? "provider" : "unavailable";
+  const reasoning = toReasoningRecord(input.reasoningRequest ?? "unspecified", response?.reasoning, usage.outputTokens);
   return {
     phase: input.phase,
     provider: response?.providerId ?? input.fallbackProvider,
@@ -127,7 +136,25 @@ export function toModelCallRecord(input: {
     usageSource,
     cost: calculateModelCallCost(usage, input.pricing, usageSource),
     ...(failure ? { failure } : {}),
+    reasoning,
     stateProposalCount: input.stateProposalCount,
+  };
+}
+
+function toReasoningRecord(
+  request: "enabled" | "disabled" | "unspecified",
+  observation: TextGenerationResponse["reasoning"],
+  outputTokens: number,
+): NonNullable<ModelCallRecord["reasoning"]> {
+  const tokenCount = observation?.tokenCount !== undefined && observation.tokenCount <= outputTokens
+    ? observation.tokenCount
+    : undefined;
+  return {
+    request,
+    observed: Boolean(observation?.trace || observation?.encrypted || tokenCount !== undefined),
+    traceAvailable: Boolean(observation?.trace),
+    encrypted: observation?.encrypted ?? false,
+    ...(tokenCount === undefined ? {} : { tokenCount }),
   };
 }
 

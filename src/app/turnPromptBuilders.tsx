@@ -7,6 +7,11 @@ import {
   retrieveScopedHybrid,
   type HybridRetrievalDocument,
 } from "../runtime/hybridRetrieval";
+import {
+  formatDialogueExamplePrompt,
+  selectDialogueExamples,
+  type DialogueExampleMode,
+} from "../runtime/dialogueExamples";
 import { reconcileRollingSummaryForHistory, type RollingSummary } from "../runtime/rollingSummary";
 import type { LorebookEntry, Message, Persona, RuntimeCard, RuntimeSettings, TurnPromptRequest } from "./runtimeTypes";
 import { titleCase } from "./appUtils";
@@ -23,13 +28,17 @@ export type TurnPromptOverrides = Partial<TurnPromptRequest> & {
   retrievalContext?: TurnRetrievalContext;
 };
 
-export function formatDetailedCharacterDefinition(card: RuntimeCard): string {
+export function formatDetailedCharacterDefinition(
+  card: RuntimeCard,
+  options: { includeExampleDialogs?: boolean } = {},
+): string {
+  const includeExampleDialogs = options.includeExampleDialogs ?? true;
   return [
     card.characterName ? `Character name: ${card.characterName}` : "",
     card.characterDescription ? `Description:\n${card.characterDescription}` : "",
     card.scenario ? `Scenario:\n${card.scenario}` : "",
     card.greeting ? `Greeting:\n${card.greeting}` : "",
-    card.exampleDialogs ? `Example dialogs:\n${card.exampleDialogs}` : "",
+    includeExampleDialogs && card.exampleDialogs ? `Example dialogs:\n${card.exampleDialogs}` : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -112,6 +121,16 @@ export function buildTurnPromptRequest(
     card.rpg?.location,
     ...(card.rpg?.quests ?? []),
   ]);
+  const dialogueExampleMode: DialogueExampleMode = runtimeSettings.dialogueExampleMode ?? "all";
+  const selectiveDialogueExamples = dialogueExampleMode === "selective"
+    ? formatDialogueExamplePrompt(selectDialogueExamples({
+        rawExamples: card.exampleDialogs,
+        query: sceneText,
+        cardId: card.id,
+        maxExamples: 3,
+        maxCharacters: 3_200,
+      }))
+    : "";
   const lexicalMemory = orderByRelevance(card.memory, (entry) => `${entry.label} ${entry.detail}`, sceneText);
   const lexicalLore = orderByRelevance(activeLorebookEntries, (entry) => `${entry.title} ${entry.content}`, sceneText);
   const hybridResults = safeRetrievalContext
@@ -163,7 +182,10 @@ export function buildTurnPromptRequest(
       kind: card.kind,
       summary: card.summary,
       systemPrompt: card.systemPrompt,
-      characterDefinition: formatDetailedCharacterDefinition(card),
+      characterDefinition: formatDetailedCharacterDefinition(card, {
+        includeExampleDialogs: dialogueExampleMode === "all",
+      }),
+      dialogueExamples: selectiveDialogueExamples,
       userPersona: formatPersonaPrompt(activePersona),
       preHistoryInstructions: card.preHistoryInstructions,
       postHistoryInstructions: card.postHistoryInstructions,
@@ -357,6 +379,19 @@ export function buildMockHiddenContinuityResponse(card: RuntimeCard, draft: stri
     entity_updates: entityUpdates,
     knowledge_updates: knowledgeUpdates,
     warnings: [],
+  };
+}
+
+export function buildMockMemoryEvidenceBrief(draft: string): unknown {
+  const fact = draft.trim();
+  return {
+    relevant_evidence: fact
+      ? [{ source_id: "latest-user", fact, status: "active" }]
+      : [],
+    knowledge_boundaries: [],
+    uncertainties: [],
+    response_constraints: [],
+    response_plan: [],
   };
 }
 

@@ -3,8 +3,11 @@ import type {
   TextGenerationResponse,
   TextChunk,
   TextModelAdapter,
+  TextReasoningConfig,
+  TextReasoningObservation,
   TextUsage,
 } from "../providers/TextModelAdapter";
+import { mergeReasoningObservations } from "../providers/reasoningObservation";
 import { compilePrompt, type CompiledPrompt, type PromptLayer } from "./promptCompiler";
 import type { TokenBudget, TokenEstimator } from "./tokenBudget";
 import { estimateTextTokens, normalizeTokenEstimate } from "./tokenBudget";
@@ -39,6 +42,7 @@ export interface TurnPipelineCardContext {
   readonly summary?: string;
   readonly systemPrompt?: string;
   readonly characterDefinition?: string;
+  readonly dialogueExamples?: string;
   readonly userPersona?: string;
   readonly preHistoryInstructions?: string;
   readonly postHistoryInstructions?: string;
@@ -120,6 +124,7 @@ export interface RunTurnPipelineRequest extends TurnPromptCompileOptions {
   readonly modelAdapter: TextModelAdapter;
   readonly model: string;
   readonly temperature?: number;
+  readonly reasoning?: TextReasoningConfig;
   readonly maxOutputTokens?: number;
   readonly preferStreaming?: boolean;
   readonly onStreamText?: (text: string) => Awaitable<void>;
@@ -203,6 +208,7 @@ export const TURN_PIPELINE_LAYER_IDS = {
   globalRuntimeRules: "global-runtime-rules",
   modeRules: "mode-rules",
   characterDefinition: "card-context",
+  dialogueExamples: "dialogue-examples",
   userPersona: "user-persona",
   preHistoryInstructions: "pre-history-instructions",
   longTermMemory: "long-term-memory",
@@ -255,6 +261,7 @@ export async function runTurnPipeline(request: RunTurnPipelineRequest): Promise<
     systemPrompt,
     prompt: compiledPrompt.prompt,
     temperature: request.temperature,
+    reasoning: request.reasoning,
     maxOutputTokens,
     signal: request.signal,
     metadata: {
@@ -386,11 +393,13 @@ async function collectStreamedText(
   let chunkCount = 0;
   let lastVisibleText = "";
   let terminalChunk: TextChunk | undefined;
+  let reasoning: TextReasoningObservation | undefined;
   for await (const chunk of request.modelAdapter.streamText?.(generationRequest) ?? []) {
     if (terminalChunk) {
       throw new Error("Provider stream emitted data after its terminal chunk.");
     }
     text += chunk.text;
+    reasoning = mergeReasoningObservations(reasoning, chunk.reasoning);
     chunkCount = Math.max(chunkCount, chunk.index + 1);
     if (chunk.text.length > 0) {
       const visibleText = getVisibleStreamingText(text);
@@ -426,6 +435,7 @@ async function collectStreamedText(
     usageSource: terminalChunk.usage
       ? terminalChunk.usageSource ?? "provider"
       : "estimated",
+    ...(reasoning ? { reasoning } : {}),
     raw: {
       streamed: true,
       chunkCount,
@@ -528,6 +538,13 @@ export function buildTurnPromptLayers(
       id: TURN_PIPELINE_LAYER_IDS.characterDefinition,
       kind: "characterDefinition",
       content: formatCardContext(request.session, request.card),
+    }),
+    createLayer({
+      id: TURN_PIPELINE_LAYER_IDS.dialogueExamples,
+      kind: "dialogueExamples",
+      content: request.card?.dialogueExamples ?? "",
+      required: false,
+      allowTrimming: true,
     }),
     createLayer({
       id: TURN_PIPELINE_LAYER_IDS.userPersona,

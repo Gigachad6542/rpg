@@ -6,6 +6,7 @@ import type {
   TextGenerationResponse,
   TextModelAdapter,
 } from "./TextModelAdapter";
+import { extractReasoningObservation } from "./reasoningObservation";
 
 export interface TauriStoredSecretTextProviderConfig {
   id: string;
@@ -63,8 +64,11 @@ export class TauriStoredSecretTextProvider implements TextModelAdapter {
           prompt: request.prompt,
           systemPrompt: request.systemPrompt,
           temperature: request.temperature,
+          seed: request.seed,
+          responseFormat: request.responseFormat,
           maxOutputTokens: request.maxOutputTokens,
           timeoutMs: request.timeoutMs,
+          reasoning: request.reasoning,
         },
       }),
       request.signal,
@@ -73,6 +77,7 @@ export class TauriStoredSecretTextProvider implements TextModelAdapter {
       response.usage?.inputTokens ??
       estimateTextTokens([request.systemPrompt, request.prompt].filter(Boolean).join("\n\n"));
     const outputTokens = response.usage?.outputTokens ?? estimateTextTokens(response.text);
+    const reasoning = extractReasoningObservation(response.raw);
 
     return {
       providerId: response.providerId,
@@ -91,6 +96,7 @@ export class TauriStoredSecretTextProvider implements TextModelAdapter {
           ? "provider"
           : "estimated"
       ),
+      ...(reasoning ? { reasoning } : {}),
       raw: response.raw,
     };
   }

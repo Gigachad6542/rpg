@@ -145,4 +145,27 @@ describe("useRuntimePersistence", () => {
     expect(result.current.restoreStatus).toContain("Restored");
     expect(result.current.restorePoints).toHaveLength(pointCountBeforeRestore + 1);
   });
+
+  it("does not restore over a turn generation that is in flight", async () => {
+    repositoryCreateMock.mockResolvedValue(createStore());
+    const applyResolvedRuntimeState = vi.fn();
+    const snapshot = createSnapshot();
+    const { result } = renderHook(() => useRuntimePersistence({
+      initialSnapshot: null,
+      currentSnapshot: snapshot,
+      applyResolvedRuntimeState,
+      desktopRuntime: true,
+      generationInFlightRef: { current: true },
+    }));
+
+    await waitFor(() => expect(result.current.hydration.phase).toBe("ready"));
+    act(() => result.current.captureRestorePoint(snapshot));
+    await waitFor(() => expect(result.current.restorePoints).toHaveLength(1));
+
+    act(() => result.current.restoreRuntimeFromPoint(result.current.restorePoints[0]!.id));
+
+    expect(applyResolvedRuntimeState).not.toHaveBeenCalled();
+    expect(result.current.restorePoints).toHaveLength(1);
+    expect(result.current.restoreStatus).toMatch(/stop the in-flight generation/i);
+  });
 });

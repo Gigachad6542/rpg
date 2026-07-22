@@ -41,4 +41,23 @@ describe("local endpoint text provider", () => {
   it("refuses unauthenticated non-loopback local endpoints", () => {
     expect(() => new LocalEndpointTextProvider({ endpointUrl: "https://example.test/v1" })).toThrow(/loopback/i);
   });
+
+  it("passes through optional streaming support from the OpenAI-compatible transport", async () => {
+    const encoder = new TextEncoder();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"Local stream"},"finish_reason":"stop"}]}\n\n'));
+        controller.close();
+      },
+    }), { status: 200 })));
+    const provider = new LocalEndpointTextProvider({ endpointUrl: "http://127.0.0.1:1234/v1" });
+
+    const chunks = [];
+    for await (const chunk of provider.streamText({ model: "local-model", prompt: "Hello" })) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks.map((chunk) => chunk.text).join("")).toBe("Local stream");
+    expect(chunks[chunks.length - 1]).toMatchObject({ done: true, finishReason: "stop" });
+  });
 });

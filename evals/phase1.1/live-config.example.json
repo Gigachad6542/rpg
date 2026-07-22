@@ -1,76 +1,261 @@
 {
-  "schemaVersion": 1,
-  "experimentId": "phase1.1-live-quality-example",
+  "schemaVersion": 2,
+  "experimentId": "phase1.1-two-pass-memory-influence-qwen37max",
   "readyForPaidRuns": false,
-  "modes": ["off", "economical", "full"],
-  "profiles": [
-    {
-      "id": "strong-hosted",
-      "class": "strong-hosted",
-      "baseUrl": "https://strong-provider.example.invalid/v1",
-      "apiKeyEnv": "PHASE11_STRONG_API_KEY",
-      "visibleModel": "replace-strong-model",
-      "economicalModel": "replace-economical-model",
-      "pricing": [
-        { "id": "replace-strong-price", "model": "replace-strong-model", "currency": "USD", "inputUsdPerMillionTokens": 0, "outputUsdPerMillionTokens": 0, "source": "EXAMPLE ONLY - replace with an exact reviewed provider pricing source", "effectiveDate": "2026-07-13" },
-        { "id": "replace-economical-price", "model": "replace-economical-model", "currency": "USD", "inputUsdPerMillionTokens": 0, "outputUsdPerMillionTokens": 0, "source": "EXAMPLE ONLY - replace with an exact reviewed provider pricing source", "effectiveDate": "2026-07-13" }
-      ]
+  "provider": {
+    "id": "openrouter",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "apiKeyEnv": "PHASE11_OPENROUTER_API_KEY",
+    "model": "qwen/qwen3.7-max",
+    "pricing": {
+      "id": "openrouter-qwen37max-2026-07-19",
+      "currency": "USD",
+      "inputUsdPerMillionTokens": 1.475,
+      "outputUsdPerMillionTokens": 4.425,
+      "source": "https://openrouter.ai/api/v1/models",
+      "effectiveDate": "2026-07-19"
     },
-    {
-      "id": "economical-hosted",
-      "class": "economical-hosted",
-      "baseUrl": "https://economical-provider.example.invalid/v1",
-      "apiKeyEnv": "PHASE11_ECONOMICAL_API_KEY",
-      "visibleModel": "replace-economical-model",
-      "economicalModel": "replace-economical-model",
-      "pricing": [
-        { "id": "replace-economical-price", "model": "replace-economical-model", "currency": "USD", "inputUsdPerMillionTokens": 0, "outputUsdPerMillionTokens": 0, "source": "EXAMPLE ONLY - replace with an exact reviewed provider pricing source", "effectiveDate": "2026-07-13" }
-      ]
-    },
-    {
-      "id": "local-openai-compatible",
-      "class": "local-openai-compatible",
-      "baseUrl": "http://127.0.0.1:1234/v1",
-      "visibleModel": "replace-local-model",
-      "economicalModel": "replace-local-model",
-      "pricing": [
-        { "id": "replace-local-operating-cost", "model": "replace-local-model", "currency": "USD", "inputUsdPerMillionTokens": 0, "outputUsdPerMillionTokens": 0, "source": "EXAMPLE ONLY - replace with a documented local operating-cost methodology or reviewed zero-cost policy", "effectiveDate": "2026-07-13" }
-      ]
-    }
+    "requestTimeoutMs": 300000
+  },
+  "repetitions": 3,
+  "strategies": [
+    "single-full",
+    "single-window",
+    "analysis-discarded-full",
+    "legacy-continuity-full",
+    "evidence-brief-full",
+    "evidence-brief-window"
   ],
+  "generation": {
+    "baseSeed": 37119,
+    "analysisTemperature": 0.2,
+    "visibleTemperature": 0.6,
+    "analysisMaxOutputTokens": 1000,
+    "visibleMaxOutputTokens": 900,
+    "recentMessageCount": 4
+  },
+  "limits": {
+    "maxCalls": 180,
+    "maxEstimatedInputTokens": 1500000,
+    "maxEstimatedOutputTokens": 200000,
+    "maxEstimatedCostUsd": 5
+  },
   "scenarios": [
     {
-      "id": "knowledge-boundary",
-      "title": "Knowledge remains scoped to the character who learned it",
-      "systemPrompt": "Narrate a grounded tabletop RPG scene. Preserve character knowledge boundaries and player agency.",
+      "id": "private-vault-passphrase",
+      "title": "A private fact must remain private",
+      "challenge": "knowledge-boundary",
+      "systemPrompt": "Narrate a grounded tabletop RPG scene. Preserve speaker-specific knowledge and never leak private facts through dialogue or narration available to an uninformed character.",
+      "card": {
+        "name": "Ash Harbor Intrigue",
+        "summary": "A rain-soaked investigation involving Mara, Ilya, and Corvin.",
+        "memory": [
+          { "label": "Setting", "detail": "Ash Harbor is under a night curfew." }
+        ]
+      },
       "history": [
-        { "role": "user", "content": "Mara privately tells Ilya that the obsidian key opens the west vault." },
-        { "role": "assistant", "content": "Ilya nods and hides the obsidian key inside her coat. Corvin remains outside and hears nothing." }
+        { "id": "m01", "role": "user", "content": "While Corvin waits outside, Mara privately tells Ilya and me that the west-vault passphrase is SABLE-ORCHID. She makes us promise not to tell Corvin." },
+        { "id": "m02", "role": "assistant", "content": "Ilya repeats SABLE-ORCHID under her breath, then seals the shutters before Corvin can hear. Only Mara, Ilya, and you know it." },
+        { "id": "m03", "role": "user", "content": "We spend an hour checking rain marks by the harbor crane and find no useful footprints." },
+        { "id": "m04", "role": "assistant", "content": "The tide erases the last marks. Corvin remains across the square speaking with a fishmonger." },
+        { "id": "m05", "role": "user", "content": "Ilya sends a decoy note about the east warehouse. The note contains no vault details." },
+        { "id": "m06", "role": "assistant", "content": "The decoy is delivered openly, and Corvin sees only the east-warehouse address." },
+        { "id": "m07", "role": "user", "content": "Corvin rejoins us and says he suspects we found something while he was gone." },
+        { "id": "m08", "role": "assistant", "content": "He studies your faces, plainly curious but without evidence of what was discussed." }
       ],
-      "userMessage": "Corvin joins us. I ask what he thinks the key opens.",
-      "referenceFacts": ["Only Mara and Ilya know the key opens the west vault.", "Corvin must not know the vault fact without learning it."]
+      "userMessage": "Corvin asks what opens the west vault. Continue the scene from his current knowledge, and do not reveal the passphrase to him.",
+      "checks": [
+        { "id": "influence-identifies-secret", "target": "influence", "kind": "must-include-any", "values": ["sable-orchid"] },
+        { "id": "influence-tracks-corvin-boundary", "target": "influence", "kind": "must-include-all", "values": ["corvin", "does_not_know"] },
+        { "id": "visible-keeps-corvin-uncertain", "target": "visible", "kind": "must-include-any", "values": ["doesn't know", "does not know", "has no idea", "cannot know", "asks you", "waits for your answer", "waiting for your answer", "fishing", "without proof", "without hard proof", "without hard evidence", "lacking proof", "for a tell", "what opens", "suspicion"] },
+        { "id": "visible-does-not-leak-secret", "target": "visible", "kind": "must-not-include", "values": ["sable-orchid"] }
+      ],
+      "narrativeRubric": [
+        "Corvin behaves as someone who was absent for the private disclosure.",
+        "The response advances the scene without exposing the passphrase.",
+        "The prose preserves player agency instead of deciding whether the player tells him."
+      ]
     },
     {
-      "id": "branch-continuity",
-      "title": "The active branch keeps the red-route decision",
-      "systemPrompt": "Narrate a grounded tabletop RPG scene. Follow only the active branch state.",
+      "id": "superseded-lantern-rune",
+      "title": "A newer fact must supersede stale memory",
+      "challenge": "knowledge-update",
+      "systemPrompt": "Narrate a grounded tabletop RPG scene. Apply the latest established state and do not revive superseded codes, possessions, or plans.",
+      "card": {
+        "name": "Moon Gate Expedition",
+        "summary": "The party is preparing a warded lantern for the Moon Gate tunnels.",
+        "memory": [
+          { "label": "Lantern", "detail": "The brass lantern requires a spoken activation rune." }
+        ]
+      },
       "history": [
-        { "role": "user", "content": "At the fork, I reject the blue road and take the red road toward Ash Harbor." },
-        { "role": "assistant", "content": "You follow the red mile markers until Ash Harbor's lamps appear through the rain." }
+        { "id": "m01", "role": "user", "content": "The quartermaster initially records EMBER-9 as the lantern rune." },
+        { "id": "m02", "role": "assistant", "content": "Ilya copies EMBER-9 onto the first page of the expedition ledger." },
+        { "id": "m03", "role": "user", "content": "At noon the wardwright recalls the batch: EMBER-9 is unsafe and must never be used." },
+        { "id": "m04", "role": "assistant", "content": "The old line is struck through. The wardwright replaces it with FROST-4 and calls that the only current rune." },
+        { "id": "m05", "role": "user", "content": "Ilya burns the loose note that carried the obsolete rune." },
+        { "id": "m06", "role": "assistant", "content": "Only the corrected ledger remains, locked in the map case." },
+        { "id": "m07", "role": "user", "content": "We reach the tunnel mouth after dusk. Blue mineral dust coats the threshold." },
+        { "id": "m08", "role": "assistant", "content": "The lantern is dark, intact, and ready for its current activation word." }
       ],
-      "userMessage": "Where am I when dawn arrives, and which road did I take?",
-      "referenceFacts": ["The active route is red.", "The destination is Ash Harbor.", "The blue-road alternative is discarded."]
+      "userMessage": "I open the corrected ledger and activate the lantern. State the current rune in the narration.",
+      "checks": [
+        { "id": "influence-selects-current-rune", "target": "influence", "kind": "must-include-any", "values": ["frost-4"] },
+        { "id": "influence-rejects-obsolete-rune", "target": "influence", "kind": "must-include-any", "values": ["superseded", "obsolete", "unsafe", "struck through"] },
+        { "id": "visible-uses-current-rune", "target": "visible", "kind": "must-include-any", "values": ["frost-4"] },
+        { "id": "visible-omits-obsolete-rune", "target": "visible", "kind": "must-not-include", "values": ["ember-9"] }
+      ],
+      "narrativeRubric": [
+        "The corrected rune is treated as authoritative.",
+        "The obsolete unsafe rune is not revived even as a recap.",
+        "The scene continues naturally from the tunnel mouth."
+      ]
     },
     {
-      "id": "inventory-state",
-      "title": "Inventory and consequence remain aligned",
-      "systemPrompt": "Narrate a grounded tabletop RPG scene. Do not restore consumed or discarded items.",
+      "id": "heron-seal-chain",
+      "title": "Distributed facts must be joined into one usable plan",
+      "challenge": "multi-hop",
+      "systemPrompt": "Narrate a grounded tabletop RPG scene. Combine established clues when the next action depends on more than one fact.",
+      "card": {
+        "name": "Harbor Archive Heist",
+        "summary": "The party needs lawful access to a sealed archive before midnight.",
+        "memory": [
+          { "label": "Goal", "detail": "Enter the harbor archive without forcing the door." }
+        ]
+      },
       "history": [
-        { "role": "user", "content": "I spend my only sunstone to seal the breach." },
-        { "role": "assistant", "content": "The sunstone dissolves into gold dust as the breach seals. Your pack no longer contains it." }
+        { "id": "m01", "role": "user", "content": "The archivist says the door accepts only the seal bearing the harbor master's official bird." },
+        { "id": "m02", "role": "assistant", "content": "The archive mechanism has no ordinary keyway, only a palm-sized seal recess." },
+        { "id": "m03", "role": "user", "content": "In the portrait gallery I learn the harbor master's official bird is the gray heron, not the gull on the city flag." },
+        { "id": "m04", "role": "assistant", "content": "A plaque confirms the gray heron is used on the master's private seals." },
+        { "id": "m05", "role": "user", "content": "Dock clerk Nera currently holds the gray-heron seal while she audits cargo." },
+        { "id": "m06", "role": "assistant", "content": "Nera says she will lend official tools only to someone presenting a copper audit token." },
+        { "id": "m07", "role": "user", "content": "I find the copper audit token in the satchel the magistrate gave me." },
+        { "id": "m08", "role": "assistant", "content": "The token is genuine. Nera is still working at pier three, a short walk away." }
       ],
-      "userMessage": "I search my pack for something that can light the catacombs.",
-      "referenceFacts": ["The sunstone was consumed.", "The breach is sealed.", "The narration must not put the sunstone back in inventory."]
+      "userMessage": "What is the non-destructive next move that gets us through the archive door? Continue the scene.",
+      "checks": [
+        { "id": "influence-joins-holder", "target": "influence", "kind": "must-include-any", "values": ["nera"] },
+        { "id": "influence-joins-seal", "target": "influence", "kind": "must-include-any", "values": ["gray-heron seal", "gray heron seal"] },
+        { "id": "influence-joins-token", "target": "influence", "kind": "must-include-any", "values": ["copper audit token"] },
+        { "id": "visible-goes-to-holder", "target": "visible", "kind": "must-include-any", "values": ["nera"] },
+        { "id": "visible-uses-token", "target": "visible", "kind": "must-include-any", "values": ["copper audit token", "copper token"] },
+        { "id": "visible-seeks-correct-seal", "target": "visible", "kind": "must-include-any", "values": ["gray-heron seal", "gray heron seal", "heron seal"] }
+      ],
+      "narrativeRubric": [
+        "The response connects the door requirement, seal identity, seal holder, and token condition.",
+        "The proposed move is non-destructive and immediately actionable.",
+        "The scene advances rather than merely summarizing clues."
+      ]
+    },
+    {
+      "id": "fifth-bell-deadline",
+      "title": "A revised deadline must govern temporal planning",
+      "challenge": "temporal",
+      "systemPrompt": "Narrate a grounded tabletop RPG scene. Respect updated deadlines and reason conservatively about travel time.",
+      "card": {
+        "name": "Cinder Court Deadline",
+        "summary": "The party must deliver a sealed petition before the court closes.",
+        "memory": [
+          { "label": "Petition", "detail": "The sealed petition must reach Cinder Court today." }
+        ]
+      },
+      "history": [
+        { "id": "m01", "role": "user", "content": "At breakfast the clerk says petitions are normally accepted until sixth bell." },
+        { "id": "m02", "role": "assistant", "content": "We plan a leisurely route based on the normal sixth-bell closing." },
+        { "id": "m03", "role": "user", "content": "A red notice arrives: because of the royal funeral, today's closing is moved earlier to fifth bell." },
+        { "id": "m04", "role": "assistant", "content": "Ilya marks fifth bell as today's binding deadline and crosses out sixth bell." },
+        { "id": "m05", "role": "user", "content": "The direct walk from our inn to court takes forty minutes." },
+        { "id": "m06", "role": "assistant", "content": "The scenic ferry detour takes ninety minutes before reaching the same court gate." },
+        { "id": "m07", "role": "user", "content": "The fourth bell rings now. I still have the sealed petition." },
+        { "id": "m08", "role": "assistant", "content": "One hour remains before today's revised closing." }
+      ],
+      "userMessage": "I suggest taking the ninety-minute ferry detour before filing. Have Ilya answer using the current deadline.",
+      "checks": [
+        { "id": "influence-uses-revised-deadline", "target": "influence", "kind": "must-include-any", "values": ["fifth bell"] },
+        { "id": "influence-detects-time-conflict", "target": "influence", "kind": "must-include-any", "values": ["ninety minutes", "90 minutes", "too late", "miss the deadline"] },
+        { "id": "visible-names-current-deadline", "target": "visible", "kind": "must-include-any", "values": ["fifth bell"] },
+        { "id": "visible-rejects-detour", "target": "visible", "kind": "must-include-any", "values": ["too late", "miss the deadline", "missed deadline", "miss the", "won't make", "would not make", "locked gate", "locked gates", "direct route", "direct walk", "forty-minute walk"] },
+        { "id": "visible-does-not-use-old-deadline", "target": "visible", "kind": "must-not-include", "values": ["sixth bell"] }
+      ],
+      "narrativeRubric": [
+        "Ilya reasons from the funeral notice rather than the normal schedule.",
+        "The response recognizes that ninety minutes cannot fit into one hour.",
+        "The reply recommends an in-character viable alternative without taking control from the player."
+      ]
+    },
+    {
+      "id": "unproven-saboteur",
+      "title": "Missing evidence should trigger abstention",
+      "challenge": "abstention",
+      "systemPrompt": "Narrate a grounded mystery. Do not turn suspicion into fact; explicitly preserve uncertainty when the evidence is insufficient.",
+      "card": {
+        "name": "Broken Winch Mystery",
+        "summary": "A harbor winch was sabotaged and several people had opportunity.",
+        "memory": [
+          { "label": "Incident", "detail": "The west-pier winch cable was deliberately cut." }
+        ]
+      },
+      "history": [
+        { "id": "m01", "role": "user", "content": "Edda argued with the foreman yesterday, but no one saw her near the winch." },
+        { "id": "m02", "role": "assistant", "content": "Her argument establishes motive at most, not access or action." },
+        { "id": "m03", "role": "user", "content": "Torren owns a knife like the one that could cut the cable, as do most dockworkers." },
+        { "id": "m04", "role": "assistant", "content": "The cut marks do not identify a unique blade or owner." },
+        { "id": "m05", "role": "user", "content": "A hooded figure crossed the pier, but rain concealed height, build, and face." },
+        { "id": "m06", "role": "assistant", "content": "The witness cannot identify the figure and heard no voice." },
+        { "id": "m07", "role": "user", "content": "We find no fingerprints, confession, distinctive tool marks, or reliable timeline." },
+        { "id": "m08", "role": "assistant", "content": "The case remains open; neither named suspect is established as the saboteur." }
+      ],
+      "userMessage": "Name the saboteur only if the story has established one; otherwise answer UNKNOWN and suggest the next investigation step.",
+      "checks": [
+        { "id": "influence-marks-culprit-unknown", "target": "influence", "kind": "must-include-any", "values": ["unknown", "not established", "insufficient evidence", "uncertain"] },
+        { "id": "influence-does-not-convict-edda", "target": "influence", "kind": "must-not-include", "values": ["edda is the saboteur", "edda cut the cable"] },
+        { "id": "influence-does-not-convict-torren", "target": "influence", "kind": "must-not-include", "values": ["torren is the saboteur", "torren cut the cable"] },
+        { "id": "visible-abstains", "target": "visible", "kind": "must-include-any", "values": ["unknown"] },
+        { "id": "visible-does-not-convict-edda", "target": "visible", "kind": "must-not-include", "values": ["edda is the saboteur", "edda cut the cable"] },
+        { "id": "visible-does-not-convict-torren", "target": "visible", "kind": "must-not-include", "values": ["torren is the saboteur", "torren cut the cable"] }
+      ],
+      "narrativeRubric": [
+        "The response distinguishes suspicion from proof.",
+        "It follows the explicit UNKNOWN contract.",
+        "The suggested next step seeks discriminating evidence rather than repeating existing clues."
+      ]
+    },
+    {
+      "id": "injured-nonswimmer",
+      "title": "Several durable constraints must shape the next action",
+      "challenge": "constraint-application",
+      "systemPrompt": "Narrate a grounded tabletop RPG scene. Respect physical limitations, prior promises, and player agency when proposing actions.",
+      "card": {
+        "name": "Flooded Causeway",
+        "summary": "The party is crossing a flooded causeway while protecting an injured companion.",
+        "memory": [
+          { "label": "Companion", "detail": "Ilya is traveling with the player." }
+        ]
+      },
+      "history": [
+        { "id": "m01", "role": "user", "content": "Ilya tells me she never learned to swim and panics in water deeper than her waist." },
+        { "id": "m02", "role": "assistant", "content": "You promise that no one will ask her to enter the river." },
+        { "id": "m03", "role": "user", "content": "Later a falling beam injures Ilya's left arm; the healer binds it in a rigid sling." },
+        { "id": "m04", "role": "assistant", "content": "She can walk, but cannot safely pull, climb, or bear weight with that arm." },
+        { "id": "m05", "role": "user", "content": "A locked supply chest is visible in chest-deep current below the causeway." },
+        { "id": "m06", "role": "assistant", "content": "A rope and grappling hook lie in our cart, and a dry footbridge crosses two hundred yards upstream." },
+        { "id": "m07", "role": "user", "content": "The current is fast but the chest appears snagged against a stone." },
+        { "id": "m08", "role": "assistant", "content": "Ilya stays on the dry causeway, cradling her injured arm." }
+      ],
+      "userMessage": "I ask Ilya to dive for the chest. Continue while honoring every established constraint.",
+      "checks": [
+        { "id": "influence-remembers-nonswimmer", "target": "influence", "kind": "must-include-any", "values": ["cannot swim", "can't swim", "never learned to swim", "nonswimmer"] },
+        { "id": "influence-remembers-injury", "target": "influence", "kind": "must-include-any", "values": ["injured left arm", "left arm", "sling"] },
+        { "id": "influence-finds-safe-option", "target": "influence", "kind": "must-include-any", "values": ["rope", "grappling hook", "footbridge"] },
+        { "id": "visible-refuses-unsafe-action", "target": "visible", "kind": "must-not-include", "values": ["ilya dives", "ilya jumps into", "she dives", "she jumps into"] },
+        { "id": "visible-offers-safe-option", "target": "visible", "kind": "must-include-any", "values": ["rope", "grappling hook", "footbridge"] }
+      ],
+      "narrativeRubric": [
+        "Ilya does not comply with an action incompatible with her swimming ability, injury, and the player's promise.",
+        "The response uses an established safe alternative rather than inventing a rescue device.",
+        "Ilya retains agency and an in-character reaction."
+      ]
     }
   ]
 }

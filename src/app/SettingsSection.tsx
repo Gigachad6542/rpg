@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Check, Download, ExternalLink, History, Info, Layers3, Palette, RotateCcw, Settings2, ShieldCheck, Upload, X } from "lucide-react";
 import type { HiddenContinuityMode } from "../runtime/hiddenContinuityPolicy";
+import type { DialogueExampleMode } from "../runtime/dialogueExamples";
 import {
   THEME_TOKENS,
   accentDefault,
@@ -24,6 +25,7 @@ export type RuntimeSettingsView = {
   banEmojis: boolean;
   promptDebugLogs: boolean;
   diceRollsEnabled: boolean;
+  dialogueExampleMode?: DialogueExampleMode;
   hiddenContinuityMode?: HiddenContinuityMode;
   economicalModel?: string;
   onboardingCompleted: boolean;
@@ -60,6 +62,7 @@ export function SettingsSection(props: {
   restorePoints: RestorePointView[];
   restoreStatus: string;
   restoreRuntimePoint: (id: string) => void;
+  isGenerating?: boolean;
 }) {
   const [runtimeImportDraft, setRuntimeImportDraft] = useState("");
   const [pendingRestorePoint, setPendingRestorePoint] = useState<RestorePointView | null>(null);
@@ -138,10 +141,31 @@ export function SettingsSection(props: {
           <span>Dice rolls (/roll in chat)</span>
         </label>
         <label className="field">
-          <span>Hidden continuity mode</span>
+          <span>Dialogue examples</span>
           <select
-            aria-label="Hidden continuity mode"
-            value={props.runtimeSettings.hiddenContinuityMode ?? "full"}
+            aria-label="Dialogue examples"
+            value={props.runtimeSettings.dialogueExampleMode ?? "all"}
+            onChange={(event) =>
+              props.setRuntimeSettings({
+                ...props.runtimeSettings,
+                dialogueExampleMode: event.target.value as DialogueExampleMode,
+              })
+            }
+          >
+            <option value="all">All examples (legacy behavior)</option>
+            <option value="selective">Relevant examples (experimental)</option>
+            <option value="off">Off</option>
+          </select>
+        </label>
+        <p className="panel-hint">
+          Relevant mode selects up to three card examples for the current scene and treats them as style guidance,
+          not current story facts. Off keeps examples out of model prompts.
+        </p>
+        <label className="field">
+          <span>Two-model-call memory</span>
+          <select
+            aria-label="Two-model-call memory"
+            value={props.runtimeSettings.hiddenContinuityMode === "off" ? "off" : "evidence-brief"}
             onChange={(event) =>
               props.setRuntimeSettings({
                 ...props.runtimeSettings,
@@ -149,29 +173,14 @@ export function SettingsSection(props: {
               })
             }
           >
-            <option value="full">Full continuity (2 calls)</option>
-            <option value="economical">Economical continuity (2 calls)</option>
+            <option value="evidence-brief">Windowed evidence brief (conditional 2 calls)</option>
             <option value="off">Off (1 call)</option>
           </select>
         </label>
         <p className="panel-hint">
-          Full and economical modes make a hidden continuity call followed by the visible response. Off makes only the visible call.
+          When older context falls outside the tested four-message window, the selected model first creates a private,
+          source-cited evidence brief, then answers from the recent window plus that brief. Short chats and Off use one call.
         </p>
-        <label className="field">
-          <span>Economical continuity model</span>
-          <input
-            aria-label="Economical continuity model"
-            value={props.runtimeSettings.economicalModel ?? ""}
-            maxLength={200}
-            placeholder="Small model id on the same provider"
-            onChange={(event) =>
-              props.setRuntimeSettings({
-                ...props.runtimeSettings,
-                economicalModel: event.target.value,
-              })
-            }
-          />
-        </label>
         <details className="advanced-settings-disclosure">
           <summary>Advanced prompt diagnostics</summary>
           <label className="toggle-row">
@@ -345,6 +354,7 @@ export function SettingsSection(props: {
         {props.pendingImportReview ? (
           <RuntimeImportReviewDialog
             review={props.pendingImportReview}
+            applyDisabled={props.isGenerating}
             apply={() => {
               props.applyRuntimeImport();
               setRuntimeImportDraft("");
@@ -379,6 +389,7 @@ export function SettingsSection(props: {
                   className="secondary-button compact-button"
                   aria-label={`Restore ${point.label}`}
                   onClick={() => setPendingRestorePoint(point)}
+                  disabled={props.isGenerating}
                 >
                   <RotateCcw size={15} />
                   Restore
@@ -396,6 +407,7 @@ export function SettingsSection(props: {
             title={`Restore ${pendingRestorePoint.label}?`}
             cancelLabel="Cancel restore"
             confirmLabel="Restore selected point"
+            confirmDisabled={props.isGenerating}
             cancel={() => setPendingRestorePoint(null)}
             confirm={() => {
               props.restoreRuntimePoint(pendingRestorePoint.id);

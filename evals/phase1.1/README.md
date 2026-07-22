@@ -1,62 +1,84 @@
-# Phase 1.1 live quality and retrieval evals
+# Phase 1.1 two-pass memory influence eval
 
-This lane answers one product question: does the hidden continuity call improve
-the visible RPG experience enough to justify its added latency, tokens, and
-cost?
+This lane tests when one private analytical call can educate a second visible
+call. It replaces the old unscoped `off` / `economical` / `full` lane, which
+never made a live call and gave its baseline the reference facts directly.
 
 ## Deterministic gate
 
-`pnpm eval:phase1.1` makes no network requests and no model calls. It validates:
-
-- the three-profile and `off` / `economical` / `full` experiment contract;
-- 100 labeled lore decisions with precision >= 0.90 and recall >= 0.95;
-- three expanded 50-100-turn campaign fixtures with edit, regeneration,
-  branch, restart, and model-switch coverage.
-
-This command is included in `pnpm verify`.
-
-## Live opt-in runner
-
-Copy `live-config.example.json` outside the committed example or into the
-ignored `evals/phase1.1/artifacts/` directory. Replace every placeholder model,
-endpoint, price, source, and effective date, then set `readyForPaidRuns` to
-`true`. Hosted credentials are read only from the named environment variables;
-raw keys are rejected in config and artifacts.
-
-The example contains zero-valued placeholder rates only so its schema and exact
-model mapping can be tested. They are not commercial pricing and the live
-runner refuses them.
-
-Run explicitly:
-
 ```powershell
-pnpm eval:phase1.1:live -- --config .\evals\phase1.1\artifacts\live-config.json --output .\evals\phase1.1\artifacts\run.json --i-understand-this-makes-paid-calls
+pnpm eval:phase1.1
 ```
 
-The runner executes identical scenarios for all three modes and profiles. It
-enforces one visible call for `off`, and one hidden plus one visible call for
-`economical` and `full`. Retrieval, rules, summaries, scoring, and artifact
-writing remain local. Each phase records model, status, TTFT when streaming
-exposes it, total duration, provider or estimated usage, exact or estimated
-cost, failure category, and proposal count.
+This makes no network request and no model call. It validates the exact
+Qwen3.7-Max configuration, six strategy arms, six memory challenges, three
+repetitions, planned call count, and hard paid-run limits. It remains part of
+`pnpm verify`.
 
-The scorecard also computes each two-call mode's mean added tokens, end-to-end
-duration, and cost per run versus `off`. Cost deltas preserve `known`,
-`estimated`, or `unknown` provenance instead of treating partial prices as an
-exact comparison.
+## Prepare a live run
 
-Outputs are assigned neutral `blindId` values. A reviewer should score only the
-blind id and visible output, without the mode mapping. Copy
-`quality-judgments.example.json`, replace its ids with ids from the run, and add
-it with `--judgments` to calculate five-dimension quality means and pairwise
-preference against `off`.
+1. Copy `live-config.example.json` to the ignored
+   `evals/phase1.1/artifacts/live-config.json`.
+2. Re-check the current OpenRouter model id and pricing. Update the pricing
+   snapshot if it changed, then set `readyForPaidRuns` to `true`.
+3. Set `PHASE11_OPENROUTER_API_KEY` only in the local process environment. Do
+   not put a key in JSON, source, a fixture, shell history, or an artifact.
+4. Rotate any key that has been pasted into a task, chat, or log before treating
+   results as release evidence.
 
-The five 1-5 dimensions are coherence, agency, repetition (5 means no harmful
-repetition), pacing, and character consistency. Deterministic state, event,
-knowledge, and leak checks remain authoritative and should be repeated to
-`pass^3`; subjective narrative quality is reported as blind score and pairwise
-preference, not as a safety gate.
+Start with a bounded smoke run:
 
-No live baseline is committed yet. A baseline is legitimate only after a
-reviewed configuration and real runs complete; this infrastructure does not
-invent a quality gain in their absence.
+```powershell
+pnpm eval:phase1.1:live -- --config .\evals\phase1.1\artifacts\live-config.json --output .\evals\phase1.1\artifacts\smoke.json --review-output .\evals\phase1.1\artifacts\smoke-review.json --strategies single-full,evidence-brief-full --scenarios superseded-lantern-rune --repetitions 1 --i-understand-this-makes-paid-calls
+```
+
+Then run the full exploratory matrix:
+
+```powershell
+pnpm eval:phase1.1:live -- --config .\evals\phase1.1\artifacts\live-config.json --output .\evals\phase1.1\artifacts\run.json --review-output .\evals\phase1.1\artifacts\review.json --i-understand-this-makes-paid-calls
+```
+
+The committed matrix is 180 calls: six scenarios × three repetitions × ten
+calls across the six strategy arms. The runner rotates arm order and stops
+before a request that would exceed the configured call, input-token,
+output-token, or estimated-cost cap.
+
+## Blind review
+
+The review packet excludes tactic names and mode mappings. Rate every distinct
+blind output on:
+
+- memory fidelity;
+- continuity;
+- character consistency;
+- player agency;
+- prose quality.
+
+For each packet pair, record the preferred blind id or `null` for a tie. Use
+`quality-judgments.example.json` as the shape, ensuring every recorded output
+has exactly one rating. Re-score without rerunning paid calls:
+
+```powershell
+pnpm eval:phase1.1:score -- --artifact .\evals\phase1.1\artifacts\run.json --judgments .\evals\phase1.1\artifacts\judgments.json --output .\evals\phase1.1\artifacts\run-rated.json
+```
+
+Pass `--config .\evals\phase1.1\live-config.example.json` to recompute the
+deterministic checks from the current scoped rule grader before scoring. This
+does not change model outputs or call telemetry. The scoring command makes no
+provider call.
+
+## Interpretation
+
+- Compare `evidence-brief-full` and `legacy-continuity-full` to `single-full`.
+- Compare `evidence-brief-window` to `single-window`, then check how closely it
+  approaches `single-full`.
+- If `analysis-discarded-full` improves too, suspect order, provider drift, or
+  sampling noise rather than useful influence.
+- Inspect brief correctness before interpreting final-output uplift. A bad brief
+  that call two follows is amplification, not memory improvement.
+- Prefer the simplest arm that clears correctness and blind-quality bars. A
+  second call is unnecessary on short, obvious turns where `single-full`
+  already passes consistently.
+
+See [the research and failure analysis](../../docs/research/two-pass-memory-influence.md)
+for the rationale behind this design.

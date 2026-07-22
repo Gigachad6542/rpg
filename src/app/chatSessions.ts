@@ -11,6 +11,8 @@ import {
   reconcileRollingSummaryForHistory,
 } from "../runtime/rollingSummary";
 
+const MAX_RUNTIME_ENTITY_ID_CHARACTERS = 160;
+
 export function parseChatSessions(
   value: unknown,
   cards: RuntimeCard[],
@@ -131,24 +133,44 @@ export function sanitizeMessages(value: unknown): Message[] {
         Array.isArray(message.variants) && message.variants.every((variant) => typeof variant === "string")
           ? (message.variants as string[])
           : undefined;
+      const hasVariants = Boolean(variants && variants.length > 1);
       const activeVariantIndex =
-        variants && typeof message.activeVariantIndex === "number"
+        hasVariants && variants && typeof message.activeVariantIndex === "number"
           ? Math.min(Math.max(Math.trunc(message.activeVariantIndex), 0), variants.length - 1)
-          : undefined;
-      const variantRunIds = Array.isArray(message.variantRunIds)
-        ? message.variantRunIds.filter((value): value is string => typeof value === "string")
+          : hasVariants && variants
+            ? variants.length - 1
+            : undefined;
+      const promptRunId = typeof message.promptRunId === "string" ? message.promptRunId : undefined;
+      // Preserve array positions: each run id belongs to the variant at the
+      // same index. Filtering invalid values would silently attach diagnostics
+      // from one variant to another after hydration.
+      const variantRunIds = hasVariants && variants
+        ? variants.map((_, index) => {
+            const value = Array.isArray(message.variantRunIds) ? message.variantRunIds[index] : undefined;
+            if (typeof value === "string" && value) {
+              return value;
+            }
+            // Before positional ids were persisted, promptRunId still referred
+            // to the newest generated variant even if an older one was active.
+            return index === variants.length - 1 ? promptRunId ?? "" : "";
+          })
         : undefined;
+      const variantCount = hasVariants && variants ? variants.length : 1;
       const undoneVariantIndices = Array.isArray(message.undoneVariantIndices)
         ? message.undoneVariantIndices
-            .filter((value): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0)
+            .filter((value): value is number =>
+              typeof value === "number" && Number.isInteger(value) && value >= 0 && value < variantCount,
+            )
         : undefined;
       return {
         id: message.id,
         role: message.role,
-        content: message.content,
-        ...(variants && variants.length > 1 ? { variants, activeVariantIndex } : {}),
-        ...(typeof message.promptRunId === "string" ? { promptRunId: message.promptRunId } : {}),
-        ...(variantRunIds && variantRunIds.length > 0 ? { variantRunIds } : {}),
+        content: hasVariants && variants && activeVariantIndex !== undefined
+          ? variants[activeVariantIndex]
+          : message.content,
+        ...(hasVariants && variants ? { variants, activeVariantIndex } : {}),
+        ...(promptRunId ? { promptRunId } : {}),
+        ...(variantRunIds?.some(Boolean) ? { variantRunIds } : {}),
         ...(undoneVariantIndices && undoneVariantIndices.length > 0 ? { undoneVariantIndices } : {}),
       };
     })
@@ -206,8 +228,19 @@ export function advanceChatSessionRollingSummary(
 export function cloneMessagesForBranch(messages: Message[], branchId: string): Message[] {
   return messages.map((message, index) => ({
     ...message,
-    id: `${message.id}__branch_${branchId}_${index}`,
+    // Do not recursively embed the source id. Repeated branching otherwise
+    // grows ids until desktop snapshot validation rejects the whole save.
+    id: createBranchedEntityId("message", branchId, index),
   }));
+}
+
+function createBranchedEntityId(prefix: string, branchId: string, index: number): string {
+  const suffix = `_${index}`;
+  const availableBranchCharacters = Math.max(
+    1,
+    MAX_RUNTIME_ENTITY_ID_CHARACTERS - prefix.length - suffix.length - 1,
+  );
+  return `${prefix}_${branchId.slice(-availableBranchCharacters)}${suffix}`;
 }
 
 export function filterPersistedOpeningMessages(messages: Message[]): Message[] {

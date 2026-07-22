@@ -134,6 +134,39 @@ describe("App pure helper coverage", () => {
     expect(helpers.sanitizeMessages([{ id: "m2", role: "assistant", content: "kept" }, { id: 1 }])).toEqual([
       { id: "m2", role: "assistant", content: "kept" },
     ]);
+    expect(helpers.sanitizeMessages([{
+      id: "variant-message",
+      role: "assistant",
+      content: "stale",
+      variants: ["first", "second"],
+      activeVariantIndex: 0,
+      variantRunIds: ["run-first", 42, "run-extra"],
+      undoneVariantIndices: [0, 2],
+    }])).toEqual([{
+      id: "variant-message",
+      role: "assistant",
+      content: "first",
+      variants: ["first", "second"],
+      activeVariantIndex: 0,
+      variantRunIds: ["run-first", ""],
+      undoneVariantIndices: [0],
+    }]);
+    expect(helpers.sanitizeMessages([{
+      id: "legacy-variant-message",
+      role: "assistant",
+      content: "first",
+      promptRunId: "run-latest",
+      variants: ["first", "second"],
+      activeVariantIndex: 0,
+    }])).toEqual([{
+      id: "legacy-variant-message",
+      role: "assistant",
+      content: "first",
+      promptRunId: "run-latest",
+      variants: ["first", "second"],
+      activeVariantIndex: 0,
+      variantRunIds: ["", "run-latest"],
+    }]);
 
     const created = helpers.createChatSession("card-rpg", " ", {
       id: "chat-created",
@@ -148,8 +181,13 @@ describe("App pure helper coverage", () => {
       branchedFromMessageId: "message-parent",
     });
     expect(helpers.cloneMessagesForBranch([{ id: "m", role: "user", content: "hello" }], "branch")).toEqual([
-      { id: "m__branch_branch_0", role: "user", content: "hello" },
+      { id: "message_branch_0", role: "user", content: "hello" },
     ]);
+    const boundedBranchMessage = helpers.cloneMessagesForBranch(
+      [{ id: "m".repeat(160), role: "user", content: "hello" }],
+      "branch".repeat(40),
+    )[0];
+    expect(boundedBranchMessage.id).toHaveLength(160);
     const originalCrypto = globalThis.crypto;
     vi.stubGlobal("crypto", undefined);
     try {
@@ -436,13 +474,13 @@ describe("App pure helper coverage", () => {
     expect(helpers.parseRuntimeSettings({ textStreaming: false, banEmojis: true, promptDebugLogs: true })).toMatchObject({
       banEmojis: true,
       promptDebugLogs: true,
-      hiddenContinuityMode: "full",
+      hiddenContinuityMode: "evidence-brief",
     });
     expect(helpers.parseRuntimeSettings({
-      hiddenContinuityMode: "economical",
+      hiddenContinuityMode: "evidence-brief",
       economicalModel: "  small-model  ",
     })).toMatchObject({
-      hiddenContinuityMode: "economical",
+      hiddenContinuityMode: "evidence-brief",
       economicalModel: "small-model",
     });
     const configuredProvider = helpers.parseProviderSettings({
@@ -619,6 +657,9 @@ describe("App pure helper coverage", () => {
     expect(helpers.buildMockHiddenContinuityResponse(rpgCard(), "I am Nia near Rook in the old tower.")).toMatchObject({
       memory_updates: [expect.objectContaining({ detail: "Nia is the player character." })],
     });
+    expect(helpers.buildMockMemoryEvidenceBrief("I inspect the old tower.")).toMatchObject({
+      relevant_evidence: [expect.objectContaining({ source_id: "latest-user" })],
+    });
     expect(helpers.buildMockExtractionProposal(rpgCard(), "I walk to the cellar and open the gate.")).toMatchObject({
       rpg_state_updates: {
         location: "Cellar",
@@ -734,8 +775,24 @@ describe("App pure helper coverage", () => {
     expect(stripped).toContain("The gate swings open");
     expect(stripped).toContain("Location: North road");
 
+    const singleStatus = [
+      "The gate swings open.",
+      "",
+      "What do you do next?",
+      "",
+      "```status",
+      "Location: North road",
+      "```",
+    ].join("\n");
+    expect(helpers.parseAssistantMessageDisplay(helpers.stripTrailingCallToAction(singleStatus))).toEqual({
+      paragraphs: ["The gate swings open."],
+      statusItems: [{ label: "Location", value: "North road" }],
+    });
+
     const dialogue = ["Mira tilts her head.", "", '"What do you want from me?"'].join("\n");
     expect(helpers.stripTrailingCallToAction(dialogue)).toBe(dialogue);
+    const smartQuotedDialogue = ["Mira repeats the accusation.", "", "What did “you” say?"].join("\n");
+    expect(helpers.stripTrailingCallToAction(smartQuotedDialogue)).toBe(smartQuotedDialogue);
 
     const onlyQuestion = "What do you do?";
     expect(helpers.stripTrailingCallToAction(onlyQuestion)).toBe(onlyQuestion);

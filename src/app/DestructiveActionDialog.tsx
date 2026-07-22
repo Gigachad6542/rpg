@@ -9,6 +9,7 @@ export function DestructiveActionDialog(props: {
   children: ReactNode;
   cancelLabel: string;
   confirmLabel: string;
+  confirmDisabled?: boolean;
   cancel: () => void;
   confirm: () => void;
 }) {
@@ -56,6 +57,7 @@ export function DestructiveActionDialog(props: {
             className="secondary-button danger-button compact-button"
             type="button"
             onClick={props.confirm}
+            disabled={props.confirmDisabled}
           >
             {props.confirmLabel}
           </button>

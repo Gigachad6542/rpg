@@ -1,5 +1,6 @@
 import {
   type Dispatch,
+  type MutableRefObject,
   type SetStateAction,
   useRef,
   useState,
@@ -48,6 +49,7 @@ interface UseRuntimeSessionManagementOptions {
   stopGeneration: () => void;
   captureRestorePoint: () => void;
   commitManualActiveCardState: (nextCard: RuntimeCard) => void;
+  generationInFlightRef?: MutableRefObject<boolean>;
 }
 
 export function useRuntimeSessionManagement(options: UseRuntimeSessionManagementOptions) {
@@ -70,14 +72,29 @@ export function useRuntimeSessionManagement(options: UseRuntimeSessionManagement
     stopGeneration,
     captureRestorePoint,
     commitManualActiveCardState,
+    generationInFlightRef: providedGenerationInFlightRef,
   } = options;
+  const fallbackGenerationInFlightRef = useRef(false);
+  const generationInFlightRef = providedGenerationInFlightRef ?? fallbackGenerationInFlightRef;
   const consolidationInFlightRef = useRef(false);
   const [isConsolidatingMemory, setIsConsolidatingMemory] = useState(false);
   const [memoryConsolidationStatus, setMemoryConsolidationStatus] = useState<string | null>(null);
   const [memoryConsolidationReview, setMemoryConsolidationReview] = useState<MemoryConsolidationReview | null>(null);
 
+  function blockPersonaMutationDuringGeneration(): boolean {
+    if (!generationInFlightRef.current) {
+      return false;
+    }
+    setRuleWarning("Stop the in-flight generation before changing personas.");
+    return true;
+  }
+
   async function consolidateActiveCardMemory(): Promise<void> {
     if (!activeCard || consolidationInFlightRef.current) {
+      return;
+    }
+    if (generationInFlightRef.current) {
+      setMemoryConsolidationStatus("Stop the in-flight generation before consolidating memory.");
       return;
     }
     consolidationInFlightRef.current = true;
@@ -127,6 +144,10 @@ export function useRuntimeSessionManagement(options: UseRuntimeSessionManagement
       setMemoryConsolidationStatus("The consolidation review no longer matches the active card; memory was not changed.");
       return;
     }
+    if (generationInFlightRef.current) {
+      setMemoryConsolidationStatus("Stop the in-flight generation before applying memory changes.");
+      return;
+    }
     if (JSON.stringify(activeCard.memory) !== JSON.stringify(memoryConsolidationReview.originalMemory)) {
       setMemoryConsolidationReview(null);
       setMemoryConsolidationStatus("Memory changed while this review was open; the stale proposal was discarded.");
@@ -168,16 +189,19 @@ export function useRuntimeSessionManagement(options: UseRuntimeSessionManagement
   }
 
   function addPersona(name: string): void {
+    if (blockPersonaMutationDuringGeneration()) return;
     const persona = createPersona(name);
     setPersonas((current) => [...current, persona]);
     setActivePersonaId(persona.id);
   }
 
   function editPersona(personaId: string, changes: Partial<Persona>): void {
+    if (blockPersonaMutationDuringGeneration()) return;
     setPersonas((current) => updatePersona(current, personaId, changes));
   }
 
   function removePersona(personaId: string): void {
+    if (blockPersonaMutationDuringGeneration()) return;
     const remaining = deletePersona(personas, personaId);
     if (remaining.length === personas.length) {
       return;
@@ -185,6 +209,11 @@ export function useRuntimeSessionManagement(options: UseRuntimeSessionManagement
     captureRestorePoint();
     setPersonas(remaining);
     setActivePersonaId(parseActivePersonaId(activePersonaId, remaining));
+  }
+
+  function selectPersona(personaId: string): void {
+    if (blockPersonaMutationDuringGeneration()) return;
+    setActivePersonaId(parseActivePersonaId(personaId, personas));
   }
 
   return {
@@ -197,6 +226,7 @@ export function useRuntimeSessionManagement(options: UseRuntimeSessionManagement
     shutdownRuntime,
     startRuntime,
     completeOnboarding,
+    selectPersona,
     addPersona,
     editPersona,
     removePersona,

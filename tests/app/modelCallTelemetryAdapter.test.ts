@@ -23,7 +23,16 @@ describe("model call telemetry adapter", () => {
         throw new Error("generateText should not run");
       },
       async *streamText() {
-        yield { text: "Streamed ", index: 0, done: false };
+        yield {
+          text: "Streamed ",
+          index: 0,
+          done: false,
+          reasoning: {
+            trace: "Checked the branch. ",
+            format: "text",
+            encrypted: false,
+          },
+        };
         yield {
           text: "reply",
           index: 1,
@@ -31,6 +40,12 @@ describe("model call telemetry adapter", () => {
           finishReason: "stop" as const,
           usage: { inputTokens: 9, outputTokens: 2, totalTokens: 11 },
           usageSource: "provider" as const,
+          reasoning: {
+            trace: "Applied the latest update.",
+            format: "text",
+            encrypted: false,
+            tokenCount: 1,
+          },
         };
       },
     };
@@ -51,8 +66,55 @@ describe("model call telemetry adapter", () => {
         finishReason: "stop",
         usage: { inputTokens: 9, outputTokens: 2, totalTokens: 11 },
         usageSource: "provider",
+        reasoning: {
+          trace: "Checked the branch. Applied the latest update.",
+          format: "text",
+          encrypted: false,
+          tokenCount: 1,
+        },
       }),
     });
+  });
+
+  it("records whether reasoning was requested, observed, and token-accounted without retaining its trace", () => {
+    const record = toModelCallRecord({
+      phase: "visible-response",
+      fallbackProvider: "openrouter",
+      fallbackModel: "qwen/qwen3.7-max",
+      budget: resolveModelCallBudget({
+        providerId: "openrouter",
+        model: "qwen/qwen3.7-max",
+        phase: "visible-response",
+      }),
+      durationMs: 50,
+      reasoningRequest: "enabled",
+      outcome: {
+        response: {
+          providerId: "openrouter",
+          model: "qwen/qwen3.7-max",
+          text: "Visible answer.",
+          finishReason: "stop",
+          usage: { inputTokens: 20, outputTokens: 30, totalTokens: 50 },
+          usageSource: "provider",
+          reasoning: {
+            trace: "Private chain.",
+            format: "text",
+            encrypted: false,
+            tokenCount: 18,
+          },
+        },
+      },
+      stateProposalCount: 0,
+    });
+
+    expect(record.reasoning).toEqual({
+      request: "enabled",
+      observed: true,
+      traceAvailable: true,
+      encrypted: false,
+      tokenCount: 18,
+    });
+    expect(JSON.stringify(record)).not.toContain("Private chain");
   });
 
   it("captures stream failures and builds explicit failure telemetry", async () => {

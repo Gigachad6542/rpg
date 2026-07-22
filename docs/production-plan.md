@@ -30,7 +30,7 @@ Not yet proven (the launch gap):
   signed semantic version.
 - The private user-owned repo is ineligible for GitHub artifact attestation, and the
   release preflight fails closed until that is resolved.
-- Live-provider narrative quality (the optional second model call) is unmeasured.
+- Live-provider narrative quality (the optional second model call) remains unmeasured. The prior lane was invalidated because it leaked reference facts to the baseline and never made a live call; the replacement paired Qwen3.7-Max experiment is ready but has not been run.
 
 ## Readiness scorecard
 
@@ -65,10 +65,13 @@ Not yet proven (the launch gap):
   bootstrap-baseline mode first, then run the real candidate against that older tag.
 
 ### D. Live-provider quality
-- Run the opt-in live evaluation with reviewed paid-call limits and blind pairwise scoring
-  before recommending any second-call mode or model. Until then, `qwen3.7-max` stays a
-  configurable default, not a measured winner, and the second call is not proven to earn
-  its latency/cost.
+- The scoped paired memory-influence evaluation is complete. It supports one
+  production tactic: use a source-cited first-call brief to restore evidence omitted
+  from a four-message final-call window. It did not support a second call when the
+  final call already had full context. Before making broader prose-quality or
+  cross-model claims, complete blind pairwise review and a confirmatory recent-window
+  discarded-analysis placebo lane. See
+  [the research and redesign](research/two-pass-memory-influence.md).
 
 ### E. Accessibility depth
 - Extend beyond the automated WCAG A/AA + reflow/forced-colors lanes into native WebView

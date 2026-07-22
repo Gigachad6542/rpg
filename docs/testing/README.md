@@ -1,13 +1,23 @@
 # Testing Evidence Ledger
 
 This ledger replaces the 26 individual `*.tdd.md` evidence logs that previously lived in
-`docs/testing/` (consolidated 2026-07-15). Each row was a RED/GREEN TDD record of a
+`docs/testing/` (consolidated 2026-07-15; updated 2026-07-21). Each historical row was a RED/GREEN TDD record of a
 verified change; the full narrative for any entry remains in git history at the referenced
 former path (`git log --follow -- docs/testing/<file>`).
 
 For **current** release status and the open launch gates, see
 [../production-plan.md](../production-plan.md). This ledger is a historical index, not a
 live readiness claim.
+
+## Current suite safeguards
+
+`pnpm test:audit` parses every `*.test.ts(x)` and `*.spec.ts(x)` file under `tests/`
+before the normal and coverage suites run. It fails on focused or disabled tests,
+duplicate fully-qualified test names, and test bodies without an observable assertion
+contract. A deliberately no-throw regression must carry a local
+`test-contract: no-throw` rationale so that its intent remains reviewable. Conditional
+platform tests are counted and reported rather than silently treated as universal
+coverage.
 
 Outcome legend: **PASS** = landed and verified locally. Rows that touch signing,
 notarization, hosted CI, clean-VM installs, or previous-version upgrades are marked
@@ -28,12 +38,15 @@ notarization, hosted CI, clean-VM installs, or previous-version upgrades are mar
 
 | Date | Evidence (former file) | Outcome |
 |---|---|---|
-| 2026-07-13 | Phase 1.1 live quality & retrieval — deterministic two-call quality/lore-retrieval lane (`phase-1.1-live-quality-retrieval`) | PASS; live paid run not performed |
-| 2026-07-12 | Phase 1 core runtime — mode-aware call contract, typed event/retrieval continuity, 36-turn scorecard (`phase-1-core-runtime`) | PASS |
-| 2026-07-12 | Two-call context correctness — per-model budgets, hidden/visible role separation, token accounting (`two-call-context-correctness`) | PASS |
-| 2026-07-12 | Model-call, trust-boundary & import hardening — two-call usage ledger, system-prompt separation, strict import boundary (`model-call-trust-import-hardening`) | PASS |
+| 2026-07-21 | [Dialogue-example prompting](dialogue-examples.tdd.md) — optional all/selective/off example modes, scoped retrieval, prompt isolation, persistence, and settings coverage | PASS (104 files / 757 tests + deterministic eval gates) |
+| 2026-07-20 | [Reasoning observability](reasoning-observability.tdd.md) — explicit visible-Qwen reasoning, browser/stream/desktop capture, safe proof telemetry, and session-only private trace disclosure | PASS (101 files / 737 tests; 92.54% statement coverage) |
+| 2026-07-20 | [Windowed evidence-brief production integration](phase1.1-two-pass-memory.tdd.md#production-integration) — conditional boundary, same-model routing, strict citations, non-persistence, fail-open fallback, settings migration, and phase telemetry | PASS (99 files / 724 tests + deterministic eval gates) |
+| 2026-07-19 | [Phase 1.1 two-pass memory influence](phase1.1-two-pass-memory.tdd.md) — scoped paired Qwen3.7-Max strategies, strict brief/final grading, placebo arm, repeats, offline regrade, and paid-run caps | PASS (harness + 180-call live v2); blind prose review pending |
+| 2026-07-12 | Phase 1 core runtime — mode-aware call contract, typed event/retrieval continuity, 36-turn scorecard (`phase-1-core-runtime`) | PASS (historical state-policy coverage; old two-call tactic superseded) |
+| 2026-07-12 | Two-call context correctness — per-model budgets, hidden/visible role separation, token accounting (`two-call-context-correctness`) | PASS (historical implementation; superseded) |
+| 2026-07-12 | Model-call, trust-boundary & import hardening — two-call usage ledger, system-prompt separation, strict import boundary (`model-call-trust-import-hardening`) | PASS (import/ledger hardening retained; hidden tactic superseded) |
 | — | Continuity knowledge coherence — durable memory, knows/does-not-know conflict resolution, de-duplicated hidden context (`continuity-knowledge-coherence`) | PASS |
-| — | Hidden-continuity fail-open behavior (`hidden-continuity-fail-open`) | PASS |
+| — | Hidden-continuity fail-open behavior (`hidden-continuity-fail-open`) | PASS (historical; superseded by evidence-brief fail-open coverage) |
 | — | Domain coverage consolidation (`domain-coverage-consolidation`) | PASS |
 
 ## Turn-state integrity

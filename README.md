@@ -36,11 +36,12 @@ Useful commands:
 | `pnpm desktop:open` | Run the Tauri desktop app in development. |
 | `pnpm typecheck` | Type-check TypeScript without emitting files. |
 | `pnpm test` | Run the Vitest suite. |
+| `pnpm test:audit` | Audit every test declaration for focused/disabled APIs, duplicate names, and missing assertion contracts. |
 | `pnpm test:coverage` | Run Vitest with V8 coverage. |
 | `pnpm e2e` | Run the Playwright functional, automated WCAG A/AA, 320 CSS-pixel reflow, and forced-colors acceptance suite. |
 | `pnpm e2e:install` | Install the Playwright Chromium browser used by the acceptance suite. |
 | `pnpm build` | Build the frontend bundle. |
-| `pnpm verify` | Run the local CI gate: typecheck, lint, tests, Phase 1 runtime eval, build, dependency audit, Rust tests, and clippy. |
+| `pnpm verify` | Run the local CI gate: version sync, typecheck, lint, tests, both deterministic runtime evals, build, dependency audit, Rust tests, and clippy. |
 | `pnpm verify:release` | Run the Windows release gate: local checks, coverage, browser smoke, audits, Rust checks, desktop packaging, executable and MSI-payload smokes, plus a fail-closed normal NSIS install/reinstall/uninstall lifecycle. |
 | `pnpm verify:desktop` | Run `pnpm verify`, then build the desktop bundle. |
 | `pnpm desktop:smoke` | Start the release executable and fail if it exits during startup. |
@@ -60,9 +61,20 @@ pnpm desktop:build
 ## Providers
 
 The OpenAI-compatible BYOK path currently presents `qwen3.7-max` as its
-recommended model metadata. That recommendation has deterministic contract
-coverage but no completed live-provider quality run; treat it as a configurable
-default, not a measured quality winner.
+Alibaba-compatible reference metadata. The scoped OpenRouter evaluation used
+the provider-specific slug `qwen/qwen3.7-max`. Its accepted run found that a
+source-cited evidence brief improved a recent-window reply from 12/18 to 18/18
+strict memory checks, while adding no result improvement when the final call
+already had full context. The app therefore uses the second call only for the
+conditional windowed-memory case; this is scoped evidence, not a universal
+quality claim.
+
+Visible Qwen3.7-Max calls now explicitly request reasoning and returned
+reasoning details. The call inspector distinguishes requested, observed, and
+provider-token-confirmed reasoning. A plaintext/summary trace is available only
+behind a private/spoiler disclosure for the current app session; it is not
+persisted or passed between the evidence and visible calls. The strict JSON
+evidence call keeps reasoning disabled because that is the tested configuration.
 
 API keys are bring-your-own-key:
 

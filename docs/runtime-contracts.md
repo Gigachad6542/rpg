@@ -91,16 +91,31 @@ Provider calls must preserve the BYOK boundary:
   the UI states that replies appear when the request completes, and the turn
   pipeline falls back to `generateText` even when the global streaming
   preference is enabled.
+- The visible Qwen3.7-Max request explicitly enables reasoning and requests an
+  observable trace. Browser, streaming, and stored-secret desktop paths keep
+  reasoning separate from player-visible text. Other model ids retain their
+  provider defaults unless explicit capability metadata is added.
+- Raw reasoning is private session-only diagnostic data held in a bounded
+  recent-trace cache. Prompt runs persist
+  only whether reasoning was requested or observed, whether a trace existed or
+  was encrypted, and a bounded provider-reported reasoning-token count. Raw
+  traces must never enter snapshots, exports, memory, state, or a later prompt.
 
 ## Phase 1 Turn Runtime
 
-- Hidden continuity is explicit: `off` makes one visible model call; `economical` and `full` make one hidden call followed by one visible call.
-- Every attempted phase retains its model, phase duration, usage source, tokens, context budget, cost provenance, failure, and state-proposal count. Visible and economical hidden models resolve separate exact-model pricing snapshots; missing usage or exact pricing remains unknown rather than becoming zero.
+- Two-model-call memory has one active use case: `evidence-brief`. It makes a private analysis call only when the active branch contains more than four prior messages; `off` and shorter branches make one visible call.
+- The analysis call sees the wider active-branch context and returns a strict, source-cited evidence brief. The visible call uses the same selected model, the four most recent prior messages, and that validated brief. The brief is fallible, is never shown to the player, and is never persisted as memory or state.
+- Invalid JSON, schema violations, unknown source citations, empty output, provider errors, truncation, and over-budget source context make the brief unusable. The visible call then falls back to the normal full-context path without the brief.
+- Every attempted phase retains its model, phase duration, usage source, tokens, context budget, cost provenance, failure, and state-proposal count. Memory-evidence analysis always has zero state proposals. Missing usage or exact-model pricing remains unknown rather than becoming zero.
+- Memory-evidence analysis explicitly disables reasoning to preserve the tested
+  bounded JSON-extraction behavior. The visible Qwen3.7-Max call explicitly
+  enables reasoning and reserves a 4,000-token total output envelope for both
+  reasoning and prose. Provider-reported reasoning tokens count as output tokens.
 - Context budgets resolve against metadata for the exact routed model. Unknown models use the conservative fallback.
 - Runtime rules and knowledge/safety boundaries are required prompt layers and fail closed when they cannot fit.
 - Player actions, deterministic rule decisions, dice, tool results, and accepted state mutations use the typed branch-scoped event stream. Replay verifies the RPG projection against the turn lineage before using it.
 - Rolling summaries and scoped lexical/feature-hash retrieval are local operations and make no provider call. Retrieval applies card/chat/branch provenance, visibility, score, source-count, and character budgets before prompt assembly.
-- The deterministic 36-turn corpus is part of `pnpm verify`. Its offline transport and synthetic pricing labels must never be described as live-provider quality, network latency, or current commercial pricing.
+- The deterministic 36-turn Phase 1 corpus remains part of `pnpm verify` as historical state-policy coverage; it is not evidence for the current second-call tactic. The scoped Phase 1.1 evaluation and production integration tests cover evidence-brief behavior.
 
 ## Versioning Rule
 

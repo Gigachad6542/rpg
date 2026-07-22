@@ -304,6 +304,10 @@ describe("local-first card runtime UI: core", () => {
 
       const stop = await H.screen.findByRole("button", { name: /Stop generation/i });
       expect(requests[0]?.signal).toBeInstanceOf(AbortSignal);
+      expect(H.screen.getByLabelText(/Message input/i)).toBeDisabled();
+      expect(H.screen.getByLabelText(/Active chat/i)).toBeDisabled();
+      expect(H.screen.getByRole("button", { name: /New chat/i })).toBeDisabled();
+      expect(H.screen.getByRole("button", { name: /^Delete chat$/i })).toBeDisabled();
       H.fireEvent.click(stop);
 
       await H.screen.findByText(/Generation stopped/i);
@@ -317,7 +321,7 @@ describe("local-first card runtime UI: core", () => {
         };
         expect(snapshot.promptRuns?.[0]?.modelCalls).toEqual([
           expect.objectContaining({
-            phase: "hidden-continuity",
+            phase: "visible-response",
             status: "error",
             usageSource: "unavailable",
             cost: { status: "unknown", currency: "USD" },
@@ -378,79 +382,6 @@ describe("local-first card runtime UI: core", () => {
     });
   });
 
-  it("runs hidden continuity before the visible turn, persists characters, and keeps details collapsed", async () => {
-    const { unmount } = await H.renderApp();
-
-    H.openBlankRpgCard();
-    expect(H.screen.getByRole("region", { name: /Aerial image generator/i })).toBeInTheDocument();
-    expect(H.screen.getByRole("region", { name: /Story characters/i })).toBeInTheDocument();
-    expect(H.screen.getByRole("region", { name: /^Image generator$/i })).toBeInTheDocument();
-
-    H.sendRuntimeMessage(
-      "I am Nia, a careful cartographer in a rainy alley beside Rook. Rook does not know about the silver coin hidden in my boot.",
-    );
-
-    const transcript = H.screen.getByRole("log", { name: /Chat transcript/i });
-    await H.waitFor(() => expect(transcript).toHaveTextContent(/I am Nia, a careful cartographer/i));
-    expect(transcript).not.toHaveTextContent(/Private continuity context/i);
-    expect(transcript).not.toHaveTextContent(/hidden continuity/i);
-
-    H.openMediaTab(/^Characters$/i);
-    const charactersPanel = H.screen.getByRole("region", { name: /Story characters/i });
-    expect(H.within(charactersPanel).getAllByLabelText(/Character portrait for/i).length).toBeGreaterThanOrEqual(2);
-    expect(H.within(charactersPanel).getByLabelText(/Character portrait for Nia/i)).toBeInTheDocument();
-    expect(H.within(charactersPanel).getByLabelText(/Character portrait for Rook/i)).toBeInTheDocument();
-    await H.waitFor(() =>
-      expect(H.within(charactersPanel).getByLabelText(/Character portrait for Nia/i)).toHaveTextContent(
-        /Portrait prompt ready|Portrait generated/i,
-      ),
-    );
-    expect(H.within(charactersPanel).getByLabelText(/Character portrait for Rook/i)).toHaveTextContent(
-      /Portrait prompt ready|Portrait generated/i,
-    );
-    expect(H.within(charactersPanel).queryByText(/Does not know/i)).not.toBeInTheDocument();
-    expect(H.within(charactersPanel).queryByText(/silver coin hidden in my boot/i)).not.toBeInTheDocument();
-    const rookCard = H.within(charactersPanel).getByLabelText(/Character portrait for Rook/i).closest(".story-entity-item");
-    expect(rookCard).not.toBeNull();
-    H.fireEvent.click(H.within(rookCard as HTMLElement).getByRole("button", { name: /Show details for Rook/i }));
-    expect(H.within(rookCard as HTMLElement).getByText(/Does not know/i)).toBeInTheDocument();
-    expect(H.within(rookCard as HTMLElement).getByText(/silver coin hidden in my boot/i)).toBeInTheDocument();
-    expect(H.within(rookCard as HTMLElement).queryByText(/Notes/i)).not.toBeInTheDocument();
-
-    await H.waitFor(() => {
-      const snapshot = JSON.parse(window.localStorage.getItem(H.RUNTIME_STORAGE_KEY) ?? "{}") as {
-        cards?: Array<{
-          id?: string;
-          memory?: Array<{ detail?: string }>;
-          storyEntities?: Array<{ name?: string; kind?: string; doesNotKnow?: string[] }>;
-        }>;
-        generatedMaps?: Array<{
-          imageKind?: string;
-          subjectName?: string;
-          prompt?: string;
-        }>;
-        chatSessions?: Array<{ cardId?: string; messages?: Array<{ role?: string; content?: string }> }>;
-      };
-      const blankCard = snapshot.cards?.find((card) => card.id === "card_blank_slate_rpg");
-      expect(blankCard?.memory?.some((memory) => /Nia/i.test(memory.detail ?? ""))).toBe(true);
-      expect(blankCard?.storyEntities?.some((entity) => entity.name === "Rook" && entity.kind === "character")).toBe(true);
-      const portraits = snapshot.generatedMaps?.filter((artifact) => artifact.imageKind === "character") ?? [];
-      expect(portraits.map((artifact) => artifact.subjectName).sort()).toEqual(["Nia", "Rook"]);
-      expect(portraits.every((artifact) => /RPG character portrait/i.test(artifact.prompt ?? ""))).toBe(true);
-      expect(JSON.stringify(snapshot.chatSessions)).not.toContain("Private continuity context");
-    });
-
-    unmount();
-    await H.renderApp();
-    H.openBlankRpgCard();
-    H.openMediaTab(/^Characters$/i);
-    const reloadedCharactersPanel = H.screen.getByRole("region", { name: /Story characters/i });
-    expect(H.within(reloadedCharactersPanel).getByLabelText(/Character portrait for Nia/i)).toBeInTheDocument();
-    expect(H.within(reloadedCharactersPanel).getByLabelText(/Character portrait for Rook/i)).toBeInTheDocument();
-    expect(H.within(reloadedCharactersPanel).getByLabelText(/Character portrait for Nia/i)).toHaveTextContent(/Portrait/i);
-    expect(H.screen.getByRole("region", { name: /^Image generator$/i })).toBeInTheDocument();
-  });
-
   it("applies grounded visible-pass knowledge updates to the story roster in the same turn", async () => {
     await H.renderApp();
 
@@ -482,10 +413,10 @@ describe("local-first card runtime UI: core", () => {
     await H.renderApp();
 
     H.openBlankRpgCard();
-    H.sendRuntimeMessage("I am Nia, a careful cartographer in a rainy alley beside Rook.");
+    H.sendRuntimeMessage("I meet Rook in a rainy alley. Rook learns that the harbor light is red.");
 
     const transcript = H.screen.getByRole("log", { name: /Chat transcript/i });
-    await H.waitFor(() => expect(transcript).toHaveTextContent(/I am Nia/i));
+    await H.waitFor(() => expect(transcript).toHaveTextContent(/harbor light is red/i));
 
     H.openMediaTab(/^Characters$/i);
     const charactersPanel = H.screen.getByRole("region", { name: /Story characters/i });
@@ -596,22 +527,18 @@ describe("local-first card runtime UI: core", () => {
       H.fireEvent.change(H.within(imageProviderSection).getByLabelText(/^CFG$/i), { target: { value: "1" } });
 
       H.openBlankRpgCard();
-      H.sendRuntimeMessage("I am Nia, a careful cartographer in a rainy alley beside Rook.");
+      H.sendRuntimeMessage("I meet Rook in a rainy alley. Rook learns that the harbor light is red.");
 
-      await H.waitFor(() => expect(promptQueueCount).toBeGreaterThanOrEqual(2));
+      await H.waitFor(() => expect(promptQueueCount).toBeGreaterThanOrEqual(1));
       expect(JSON.stringify(queuedPrompts)).toMatch(/RPG character portrait/i);
 
       H.openMediaTab(/^Characters$/i);
       const charactersPanel = H.screen.getByRole("region", { name: /Story characters/i });
       await H.waitFor(() =>
-        expect(H.within(charactersPanel).getByLabelText(/Character portrait for Nia/i)).toHaveTextContent(
+        expect(H.within(charactersPanel).getByLabelText(/Character portrait for Rook/i)).toHaveTextContent(
           /Portrait generated/i,
         ),
       );
-      expect(H.within(charactersPanel).getByLabelText(/Character portrait for Rook/i)).toHaveTextContent(
-        /Portrait generated/i,
-      );
-      expect(H.within(charactersPanel).getByAltText(/Nia portrait/i)).toHaveAttribute("src", expect.stringContaining("portrait-"));
     } finally {
       H.vi.unstubAllGlobals();
     }

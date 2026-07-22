@@ -19,6 +19,7 @@ import type { HybridRetrievalVisibility, RetrievalProvenance } from "../runtime/
 import type { LoreLiteralMatchBehavior, LoreMatchMode, LoreScanScope } from "../runtime/loreTriggerEngine";
 import type { PlayerRuleDefinition } from "../runtime/playerRuleEngine";
 import type { RunTurnPipelineRequest } from "../runtime/turnPipeline";
+import type { DialogueExampleMode } from "../runtime/dialogueExamples";
 import type { RuntimeTurnLineage } from "../runtime/runtimeTurnLineage";
 import type { SecretReference } from "../security/keyStorage";
 import type { LocalRuntimeSnapshot } from "./localRuntimeStore";
@@ -192,7 +193,8 @@ export type ChatSession = {
 };
 
 export type ModelCallRecord = {
-  phase: "hidden-continuity" | "visible-response";
+  /** `hidden-continuity` is read-only legacy telemetry. New two-call turns use `memory-evidence`. */
+  phase: "hidden-continuity" | "memory-evidence" | "visible-response";
   provider: string;
   model: string;
   usage: {
@@ -211,6 +213,14 @@ export type ModelCallRecord = {
   usageSource?: "provider" | "estimated" | "unavailable";
   cost?: ModelCallCost;
   failure?: ModelCallFailure;
+  /** Persistable proof only. The private trace is kept in session memory outside PromptRun. */
+  reasoning?: {
+    request: "enabled" | "disabled" | "unspecified";
+    observed: boolean;
+    traceAvailable: boolean;
+    encrypted: boolean;
+    tokenCount?: number;
+  };
   /** Validated state proposals attributed to this phase. */
   stateProposalCount?: number;
 };
@@ -234,7 +244,7 @@ export type PromptRun = {
     outputTokens: number;
     totalTokens: number;
   };
-  /** The intentional hidden-continuity and visible-response calls for this turn. */
+  /** The optional memory-evidence analysis and visible-response calls for this turn. */
   modelCalls?: ModelCallRecord[];
   blockedReason?: string;
 };
@@ -250,7 +260,7 @@ export type ProviderSettings = {
   maxOutputTokens?: number;
   /** User-supplied immutable price snapshot for the exact selected model. */
   pricing?: ModelPricingSnapshot;
-  /** Optional exact snapshot for the separately routed economical model. */
+  /** Legacy persisted snapshot; retained for import compatibility and not used by live routing. */
   economicalPricing?: ModelPricingSnapshot;
   secretReference?: SecretReference;
 };
@@ -278,8 +288,11 @@ export type RuntimeSettings = {
   banEmojis: boolean;
   promptDebugLogs: boolean;
   diceRollsEnabled: boolean;
-  /** Optional only for legacy in-memory callers; persisted settings normalize it to `full`. */
+  /** How character-card dialogue examples participate in visible-response prompts. */
+  dialogueExampleMode?: DialogueExampleMode;
+  /** Legacy `full`/`economical` values normalize to `evidence-brief` on load. */
   hiddenContinuityMode?: HiddenContinuityMode;
+  /** Deprecated legacy routing field; never used by the active two-call tactic. */
   economicalModel?: string;
   onboardingCompleted: boolean;
   accentColor: string;

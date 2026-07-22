@@ -3010,6 +3010,36 @@ input[type="search"] {
   color: var(--danger);
 }
 
+.model-reasoning-disclosure {
+  display: grid;
+  justify-items: start;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+
+.model-reasoning-trace {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: color-mix(in srgb, var(--panel) 90%, var(--danger) 10%);
+  padding: 0.55rem;
+}
+
+.model-reasoning-trace p {
+  margin: 0 0 0.45rem;
+  color: var(--danger);
+}
+
+.model-reasoning-trace pre {
+  max-height: 20rem;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font: inherit;
+}
+
 .turn-delta-panel {
   margin-top: 0.2rem;
 }

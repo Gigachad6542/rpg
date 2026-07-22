@@ -1,6 +1,8 @@
 import {
   type Dispatch,
+  type MutableRefObject,
   type SetStateAction,
+  useRef,
   useState,
 } from "react";
 
@@ -112,6 +114,7 @@ interface UseRuntimeContentManagementOptions {
   setSessionApiKey: Dispatch<SetStateAction<string>>;
   setProviderKeyStatus: Dispatch<SetStateAction<string>>;
   generateCustomImageFromRequest: (specOverride?: string) => Promise<void>;
+  generationInFlightRef?: MutableRefObject<boolean>;
 }
 
 export function useRuntimeContentManagement(options: UseRuntimeContentManagementOptions) {
@@ -152,11 +155,22 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
     setSessionApiKey,
     setProviderKeyStatus,
     generateCustomImageFromRequest,
+    generationInFlightRef: providedGenerationInFlightRef,
   } = options;
+  const fallbackGenerationInFlightRef = useRef(false);
+  const generationInFlightRef = providedGenerationInFlightRef ?? fallbackGenerationInFlightRef;
   const [pendingDeleteChatId, setPendingDeleteChatId] = useState<string | null>(null);
   const [pendingDeleteCardId, setPendingDeleteCardId] = useState<string | null>(null);
   const [newCardError, setNewCardError] = useState<string | null>(null);
   const [lorebookEntryError, setLorebookEntryError] = useState<string | null>(null);
+
+  function blockMutationDuringGeneration(): boolean {
+    if (!generationInFlightRef.current) {
+      return false;
+    }
+    setRuleWarning("Stop the in-flight generation before changing chat or card continuity.");
+    return true;
+  }
 
   function resetMediaDrafts(clearArtifacts: boolean): void {
     setMapPrompt(null);
@@ -171,9 +185,15 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function ensureChatForCard(card: RuntimeCard): void {
-    const existing = chatSessions.find((chat) => chat.cardId === card.id && !chat.archived);
+    const existing = getCardChats(card.id, chatSessions)[0];
     if (existing) {
-      setActiveChatIds((current) => ({ ...current, [card.id]: current[card.id] ?? existing.id }));
+      setActiveChatIds((current) => {
+        const currentChatId = current[card.id];
+        const currentChatIsUsable = chatSessions.some(
+          (chat) => chat.id === currentChatId && chat.cardId === card.id && !chat.archived,
+        );
+        return { ...current, [card.id]: currentChatIsUsable ? currentChatId : existing.id };
+      });
       return;
     }
 
@@ -183,6 +203,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function commitManualActiveCardState(nextCard: RuntimeCard): void {
+    if (blockMutationDuringGeneration()) return;
     setCards((current) => current.map((card) => (card.id === nextCard.id ? nextCard : card)));
     if (activeChat) {
       const rebasedChat = rebaseChatTurnState(activeChat, nextCard);
@@ -191,6 +212,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function selectCard(card: RuntimeCard): void {
+    if (blockMutationDuringGeneration()) return;
     const openedCard = card.archived ? { ...card, archived: false } : card;
     const selectedChat = getActiveChatForCard(card.id, chatSessions, activeChatIds);
     const selectedCard = selectedChat ? deriveCardForChat(openedCard, selectedChat) : openedCard;
@@ -202,8 +224,8 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
     setPendingDeleteChatId(null);
     setPendingDeleteCardId(null);
     resetMediaDrafts(false);
-    setMapArtifact(findGeneratedMapForChat(generatedMaps, card.id, activeChatIds[card.id], "map"));
-    setPhotoArtifact(findGeneratedMapForChat(generatedMaps, card.id, activeChatIds[card.id], "photo"));
+    setMapArtifact(findGeneratedMapForChat(generatedMaps, card.id, selectedChat?.id, "map"));
+    setPhotoArtifact(findGeneratedMapForChat(generatedMaps, card.id, selectedChat?.id, "photo"));
     setRuntimeRunning(true);
     ensureChatForCard(card);
   }
@@ -212,6 +234,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
     cardId: string,
     patch: Pick<RuntimeCard, "favorite" | "archived">,
   ): void {
+    if (blockMutationDuringGeneration()) return;
     setCards((current) => current.map((card) => card.id === cardId ? { ...card, ...patch } : card));
     if (patch.archived && activeCardId === cardId) {
       setActiveCardId("");
@@ -220,6 +243,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function startMockDemo(): void {
+    if (blockMutationDuringGeneration()) return;
     const existingCard = cards.find((card) => card.id === PLAYABLE_SAMPLE_RPG.id);
     const sample = normalizeRuntimeCards([{ ...(existingCard ?? PLAYABLE_SAMPLE_RPG), archived: false }])[0];
     const existingChat = getCardChats(sample.id, chatSessions, { includeArchived: true })[0];
@@ -246,6 +270,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function editCard(card: RuntimeCard): void {
+    if (blockMutationDuringGeneration()) return;
     const selectedChat = getActiveChatForCard(card.id, chatSessions, activeChatIds);
     const selectedCard = selectedChat ? deriveCardForChat(card, selectedChat) : card;
     setCards((current) => current.map((candidate) => (candidate.id === card.id ? selectedCard : candidate)));
@@ -259,6 +284,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function createCard(): boolean {
+    if (blockMutationDuringGeneration()) return false;
     if (!newCard.name.trim()) {
       setNewCardError("Enter a card name before creating a card.");
       return false;
@@ -280,6 +306,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function importCard(result: ImportedCard): void {
+    if (blockMutationDuringGeneration()) return;
     const [card] = normalizeRuntimeCards([result.card]);
     setCards((current) => [...current, card]);
     const chat = initializeChatTurnState(createChatSession(card.id, `${card.name} chat`), card);
@@ -292,7 +319,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function updateActiveCard(patch: Partial<RuntimeCard>): void {
-    if (!activeCard) {
+    if (!activeCard || blockMutationDuringGeneration()) {
       return;
     }
     const nextCard = { ...activeCard, ...patch };
@@ -304,7 +331,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function clearStoryCharacters(): void {
-    if (!activeCard) {
+    if (!activeCard || blockMutationDuringGeneration()) {
       return;
     }
     commitManualActiveCardState({
@@ -320,10 +347,12 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function selectChat(chatId: string): void {
-    if (!activeCard) {
+    if (!activeCard || blockMutationDuringGeneration()) {
       return;
     }
-    const chat = chatSessions.find((candidate) => candidate.id === chatId && candidate.cardId === activeCard.id);
+    const chat = chatSessions.find(
+      (candidate) => candidate.id === chatId && candidate.cardId === activeCard.id && !candidate.archived,
+    );
     if (!chat) {
       return;
     }
@@ -339,7 +368,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function startNewChatForActiveCard(): void {
-    if (!activeCard) {
+    if (!activeCard || blockMutationDuringGeneration()) {
       return;
     }
     const chat = initializeChatTurnState(
@@ -355,7 +384,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function branchActiveChat(): void {
-    if (!activeCard || !activeChat) {
+    if (!activeCard || !activeChat || blockMutationDuringGeneration()) {
       return;
     }
     const branchId = createRuntimeEntityId("chat");
@@ -375,7 +404,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function deleteActiveChat(): void {
-    if (!activeCard || !activeChat) {
+    if (!activeCard || !activeChat || blockMutationDuringGeneration()) {
       return;
     }
     if (pendingDeleteChatId !== activeChat.id) {
@@ -409,7 +438,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function renameActiveChat(title: string): void {
-    if (!activeChat) return;
+    if (!activeChat || blockMutationDuringGeneration()) return;
     try {
       setChatSessions((current) => upsertChatSession(current, renameChatSession(activeChat, title)));
       setRuleWarning(null);
@@ -419,7 +448,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function archiveActiveChat(): void {
-    if (!activeCard || !activeChat) return;
+    if (!activeCard || !activeChat || blockMutationDuringGeneration()) return;
     const result = archiveActiveChatState({
       activeCard,
       activeChat,
@@ -439,7 +468,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function restoreArchivedChat(chatId: string): void {
-    if (!activeCard) return;
+    if (!activeCard || blockMutationDuringGeneration()) return;
     const archived = chatSessions.find((chat) => chat.id === chatId && chat.cardId === activeCard.id && chat.archived);
     if (!archived) return;
     const result = restoreArchivedChatState({
@@ -466,7 +495,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function deleteCard(cardId: string): void {
-    if (cards.length <= 1) {
+    if (cards.length <= 1 || blockMutationDuringGeneration()) {
       return;
     }
     if (pendingDeleteCardId !== cardId) {
@@ -488,20 +517,21 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
     if (activeCard?.id === cardId) {
       setActiveCardId(fallback.id);
       ensureChatForCard(fallback);
-      setMapArtifact(findGeneratedMapForChat(generatedMaps, fallback.id, activeChatIds[fallback.id], "map"));
-      setPhotoArtifact(findGeneratedMapForChat(generatedMaps, fallback.id, activeChatIds[fallback.id], "photo"));
+      const fallbackChatId = getActiveChatForCard(fallback.id, chatSessions, activeChatIds)?.id;
+      setMapArtifact(findGeneratedMapForChat(generatedMaps, fallback.id, fallbackChatId, "map"));
+      setPhotoArtifact(findGeneratedMapForChat(generatedMaps, fallback.id, fallbackChatId, "photo"));
     }
   }
 
   function writeForMe(): void {
-    if (!activeCard) {
+    if (!activeCard || blockMutationDuringGeneration()) {
       return;
     }
     setDraft(buildWriteForMeDraft(activeCard, messages));
   }
 
   function updateActiveRpgState(patch: Partial<RpgCardState>): void {
-    if (!activeCard?.rpg) {
+    if (!activeCard?.rpg || blockMutationDuringGeneration()) {
       return;
     }
     commitManualActiveCardState({
@@ -514,7 +544,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
     lorebookId: string,
     patch: Partial<Omit<Lorebook, "id" | "entries">>,
   ): void {
-    if (!activeCard) {
+    if (!activeCard || blockMutationDuringGeneration()) {
       return;
     }
     setCards((current) => current.map((card) => card.id !== activeCard.id
@@ -528,6 +558,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function updateLorebook(cardId: string, lorebookId: string, lorebook: Lorebook): void {
+    if (blockMutationDuringGeneration()) return;
     setCards((current) => current.map((card) => card.id === cardId
       ? {
           ...card,
@@ -537,7 +568,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function importLorebookToActiveCard(lorebook: Lorebook): void {
-    if (!activeCard) {
+    if (!activeCard || blockMutationDuringGeneration()) {
       return;
     }
     setCards((current) => current.map((card) => card.id === activeCard.id
@@ -551,6 +582,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
       setLorebookEntryError("Open a card before adding lorebook entries.");
       return false;
     }
+    if (blockMutationDuringGeneration()) return false;
     if (!entry.content.trim()) {
       setLorebookEntryError("Enter lorebook entry content before adding an entry.");
       return false;
@@ -604,7 +636,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function editMessageContent(messageId: string, content: string): void {
-    if (!activeCard || !activeChat) {
+    if (!activeCard || !activeChat || blockMutationDuringGeneration()) {
       return;
     }
     const trimmed = content.trim();
@@ -626,7 +658,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function swipeMessageVariant(messageId: string, direction: -1 | 1): void {
-    if (!activeCard || !activeChat) {
+    if (!activeCard || !activeChat || blockMutationDuringGeneration()) {
       return;
     }
     const result = switchChatMessageVariant(activeChat, activeCard, messageId, direction);
@@ -641,7 +673,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
   }
 
   function undoTurnEffects(messageId: string): void {
-    if (!activeCard || !activeChat) {
+    if (!activeCard || !activeChat || blockMutationDuringGeneration()) {
       return;
     }
     const result = undoChatTurnEffects(activeChat, activeCard, messageId);
@@ -660,6 +692,7 @@ export function useRuntimeContentManagement(options: UseRuntimeContentManagement
       setRuleWarning("Open a card before rolling dice.");
       return;
     }
+    if (blockMutationDuringGeneration()) return;
     const rolled = rollFromNotation(notation);
     if (!rolled) {
       setRuleWarning("Invalid dice notation. Try something like /roll 2d6+3.");

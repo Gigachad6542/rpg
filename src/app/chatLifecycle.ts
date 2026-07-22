@@ -46,23 +46,47 @@ export function deleteActiveChatState({
     .filter((chat) => chat.id !== activeChat.id);
   const fallbackChat = remainingActiveChats[0] ?? createFallbackChat();
   const shouldAppendFallback = remainingActiveChats.length === 0;
+  const remainingChatSessions = chatSessions.filter((chat) => chat.id !== activeChat.id);
+  const remainingChatIds = new Set(remainingChatSessions.map((chat) => chat.id));
+  const referencedPromptRunIds = collectReferencedPromptRunIds(remainingChatSessions);
 
   return {
     cards: cards.map((card) =>
       card.id === activeCard.id ? deriveCardForChat(card, fallbackChat) : card,
     ),
     chatSessions: [
-      ...chatSessions.filter((chat) => chat.id !== activeChat.id),
+      ...remainingChatSessions,
       ...(shouldAppendFallback ? [fallbackChat] : []),
     ],
     activeChatIds: {
       ...activeChatIds,
       [activeCard.id]: fallbackChat.id,
     },
-    promptRuns: promptRuns.filter((run) => run.chatId !== activeChat.id),
+    // Branches intentionally reuse the source messages' prompt-run ids. Keep
+    // shared diagnostics until no remaining chat references them.
+    promptRuns: promptRuns.filter(
+      (run) => remainingChatIds.has(run.chatId) || referencedPromptRunIds.has(run.id),
+    ),
     generatedMaps: generatedMaps.filter((artifact) => artifact.chatId !== activeChat.id),
     fallbackChat,
   };
+}
+
+function collectReferencedPromptRunIds(chatSessions: ChatSession[]): Set<string> {
+  const ids = new Set<string>();
+  for (const chat of chatSessions) {
+    for (const message of chat.messages) {
+      if (message.promptRunId) {
+        ids.add(message.promptRunId);
+      }
+      for (const runId of message.variantRunIds ?? []) {
+        if (runId) {
+          ids.add(runId);
+        }
+      }
+    }
+  }
+  return ids;
 }
 
 interface ChatSelectionStateResult {

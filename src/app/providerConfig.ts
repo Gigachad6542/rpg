@@ -35,7 +35,7 @@ import {
 import {
   buildLocalProviderResponse,
   buildMockExtractionProposal,
-  buildMockHiddenContinuityResponse,
+  buildMockMemoryEvidenceBrief,
   isTauriRuntime,
 } from "./turnPromptBuilders";
 
@@ -111,7 +111,12 @@ export function getConfiguredTextModelInfo(settings: ProviderSettings): ModelInf
     providerId: settings.providerId,
     ...(settings.contextWindowTokens === undefined ? {} : { contextWindow: settings.contextWindowTokens }),
     ...(settings.maxOutputTokens === undefined ? {} : { maxOutputTokens: settings.maxOutputTokens }),
+    ...(isQwen37MaxModel(settings.model) ? { supportsReasoning: true } : {}),
   };
+}
+
+export function shouldEnableVisibleReasoning(settings: ProviderSettings): boolean {
+  return settings.mode !== "mock" && getConfiguredTextModelInfo(settings).supportsReasoning === true;
 }
 
 /**
@@ -130,6 +135,10 @@ export function getConfiguredTextModelInfoForModel(settings: ProviderSettings, m
     displayName: model,
     providerId: settings.providerId,
   };
+}
+
+function isQwen37MaxModel(model: string): boolean {
+  return /^(?:qwen\/)?qwen3\.7-max$/i.test(model.trim());
 }
 
 function readPositiveInteger(value: unknown, maximum: number): number | undefined {
@@ -317,11 +326,16 @@ export function toLocalImageQualityDimension(value: string | number): number {
 }
 
 export function parseRuntimeSettings(value?: Record<string, unknown>): RuntimeSettings {
-  const hiddenContinuityMode = value?.hiddenContinuityMode === "off" ||
-    value?.hiddenContinuityMode === "economical" ||
-    value?.hiddenContinuityMode === "full"
-    ? value.hiddenContinuityMode
-    : defaultRuntimeSettings.hiddenContinuityMode;
+  const hiddenContinuityMode = value?.hiddenContinuityMode === "off"
+    ? "off"
+    : value?.hiddenContinuityMode === "evidence-brief" ||
+        value?.hiddenContinuityMode === "economical" ||
+        value?.hiddenContinuityMode === "full"
+      ? "evidence-brief"
+      : defaultRuntimeSettings.hiddenContinuityMode;
+  const dialogueExampleMode = value?.dialogueExampleMode === "selective" || value?.dialogueExampleMode === "off"
+    ? value.dialogueExampleMode
+    : "all";
   const settings: RuntimeSettings = {
     textStreaming: typeof value?.textStreaming === "boolean" ? value.textStreaming : defaultRuntimeSettings.textStreaming,
     banEmojis: typeof value?.banEmojis === "boolean" ? value.banEmojis : defaultRuntimeSettings.banEmojis,
@@ -329,6 +343,7 @@ export function parseRuntimeSettings(value?: Record<string, unknown>): RuntimeSe
       typeof value?.promptDebugLogs === "boolean" ? value.promptDebugLogs : defaultRuntimeSettings.promptDebugLogs,
     diceRollsEnabled:
       typeof value?.diceRollsEnabled === "boolean" ? value.diceRollsEnabled : defaultRuntimeSettings.diceRollsEnabled,
+    dialogueExampleMode,
     hiddenContinuityMode,
     economicalModel:
       typeof value?.economicalModel === "string" && value.economicalModel.length <= 200
@@ -423,7 +438,7 @@ export function createTextProvider(
   card: RuntimeCard,
   draft: string,
   activeLoreCount: number,
-  includeHiddenContinuityCall = true,
+  includeMemoryEvidenceCall = true,
 ) {
   if (settings.mode === "mock") {
     const visibleResponse = JSON.stringify({
@@ -431,8 +446,8 @@ export function createTextProvider(
       extraction: buildMockExtractionProposal(card, draft),
     });
     return new MockTextProvider({
-      responses: includeHiddenContinuityCall
-        ? [JSON.stringify(buildMockHiddenContinuityResponse(card, draft)), visibleResponse]
+      responses: includeMemoryEvidenceCall
+        ? [JSON.stringify(buildMockMemoryEvidenceBrief(draft)), visibleResponse]
         : [visibleResponse],
     });
   }

@@ -1,5 +1,6 @@
 import {
   type Dispatch,
+  type MutableRefObject,
   type SetStateAction,
   useEffect,
   useRef,
@@ -7,10 +8,7 @@ import {
 } from "react";
 
 import {
-  applyHiddenContinuityToCard,
-  buildVisibleUserMessageWithHiddenContinuity,
   createEmptyHiddenContinuityResult,
-  runHiddenContinuityPassSafely,
 } from "../runtime/hiddenContinuity";
 import {
   appendAuthoritativeEvent,
@@ -20,10 +18,16 @@ import {
   type AuthoritativeEventStream,
 } from "../runtime/authoritativeEventStream";
 import { resolveHiddenContinuityPlan } from "../runtime/hiddenContinuityPolicy";
+import {
+  buildVisibleUserMessageWithMemoryEvidence,
+  MEMORY_EVIDENCE_VISIBLE_SYSTEM_RULES,
+  runMemoryEvidenceAnalysis,
+  type MemoryEvidenceBrief,
+} from "../runtime/memoryEvidenceBrief";
 import { detectKnowledgeLeaks, describeKnowledgeLeaks } from "../runtime/knowledgeLeakDetector";
 import { selectActiveLorebookEntriesSafely } from "../runtime/loreTriggerEngine";
 import { resolveModelCallBudget } from "../runtime/modelCallBudget";
-import { resolveModelPricing } from "../runtime/modelCallTelemetry";
+import { classifyModelCallFailure, resolveModelPricing } from "../runtime/modelCallTelemetry";
 import { validatePlayerAction as validatePlayerActionWithRules } from "../runtime/playerRuleEngine";
 import { createRuntimeTurnEffects } from "../runtime/runtimeTurnLineage";
 import {
@@ -68,7 +72,13 @@ import {
   getConfiguredTextModelInfo,
   getConfiguredTextModelInfoForModel,
   getProviderPricingSnapshots,
+  shouldEnableVisibleReasoning,
 } from "./providerConfig";
+import {
+  addReasoningTrace,
+  modelReasoningTraceKey,
+  type ModelReasoningTraceMap,
+} from "./reasoningTraces";
 import type {
   ChatSession,
   Message,
@@ -82,11 +92,11 @@ import type {
 import { parseSlashCommand } from "../runtime/slashCommands";
 import {
   buildTurnPromptRequest,
+  buildResponseContract,
   formatDetailedCharacterDefinition,
   toVisibleTurnBudget,
 } from "./turnPromptBuilders";
 import {
-  filterHiddenContinuityForPolicy,
   filterValidatedTurnEffectsForPolicy,
 } from "./turnEffects";
 
@@ -122,6 +132,15 @@ interface UseTurnGenerationOptions {
     chatId: string,
     messages: Message[],
   ) => Promise<void>;
+  generationInFlightRef?: MutableRefObject<boolean>;
+}
+
+interface ActiveGenerationContext {
+  controller: AbortController;
+  cardId: string;
+  activeChatReference: ChatSession;
+  activePersonaReference: Persona | null;
+  discardTelemetryOnAbort: boolean;
 }
 
 export function useTurnGeneration(options: UseTurnGenerationOptions) {
@@ -143,16 +162,36 @@ export function useTurnGeneration(options: UseTurnGenerationOptions) {
     setRuleWarning,
     runSlashCommand,
     generateMissingCharacterPortraits,
+    generationInFlightRef: providedGenerationInFlightRef,
   } = options;
   const [isGenerating, setIsGenerating] = useState(false);
   const [streamingReply, setStreamingReply] = useState("");
+  const [reasoningTraces, setReasoningTraces] = useState<ModelReasoningTraceMap>({});
   const pendingReviewRef = useRef<Record<string, string[]>>({});
   const turnAbortControllerRef = useRef<AbortController | null>(null);
-  const generationInFlightRef = useRef(false);
+  const activeGenerationContextRef = useRef<ActiveGenerationContext | null>(null);
+  const fallbackGenerationInFlightRef = useRef(false);
+  const generationInFlightRef = providedGenerationInFlightRef ?? fallbackGenerationInFlightRef;
 
   useEffect(() => {
     return () => turnAbortControllerRef.current?.abort();
   }, []);
+
+  useEffect(() => {
+    const context = activeGenerationContextRef.current;
+    if (!context) {
+      return;
+    }
+    if (
+      !runtimeRunning ||
+      activeCard?.id !== context.cardId ||
+      activeChat !== context.activeChatReference ||
+      activePersona !== context.activePersonaReference
+    ) {
+      context.discardTelemetryOnAbort = true;
+      context.controller.abort();
+    }
+  }, [activeCard?.id, activeChat, activePersona, runtimeRunning]);
 
   async function generateTurn(generationOptions?: GenerateTurnOptions): Promise<void> {
     if (!activeCard) {
@@ -247,6 +286,13 @@ export function useTurnGeneration(options: UseTurnGenerationOptions) {
 
     const abortController = new AbortController();
     turnAbortControllerRef.current = abortController;
+    activeGenerationContextRef.current = {
+      controller: abortController,
+      cardId: turnCard.id,
+      activeChatReference: activeChat ?? chat,
+      activePersonaReference: activePersona,
+      discardTelemetryOnAbort: false,
+    };
     generationInFlightRef.current = true;
     setIsGenerating(true);
     setStreamingReply("");
@@ -291,9 +337,9 @@ export function useTurnGeneration(options: UseTurnGenerationOptions) {
       }
       const selectedModel = providerSettings.mode === "mock" ? "mock-narrator" : providerSettings.model;
       const callPlan = resolveHiddenContinuityPlan({
-        mode: runtimeSettings.hiddenContinuityMode ?? "full",
+        mode: runtimeSettings.hiddenContinuityMode ?? "evidence-brief",
         selectedModel,
-        economicalModel: runtimeSettings.economicalModel,
+        messageCount: chatMessages.length,
       });
       const provider = createTextProvider(
         providerSettings,
@@ -301,15 +347,16 @@ export function useTurnGeneration(options: UseTurnGenerationOptions) {
         turnCard,
         generationAction,
         turnLorebookEntries.length,
-        callPlan.hiddenModel !== undefined,
+        callPlan.analysisModel !== undefined,
       );
       const configuredModelInfo = getConfiguredTextModelInfo(providerSettings);
-      const hiddenBudget = callPlan.hiddenModel
+      const visibleReasoningEnabled = shouldEnableVisibleReasoning(providerSettings);
+      const analysisBudget = callPlan.analysisModel
         ? resolveModelCallBudget({
             providerId: providerSettings.providerId,
-            model: callPlan.hiddenModel,
-            phase: "hidden-continuity",
-            modelInfo: getConfiguredTextModelInfoForModel(providerSettings, callPlan.hiddenModel),
+            model: callPlan.analysisModel,
+            phase: "memory-evidence",
+            modelInfo: getConfiguredTextModelInfoForModel(providerSettings, callPlan.analysisModel),
           })
         : undefined;
       const visibleBudget = resolveModelCallBudget({
@@ -317,73 +364,61 @@ export function useTurnGeneration(options: UseTurnGenerationOptions) {
         model: callPlan.visibleModel,
         phase: "visible-response",
         modelInfo: configuredModelInfo,
+        reasoningEnabled: visibleReasoningEnabled,
       });
-      let hiddenCallOutcome: TextModelCallOutcome | undefined;
-      const hiddenCallStartedAt = readMonotonicMilliseconds();
-      let hiddenContinuityResult = createEmptyHiddenContinuityResult();
-      if (callPlan.hiddenModel && hiddenBudget) {
+      let analysisCallOutcome: TextModelCallOutcome | undefined;
+      const analysisCallStartedAt = readMonotonicMilliseconds();
+      let memoryEvidenceBrief: MemoryEvidenceBrief | undefined;
+      let memoryEvidenceWarning: string | undefined;
+      if (callPlan.analysisModel && analysisBudget) {
         try {
-          hiddenContinuityResult = await runHiddenContinuityPassSafely({
+          memoryEvidenceBrief = await runMemoryEvidenceAnalysis({
             modelAdapter: createModelCallCaptureAdapter(provider, (outcome) => {
-              hiddenCallOutcome = outcome;
+              analysisCallOutcome = outcome;
             }),
-            model: callPlan.hiddenModel,
+            model: callPlan.analysisModel,
             card: toHiddenContinuityCard(turnCard),
             messages: chatMessages,
             latestUserMessage: generationAction,
-            activeLoreCount: turnLorebookEntries.length,
-            pendingReviewProposals: pendingReviewRef.current[turnCard.id] ?? [],
-            rollingSummary: chat.rollingSummary?.text,
-            inputBudgetTokens: hiddenBudget.inputBudgetTokens,
-            maxOutputTokens: hiddenBudget.maxOutputTokens,
+            inputBudgetTokens: analysisBudget.inputBudgetTokens,
+            maxOutputTokens: analysisBudget.maxOutputTokens,
             signal: abortController.signal,
           });
         } catch (error) {
-          attemptedModelCalls.push(toModelCallRecord({
-            phase: "hidden-continuity",
-            fallbackProvider: provider.id,
-            fallbackModel: callPlan.hiddenModel,
-            budget: hiddenBudget,
-            durationMs: elapsedMilliseconds(hiddenCallStartedAt),
-            outcome: hiddenCallOutcome ?? { error },
-            pricing: resolveModelPricing({
-              providerId: providerSettings.providerId,
-              model: callPlan.hiddenModel,
-              pricingSnapshots: getProviderPricingSnapshots(providerSettings),
-            }),
-            stateProposalCount: 0,
-          }));
-          throw error;
+          if (isAbortError(error)) throw error;
+          memoryEvidenceWarning = classifyModelCallFailure(error).message;
+          analysisCallOutcome = analysisCallOutcome && "response" in analysisCallOutcome
+            ? { error, response: analysisCallOutcome.response }
+            : { error };
         }
       }
-      const hiddenPolicyResult = filterHiddenContinuityForPolicy(turnCard, hiddenContinuityResult, {
-        latestUserAction: generationAction,
-      });
-      if (callPlan.hiddenModel && hiddenBudget) {
+      if (callPlan.analysisModel && analysisBudget) {
         attemptedModelCalls.push(toModelCallRecord({
-          phase: "hidden-continuity",
+          phase: "memory-evidence",
           fallbackProvider: provider.id,
-          fallbackModel: callPlan.hiddenModel,
-          budget: hiddenBudget,
-          durationMs: elapsedMilliseconds(hiddenCallStartedAt),
-          outcome: hiddenCallOutcome,
+          fallbackModel: callPlan.analysisModel,
+          budget: analysisBudget,
+          durationMs: elapsedMilliseconds(analysisCallStartedAt),
+          outcome: analysisCallOutcome,
           pricing: resolveModelPricing({
             providerId: providerSettings.providerId,
-            model: callPlan.hiddenModel,
+            model: callPlan.analysisModel,
             pricingSnapshots: getProviderPricingSnapshots(providerSettings),
           }),
-          stateProposalCount: hiddenPolicyResult.proposals.length,
+          reasoningRequest: "disabled",
+          stateProposalCount: 0,
         }));
       }
-      const hiddenContinuity = hiddenPolicyResult.result;
-      const continuityCard = applyHiddenContinuityToCard(turnCard, hiddenContinuity);
-      const hiddenLatestUserMessage: Message = {
+      const hiddenContinuity = createEmptyHiddenContinuityResult();
+      const continuityCard = turnCard;
+      const visibleMessages = memoryEvidenceBrief
+        ? chatMessages.slice(-callPlan.recentMessageCount)
+        : chatMessages;
+      const visibleLatestUserMessage: Message = {
         ...userMessage,
-        content: buildVisibleUserMessageWithHiddenContinuity(
-          generationAction,
-          hiddenContinuity,
-          toHiddenContinuityCard(continuityCard),
-        ),
+        content: memoryEvidenceBrief
+          ? buildVisibleUserMessageWithMemoryEvidence(generationAction, memoryEvidenceBrief)
+          : generationAction,
       };
       const visibleCallStartedAt = readMonotonicMilliseconds();
       let visibleCallOutcome: TextModelCallOutcome | undefined;
@@ -393,7 +428,7 @@ export function useTurnGeneration(options: UseTurnGenerationOptions) {
           ...buildTurnPromptRequest(
             continuityCard,
             turnLorebookEntries,
-            chatMessages,
+            visibleMessages,
             generationAction,
             runtimeSettings,
             activePersona,
@@ -402,9 +437,18 @@ export function useTurnGeneration(options: UseTurnGenerationOptions) {
               retrievalContext: {
                 chatId: chat.id,
                 branchId: chat.id,
-                rollingSummary: chat.rollingSummary,
+                rollingSummary: memoryEvidenceBrief ? undefined : chat.rollingSummary,
               },
-              latestUserMessage: hiddenLatestUserMessage,
+              latestUserMessage: visibleLatestUserMessage,
+              ...(memoryEvidenceBrief
+                ? {
+                    responseContract: [
+                      buildResponseContract(runtimeSettings),
+                      MEMORY_EVIDENCE_VISIBLE_SYSTEM_RULES,
+                    ].join("\n\n"),
+                    historyLimit: callPlan.recentMessageCount,
+                  }
+                : {}),
               promptRunId: runId,
               metadata: {
                 cardKind: turnCard.kind,
@@ -412,16 +456,26 @@ export function useTurnGeneration(options: UseTurnGenerationOptions) {
                 providerMode: providerSettings.mode,
                 textStreaming: runtimeSettings.textStreaming,
                 chatId: chat.id,
-                hiddenContinuityPass: callPlan.hiddenModel !== undefined,
+                memoryEvidenceBriefPass: memoryEvidenceBrief !== undefined,
                 expectedCallCount: callPlan.expectedCallCount,
               },
             },
           ),
           modelAdapter: createModelCallCaptureAdapter(provider, (outcome) => {
             visibleCallOutcome = outcome;
+            if ("response" in outcome && outcome.response?.reasoning?.trace) {
+              setReasoningTraces((current) => addReasoningTrace(
+                current,
+                modelReasoningTraceKey(runId, "visible-response"),
+                outcome.response!.reasoning!,
+              ));
+            }
           }),
           model: callPlan.visibleModel,
           temperature: 0.6,
+          ...(visibleReasoningEnabled
+            ? { reasoning: { enabled: true, exclude: false } }
+            : {}),
           signal: abortController.signal,
           onStreamText: (text) => setStreamingReply(text),
         });
@@ -438,10 +492,12 @@ export function useTurnGeneration(options: UseTurnGenerationOptions) {
             model: callPlan.visibleModel,
             pricingSnapshots: getProviderPricingSnapshots(providerSettings),
           }),
+          reasoningRequest: visibleReasoningEnabled ? "enabled" : "unspecified",
           stateProposalCount: 0,
         }));
         throw error;
       }
+      abortController.signal.throwIfAborted();
       if (!visibleCallOutcome) {
         visibleCallOutcome = {
           response: {
@@ -484,18 +540,18 @@ export function useTurnGeneration(options: UseTurnGenerationOptions) {
           model: callPlan.visibleModel,
           pricingSnapshots: getProviderPricingSnapshots(providerSettings),
         }),
+        reasoningRequest: visibleReasoningEnabled ? "enabled" : "unspecified",
         stateProposalCount: policyResult.proposals.length,
       }));
       pendingReviewRef.current[turnCard.id] = policyResult.warnings
         .filter((warning) => /^Blocked/i.test(warning))
         .slice(-8);
       const warnings = [
-        ...hiddenContinuity.warnings.map((warning) => `Hidden continuity: ${warning}`),
-        ...hiddenPolicyResult.warnings,
+        ...(memoryEvidenceWarning ? [`Memory evidence: ${memoryEvidenceWarning}`] : []),
         ...pipelineResult.warnings.map((warning) => warning.message),
         ...policyResult.warnings,
       ];
-      const stateProposals = [...hiddenPolicyResult.proposals, ...policyResult.proposals];
+      const stateProposals = [...policyResult.proposals];
       const stateChanges = stateProposals
         .filter((proposal) => proposal.applied)
         .map((proposal) => `[${proposal.provenance}] ${proposal.summary}`);
@@ -585,7 +641,10 @@ export function useTurnGeneration(options: UseTurnGenerationOptions) {
         : [];
       const turnWarnings = [...warnings, ...leakWarnings, ...boundaryWarnings];
 
-      setChatSessions((current) => upsertChatSession(current, nextChat));
+      abortController.signal.throwIfAborted();
+      setChatSessions((current) => current.some((candidate) => candidate.id === nextChat.id)
+        ? upsertChatSession(current, nextChat)
+        : current);
       setCards((current) => current.map((card) => (card.id === activeCard.id ? nextActiveCard : card)));
       void generateMissingCharacterPortraits(nextActiveCard, chat.id, nextMessages);
       setPromptRuns((current) => [
@@ -610,12 +669,18 @@ export function useTurnGeneration(options: UseTurnGenerationOptions) {
       ]);
       setDraft("");
     } catch (error) {
-      setChatSessions((current) => upsertChatSession(current, {
-        ...chat,
-        messages: uncommittedAttemptMessages,
-        updatedAt: new Date().toISOString(),
-      }));
-      if (attemptedModelCalls.length > 0) {
+      setChatSessions((current) => current.map((candidate) => candidate.id === chat.id
+        ? {
+            ...candidate,
+            messages: uncommittedAttemptMessages,
+            authoritativeEvents: chat.authoritativeEvents,
+            updatedAt: new Date().toISOString(),
+          }
+        : candidate));
+      const discardAbortedTelemetry = isAbortError(error)
+        && activeGenerationContextRef.current?.controller === abortController
+        && activeGenerationContextRef.current.discardTelemetryOnAbort;
+      if (attemptedModelCalls.length > 0 && !discardAbortedTelemetry) {
         const lastCall = attemptedModelCalls[attemptedModelCalls.length - 1];
         const failureMessage = lastCall.failure?.message ?? "Model call failed.";
         setPromptRuns((current) => current.some((run) => run.id === runId)
@@ -641,14 +706,29 @@ export function useTurnGeneration(options: UseTurnGenerationOptions) {
               },
             ]);
       }
-      setRuleWarning(
-        isAbortError(error)
-          ? "Generation stopped. No turn messages or state changes were saved."
-          : getErrorMessage(error),
-      );
+      if (discardAbortedTelemetry) {
+        setReasoningTraces((current) => {
+          const key = modelReasoningTraceKey(runId, "visible-response");
+          if (!(key in current)) {
+            return current;
+          }
+          const next = { ...current };
+          delete next[key];
+          return next;
+        });
+      } else {
+        setRuleWarning(
+          isAbortError(error)
+            ? "Generation stopped. No turn messages or state changes were saved."
+            : getErrorMessage(error),
+        );
+      }
     } finally {
       if (turnAbortControllerRef.current === abortController) {
         turnAbortControllerRef.current = null;
+      }
+      if (activeGenerationContextRef.current?.controller === abortController) {
+        activeGenerationContextRef.current = null;
       }
       generationInFlightRef.current = false;
       setIsGenerating(false);
@@ -683,7 +763,7 @@ export function useTurnGeneration(options: UseTurnGenerationOptions) {
       : [lastAssistant.content];
     const previousVariantRunIds = previousVariants.map(
       (_, index) => lastAssistant.variantRunIds?.[index]
-        ?? (previousVariants.length === 1 ? lastAssistant.promptRunId ?? "" : ""),
+        ?? (index === previousVariants.length - 1 ? lastAssistant.promptRunId ?? "" : ""),
     );
     const regenerationCard = deriveCardForRegeneration(activeCard, activeChat, lastAssistant.id);
     await generateTurn({
@@ -704,6 +784,7 @@ export function useTurnGeneration(options: UseTurnGenerationOptions) {
   return {
     isGenerating,
     streamingReply,
+    reasoningTraces,
     generateTurn,
     regenerateLastReply,
     stopGeneration,

@@ -358,8 +358,13 @@ export function sanitizePersistedRuntimeSettings(value: unknown): Record<string,
       sanitized[key] = field;
     }
   }
-  if (["off", "economical", "full"].includes(String(value.hiddenContinuityMode))) {
-    sanitized.hiddenContinuityMode = value.hiddenContinuityMode;
+  if (["evidence-brief", "economical", "full"].includes(String(value.hiddenContinuityMode))) {
+    sanitized.hiddenContinuityMode = "evidence-brief";
+  } else if (value.hiddenContinuityMode === "off") {
+    sanitized.hiddenContinuityMode = "off";
+  }
+  if (["all", "selective", "off"].includes(String(value.dialogueExampleMode))) {
+    sanitized.dialogueExampleMode = value.dialogueExampleMode;
   }
   if (typeof value.economicalModel === "string" && value.economicalModel.length <= 200) {
     sanitized.economicalModel = value.economicalModel.trim();

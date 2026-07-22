@@ -36,10 +36,11 @@ const defaultPersona: Persona = {
   lorebooks: [],
 };
 
-function renderSession() {
+function renderSession(generationInFlight = false) {
   const captureRestorePoint = vi.fn();
   const stopGeneration = vi.fn();
   const commitManualActiveCardState = vi.fn();
+  const generationInFlightRef = { current: generationInFlight };
 
   const hook = renderHook(() => {
     const [cards, setCards] = useState<RuntimeCard[]>(() => [{
@@ -81,6 +82,7 @@ function renderSession() {
       stopGeneration,
       captureRestorePoint,
       commitManualActiveCardState,
+      generationInFlightRef,
     });
 
     return {
@@ -203,5 +205,19 @@ describe("useRuntimeSessionManagement", () => {
     expect(result.current.personas).toEqual([]);
     expect(result.current.activePersonaId).toBe(NO_PERSONA_ID);
     expect(captureRestorePoint).toHaveBeenCalled();
+  });
+
+  it("keeps persona prompt state stable while a turn generation is in flight", () => {
+    const { result, captureRestorePoint } = renderSession(true);
+
+    act(() => result.current.selectPersona(NO_PERSONA_ID));
+    act(() => result.current.addPersona("New persona"));
+    act(() => result.current.editPersona(defaultPersona.id, { description: "Changed" }));
+    act(() => result.current.removePersona(defaultPersona.id));
+
+    expect(result.current.activePersonaId).toBe(defaultPersona.id);
+    expect(result.current.personas).toEqual([defaultPersona]);
+    expect(captureRestorePoint).not.toHaveBeenCalled();
+    expect(result.current.ruleWarning).toMatch(/stop the in-flight generation/i);
   });
 });

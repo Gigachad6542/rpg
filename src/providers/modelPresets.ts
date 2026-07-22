@@ -8,6 +8,7 @@ export const qwen37MaxReferencePreset: ModelInfo = Object.freeze({
   maxOutputTokens: 8_192,
   supportsStreaming: true,
   supportsJson: true,
+  supportsReasoning: true,
   tags: ["recommended", "chat", "rpg-runtime", "byok"],
   notes:
     "Recommended LLM preset. Store only provider metadata and a secret reference; never store API keys in SQLite.",

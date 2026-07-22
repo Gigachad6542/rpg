@@ -1,57 +1,69 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveHiddenContinuityPlan } from "../../src/runtime/hiddenContinuityPolicy";
+import {
+  MEMORY_EVIDENCE_RECENT_MESSAGE_COUNT,
+  resolveHiddenContinuityPlan,
+} from "../../src/runtime/hiddenContinuityPolicy";
 
-describe("hidden continuity call policy", () => {
-  it("preserves the two-call full-continuity default", () => {
+describe("two-call memory policy", () => {
+  it("uses one call while the complete transcript fits inside the tested recent window", () => {
     expect(
       resolveHiddenContinuityPlan({
-        mode: "full",
+        mode: "evidence-brief",
         selectedModel: "primary-model",
+        messageCount: MEMORY_EVIDENCE_RECENT_MESSAGE_COUNT,
       }),
     ).toEqual({
-      mode: "full",
-      expectedCallCount: 2,
-      hiddenModel: "primary-model",
+      mode: "evidence-brief",
+      expectedCallCount: 1,
+      recentMessageCount: MEMORY_EVIDENCE_RECENT_MESSAGE_COUNT,
       visibleModel: "primary-model",
     });
   });
 
-  it("uses the explicitly configured economical model for the hidden call", () => {
+  it("uses the same selected model for an evidence brief only when older messages fall outside the window", () => {
     expect(
       resolveHiddenContinuityPlan({
-        mode: "economical",
+        mode: "evidence-brief",
         selectedModel: "primary-model",
-        economicalModel: "  economical-model  ",
+        messageCount: MEMORY_EVIDENCE_RECENT_MESSAGE_COUNT + 1,
       }),
     ).toEqual({
-      mode: "economical",
+      mode: "evidence-brief",
       expectedCallCount: 2,
-      hiddenModel: "economical-model",
+      analysisModel: "primary-model",
+      recentMessageCount: MEMORY_EVIDENCE_RECENT_MESSAGE_COUNT,
       visibleModel: "primary-model",
     });
   });
 
-  it("makes the off mode honestly perform only the visible call", () => {
+  it("makes the off mode perform only the ordinary visible call regardless of history length", () => {
     expect(
       resolveHiddenContinuityPlan({
         mode: "off",
         selectedModel: "primary-model",
+        messageCount: 200,
       }),
     ).toEqual({
       mode: "off",
       expectedCallCount: 1,
+      recentMessageCount: MEMORY_EVIDENCE_RECENT_MESSAGE_COUNT,
       visibleModel: "primary-model",
     });
   });
 
-  it("fails closed instead of silently using the full model for an incomplete economical configuration", () => {
-    expect(() =>
+  it("migrates legacy two-call modes to the sole evidence-brief behavior without economical routing", () => {
+    expect(
       resolveHiddenContinuityPlan({
         mode: "economical",
         selectedModel: "primary-model",
-        economicalModel: "  ",
+        economicalModel: "old-small-model",
+        messageCount: 20,
       }),
-    ).toThrow(/economical model/i);
+    ).toMatchObject({
+      mode: "evidence-brief",
+      analysisModel: "primary-model",
+      visibleModel: "primary-model",
+    });
   });
 });

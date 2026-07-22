@@ -34,6 +34,23 @@ describe("model call budget", () => {
     expect(hosted).toEqual(local);
   });
 
+  it("reserves a separate output budget when visible reasoning is explicitly enabled", () => {
+    expect(
+      resolveModelCallBudget({
+        providerId: "openrouter",
+        model: "qwen/qwen3.7-max",
+        phase: "visible-response",
+        reasoningEnabled: true,
+      }),
+    ).toEqual({
+      effectiveContextWindowTokens: 16_000,
+      inputBudgetTokens: 11_488,
+      maxOutputTokens: 4_000,
+      safetyReserveTokens: 512,
+      source: "conservative-fallback",
+    });
+  });
+
   it("caps large advertised context windows and reserves the hidden-call output", () => {
     expect(
       resolveModelCallBudget({

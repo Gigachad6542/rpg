@@ -134,4 +134,38 @@ describe("useProviderManagement", () => {
     act(() => result.current.setImageProviderSettings((current) => ({ ...current, steps: 1, cfg: 1 })));
     expect(fetchComfyUIImageModelsMock).toHaveBeenCalledTimes(2);
   });
+
+  it("does not commit ComfyUI startup discovery after unmount", async () => {
+    let resolveStartup!: (models: string[]) => void;
+    const startupRequest = new Promise<string[]>((resolve) => {
+      resolveStartup = resolve;
+    });
+    fetchComfyUIImageModelsMock.mockReturnValue(startupRequest);
+    const setImageProviderSettings = vi.fn();
+
+    const { unmount } = renderHook(() =>
+      useProviderManagement({
+        initialProviderKeyStatus: "Mock provider active.",
+        providerSettings: defaultProviderSettings,
+        setProviderSettings: vi.fn(),
+        imageProviderSettings: {
+          ...defaultImageProviderSettings,
+          model: "missing.safetensors",
+        },
+        setImageProviderSettings,
+        providerTestCard: initialCards[0],
+        keyStorage: createKeyStorage(),
+        desktopRuntime: false,
+      }),
+    );
+
+    await waitFor(() => expect(fetchComfyUIImageModelsMock).toHaveBeenCalledTimes(1));
+    unmount();
+    await act(async () => {
+      resolveStartup(["late-model.safetensors"]);
+      await startupRequest;
+    });
+
+    expect(setImageProviderSettings).not.toHaveBeenCalled();
+  });
 });

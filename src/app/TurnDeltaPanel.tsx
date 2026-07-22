@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { RotateCcw, ShieldAlert } from "lucide-react";
 
 import type { PromptRun } from "./runtimeTypes";
+import { modelReasoningTraceKey, type ModelReasoningTraceMap } from "./reasoningTraces";
 import type { TurnEffectProposal, TurnEffectProvenance } from "./turnEffects";
 
 export function TurnDeltaPanel(props: {
@@ -8,7 +10,9 @@ export function TurnDeltaPanel(props: {
   onUndo: () => void;
   canUndo?: boolean;
   undone?: boolean;
+  reasoningTraces?: ModelReasoningTraceMap;
 }) {
+  const [visibleReasoning, setVisibleReasoning] = useState<ReadonlySet<string>>(() => new Set());
   const proposals = getDisplayProposals(props.run);
   const modelCalls = props.run.modelCalls ?? [];
   if (proposals.length === 0 && modelCalls.length === 0) {
@@ -43,7 +47,11 @@ export function TurnDeltaPanel(props: {
             Each attempted phase retains its own usage, latency, cost status, failure, and proposal count.
           </p>
           <ul className="model-call-list">
-            {modelCalls.map((call) => (
+            {modelCalls.map((call) => {
+              const traceKey = modelReasoningTraceKey(props.run.id, call.phase);
+              const reasoningTrace = props.reasoningTraces?.[traceKey];
+              const reasoningIsVisible = visibleReasoning.has(traceKey);
+              return (
               <li key={call.phase}>
                 <div className="model-call-heading">
                   <strong>{formatPhase(call.phase)}</strong>
@@ -59,9 +67,31 @@ export function TurnDeltaPanel(props: {
                 <span>{Math.round(call.durationMs)} ms phase duration</span>
                 <span>{formatCallCost(call.cost)}</span>
                 <span>{call.stateProposalCount ?? 0} state proposals</span>
+                <span>{formatReasoningStatus(call.reasoning)}</span>
+                {reasoningTrace?.trace ? (
+                  <div className="model-reasoning-disclosure">
+                    <button
+                      aria-expanded={reasoningIsVisible}
+                      className="secondary-button compact-button"
+                      type="button"
+                      onClick={() => setVisibleReasoning((current) => toggleSetValue(current, traceKey))}
+                    >
+                      {reasoningIsVisible ? "Hide" : "Show"} model reasoning (private / spoilers)
+                    </button>
+                    {reasoningIsVisible ? (
+                      <div className="model-reasoning-trace">
+                        <p role="note">This may expose private memory, hidden plot facts, or instructions.</p>
+                        <pre>{reasoningTrace.trace}</pre>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : call.reasoning?.traceAvailable ? (
+                  <span>Private reasoning trace is unavailable after this app session.</span>
+                ) : null}
                 {call.failure ? <span>{call.failure.category}: {call.failure.message}</span> : null}
               </li>
-            ))}
+              );
+            })}
           </ul>
         </details>
       ) : null}
@@ -93,6 +123,41 @@ export function TurnDeltaPanel(props: {
       ) : null}
     </div>
   );
+}
+
+function toggleSetValue(current: ReadonlySet<string>, value: string): ReadonlySet<string> {
+  const next = new Set(current);
+  if (next.has(value)) next.delete(value);
+  else next.add(value);
+  return next;
+}
+
+function formatReasoningStatus(reasoning: NonNullable<PromptRun["modelCalls"]>[number]["reasoning"]): string;
+function formatReasoningStatus(reasoning: undefined): string;
+function formatReasoningStatus(
+  reasoning: NonNullable<PromptRun["modelCalls"]>[number]["reasoning"] | undefined,
+): string {
+  if (!reasoning) return "Reasoning telemetry unavailable (legacy)";
+  const encrypted = reasoning.encrypted ? " · encrypted trace" : "";
+  if (reasoning.request === "disabled") {
+    return reasoning.observed ? `Reasoning returned despite being disabled${encrypted}` : "Reasoning off";
+  }
+  if (reasoning.tokenCount !== undefined) {
+    if (reasoning.tokenCount === 0) {
+      const requestStatus = reasoning.request === "enabled"
+        ? "Reasoning requested"
+        : "Reasoning not explicitly requested";
+      return `${requestStatus} · provider reported 0 reasoning tokens${encrypted}`;
+    }
+    const source = reasoning.request === "enabled" ? "" : " by provider default";
+    return `Reasoning confirmed${source} · ${reasoning.tokenCount} reasoning tokens${encrypted}`;
+  }
+  if (reasoning.observed) {
+    return `Reasoning observed · token count unavailable${encrypted}`;
+  }
+  return reasoning.request === "enabled"
+    ? "Reasoning requested · not observable"
+    : "Reasoning not requested or observed";
 }
 
 function formatInputBudgetUsage(inputTokens: number, inputBudgetTokens: number): string {
@@ -163,7 +228,9 @@ function formatProvenance(value: TurnEffectProvenance): string {
 }
 
 function formatPhase(phase: NonNullable<PromptRun["modelCalls"]>[number]["phase"]): string {
-  return phase === "hidden-continuity" ? "Continuity preparation" : "Visible response";
+  if (phase === "memory-evidence") return "Memory evidence brief";
+  if (phase === "hidden-continuity") return "Legacy continuity preparation";
+  return "Visible response";
 }
 
 function formatStatus(status: NonNullable<PromptRun["modelCalls"]>[number]["status"]): string {

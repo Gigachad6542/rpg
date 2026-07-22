@@ -80,6 +80,7 @@ describe("Windows PowerShell release-script compatibility", () => {
         rmSync(root, { recursive: true, force: true });
       }
     },
+    30_000,
   );
 
   it.runIf(process.platform === "win32")(

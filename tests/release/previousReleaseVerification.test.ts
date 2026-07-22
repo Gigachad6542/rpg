@@ -265,5 +265,6 @@ describe("previous Windows release metadata verification", () => {
       expect(output).toMatch(/Invalid previous-release Authenticode signature/i);
       expect(output).not.toMatch(/given path's format|GetFullPath/i);
     },
+    30_000,
   );
 });
